@@ -1,0 +1,6 @@
+{
+  "name": "TrafficPulse - Organic & Social Traffic Generator",
+  "description": "Autonomous website visitor crawler and organic traffic generator that crawls site URLs, simulates human dwell time and multi-page exploration, rotates multi-country residential IPs with zero-fingerprint masking, and emits valid Google Analytics 4 (GA4) measurement beacons.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
