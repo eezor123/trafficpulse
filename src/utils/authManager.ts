@@ -21,7 +21,7 @@ const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [
     joinedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
     lastLoginAt: Date.now(),
     isVerified: true,
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+    avatar: '/admin-avatar.jpg',
     passwordHash: 'Vivian123@',
   },
   {
@@ -106,6 +106,7 @@ function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
       list[adminIndex].role = 'admin';
       list[adminIndex].tier = 'enterprise';
       list[adminIndex].customVisitsLimit = 10000000;
+      list[adminIndex].avatar = '/admin-avatar.jpg';
     }
 
     localStorage.setItem(MEMBERS_DB_KEY, JSON.stringify(list));
