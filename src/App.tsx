@@ -948,6 +948,52 @@ export default function App() {
     }));
   };
 
+  const handleClearAllPages = () => {
+    setCrawlState(prev => ({
+      ...prev,
+      pages: [],
+      realLinksCount: 0,
+      error: null,
+    }));
+    try {
+      localStorage.setItem(STORAGE_KEYS.CRAWL_STATE, JSON.stringify({
+        targetUrl: crawlState.targetUrl,
+        hostname: crawlState.hostname,
+        title: crawlState.title,
+        pages: [],
+        gaMeasurementId: crawlState.gaMeasurementId,
+      }));
+    } catch (e) {
+      console.warn('Failed saving empty crawl state:', e);
+    }
+    setSaveBannerMessage('All crawled URLs and URL graph cleared successfully.');
+    setTimeout(() => setSaveBannerMessage(null), 4000);
+  };
+
+  const handleResetCrawler = () => {
+    setCrawlState({
+      targetUrl: 'https://',
+      hostname: '',
+      origin: '',
+      title: '',
+      description: '',
+      pages: [],
+      isCrawling: false,
+      gaMeasurementId: undefined,
+      statusCode: undefined,
+      latencyMs: undefined,
+      realLinksCount: 0,
+      error: null,
+    });
+    try {
+      localStorage.removeItem(STORAGE_KEYS.CRAWL_STATE);
+    } catch (e) {
+      console.warn('Failed clearing saved crawl state:', e);
+    }
+    setSaveBannerMessage('Site crawler and URL graph completely reset.');
+    setTimeout(() => setSaveBannerMessage(null), 4000);
+  };
+
   const handleAutoPopulateRoutes = () => {
     const commonRoutes = [
       { path: '/pricing', title: 'Plans & Pricing Matrix' },
@@ -1368,6 +1414,7 @@ export default function App() {
                 onTogglePageInclusion={handleTogglePageInclusion}
                 onUpdatePageWeight={handleUpdatePageWeight}
                 onStartCrawl={(url) => handleStartCrawl(url)}
+                onClearAllPages={handleClearAllPages}
               />
             )}
 
@@ -1384,6 +1431,8 @@ export default function App() {
                 onAddCustomPage={handleAddCustomPage}
                 onRemovePage={handleRemovePage}
                 onAutoPopulateRoutes={handleAutoPopulateRoutes}
+                onClearAllPages={handleClearAllPages}
+                onResetCrawler={handleResetCrawler}
               />
             )}
 

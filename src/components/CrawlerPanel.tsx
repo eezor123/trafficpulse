@@ -32,6 +32,8 @@ interface CrawlerPanelProps {
   onAddCustomPage: (path: string, title: string) => void;
   onRemovePage: (pageId: string) => void;
   onAutoPopulateRoutes: () => void;
+  onClearAllPages?: () => void;
+  onResetCrawler?: () => void;
 }
 
 export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
@@ -43,6 +45,8 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
   onAddCustomPage,
   onRemovePage,
   onAutoPopulateRoutes,
+  onClearAllPages,
+  onResetCrawler,
 }) => {
   const [customPath, setCustomPath] = useState('');
   const [customTitle, setCustomTitle] = useState('');
@@ -50,6 +54,7 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
   const [activeFilter, setActiveFilter] = useState<'all' | 'post' | 'category' | 'page' | 'other'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showBulkModal, setShowBulkModal] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
   const [bulkInput, setBulkInput] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
@@ -272,7 +277,7 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
                 Automatically reverse-engineers dynamic SPAs (React, Vite, Next.js), sitemaps, JSON-LD, and dynamic listing parameters.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={() => setShowBulkModal(true)}
@@ -284,11 +289,22 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
               <button
                 type="button"
                 onClick={handleBoostListingsAndPosts}
-                className="px-3 py-1.5 bg-amber-950/80 hover:bg-amber-900 border border-amber-500/40 text-amber-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
+                disabled={crawlState.pages.length === 0}
+                className="px-3 py-1.5 bg-amber-950/80 hover:bg-amber-900 disabled:opacity-40 border border-amber-500/40 text-amber-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
                 title="Set 95% visit probability to all job listings, articles, and posts"
               >
                 <Zap className="w-3.5 h-3.5 text-amber-400" />
                 <span>Boost All Listings</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowClearModal(true)}
+                disabled={crawlState.pages.length === 0 && !crawlState.hostname}
+                className="px-3 py-1.5 bg-rose-950/70 hover:bg-rose-900 disabled:opacity-40 border border-rose-500/40 text-rose-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
+                title="Clear all crawled URLs and reset site crawler graph"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <span>Clear All URLs ({crawlState.pages.length})</span>
               </button>
             </div>
           </div>
@@ -482,17 +498,30 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
             <button
               type="button"
               onClick={() => handleSelectAll(true)}
-              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 rounded font-medium cursor-pointer"
+              disabled={crawlState.pages.length === 0}
+              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-[11px] text-slate-200 rounded font-medium cursor-pointer"
             >
               All
             </button>
             <button
               type="button"
               onClick={() => handleSelectAll(false)}
-              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 rounded font-medium cursor-pointer"
+              disabled={crawlState.pages.length === 0}
+              className="px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-[11px] text-slate-200 rounded font-medium cursor-pointer"
             >
               None
             </button>
+            {crawlState.pages.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowClearModal(true)}
+                className="px-2 py-1 bg-rose-950/80 hover:bg-rose-900 border border-rose-500/40 text-[11px] text-rose-300 rounded font-medium cursor-pointer flex items-center gap-1 transition-all"
+                title="Clear all URLs from this crawler table"
+              >
+                <Trash2 className="w-3 h-3 text-rose-400" />
+                <span>Clear ({crawlState.pages.length})</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -509,7 +538,50 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-sans">
-                {filteredPages.length === 0 ? (
+                {crawlState.pages.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 px-4 text-center">
+                      <div className="flex flex-col items-center justify-center max-w-md mx-auto space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500">
+                          <FolderTree className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold text-slate-200">No Crawled URLs in Graph</h4>
+                          <p className="text-xs text-slate-400 mt-1">
+                            The site crawler and URL graph are currently empty. Crawl your target site, import URLs, or load starter sample routes.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1 flex-wrap justify-center">
+                          <button
+                            type="button"
+                            onClick={() => onStartCrawl(crawlState.targetUrl)}
+                            disabled={crawlState.isCrawling || !crawlState.targetUrl}
+                            className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-md shadow-cyan-900/30"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${crawlState.isCrawling ? 'animate-spin' : ''}`} />
+                            <span>Crawl Target Site</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowBulkModal(true)}
+                            className="px-3 py-1.5 bg-indigo-950 hover:bg-indigo-900 border border-indigo-500/40 text-indigo-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <UploadCloud className="w-3 h-3" />
+                            <span>Import URLs</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={onAutoPopulateRoutes}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Sparkles className="w-3 h-3 text-cyan-400" />
+                            <span>Load Sample Routes</span>
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredPages.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-8 text-center text-slate-500 text-xs">
                       No routes match your current filter. Try selecting "All Routes" or add a custom listing path below.
@@ -711,6 +783,102 @@ https://jobs.eezor.com/?job=job_105 | Full-Stack Next.js Engineer
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Import All Listed Pages</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear All URLs / Reset Crawler Modal */}
+      {showClearModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <h4 className="text-sm font-semibold text-slate-100">Clear Crawled URLs & Graph</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowClearModal(false)}
+                className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Are you sure you want to clear the discovered URLs? Choose an option below:
+            </p>
+
+            <div className="space-y-2.5">
+              {/* Option 1: Clear All Crawled URLs */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (onClearAllPages) {
+                    onClearAllPages();
+                  } else {
+                    crawlState.pages.forEach(p => onRemovePage(p.id));
+                  }
+                  setShowClearModal(false);
+                  setFeedbackMessage('All crawled URLs and route graph cleared.');
+                  setTimeout(() => setFeedbackMessage(null), 4000);
+                }}
+                className="w-full text-left p-3 rounded-xl bg-slate-950 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-500/40 transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-200 group-hover:text-rose-300 flex items-center gap-1.5">
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Clear All Crawled URLs ({crawlState.pages.length})</span>
+                  </span>
+                  <span className="text-[10px] uppercase font-bold text-rose-400 bg-rose-950 px-2 py-0.5 rounded border border-rose-500/30">
+                    Empty URLs
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Empties all {crawlState.pages.length} discovered routes from the crawler graph, while keeping your target domain configuration.
+                </p>
+              </button>
+
+              {/* Option 2: Complete Reset */}
+              {onResetCrawler && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onResetCrawler();
+                    setShowClearModal(false);
+                    setUrlInput('');
+                    setFeedbackMessage('Site crawler and URL graph completely reset.');
+                    setTimeout(() => setFeedbackMessage(null), 4000);
+                  }}
+                  className="w-full text-left p-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-300 group-hover:text-slate-100 flex items-center gap-1.5">
+                      <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Complete Site Crawler & Target Reset</span>
+                    </span>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
+                      Full Reset
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Clears all URLs, target domain, detected GA tags, and cached scraper metadata back to a clean slate.
+                  </p>
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => setShowClearModal(false)}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Cancel
               </button>
             </div>
           </div>
