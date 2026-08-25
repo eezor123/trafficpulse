@@ -7,6 +7,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
+import { buildCrawledPagesFromListings } from './src/data/allNaijaJobListings';
 
 dotenv.config();
 
@@ -509,175 +510,15 @@ async function startServer() {
       // ----------------------------------------------------------------------
       // A0. Preset verified dynamic listings for NaijaJobs & Escrow job portals
       if (hostname.includes('9jajobs') || hostname.includes('eezor') || hostname.includes('job')) {
-        const verifiedNaijaJobs = [
-          {
-            path: '/?job=nursery-basic-teachers-port-harcourt',
-            title: 'Experienced/Qualified Nursery and Basic teachers urgently needed',
-            desc: '[Rivers Port Harcourt - Atali] ₦150k-₦300k • Teaching & Admin Support • Contact: 08038705617',
-          },
-          {
-            path: '/?job=sales-girl-mile-3-port-harcourt',
-            title: 'Sales girl needed to start work immediately. Location: Mile 3',
-            desc: '[Rivers Port Harcourt - Mile 3] ₦40k-₦45k • Retail Sales & Admin • Contact: 07057216207',
-          },
-          {
-            path: '/?job=live-in-domestic-worker-east-west-road',
-            title: 'LIVE-IN DOMESTIC WORKER NEEDED',
-            desc: '[Rivers Port Harcourt - East-West Road] ₦40,000/month • Domestic Worker • Contact: 08134481229',
-          },
-          {
-            path: '/?job=club-waitress-waiters-kitchen-attendance',
-            title: 'Club Waitress, Waiters and kitchen attendance',
-            desc: '[Rivers Port Harcourt] ₦95k-₦100k • Hospitality & Hotel • WhatsApp: 09156188953',
-          },
-          {
-            path: '/?job=van-sales-representative-port-harcourt',
-            title: 'Van Sales Representative Porthacourt Rivers State',
-            desc: '[Rivers Port Harcourt] ₦100k-₦150k • Transportation and Logistics • WhatsApp: 09136342350',
-          },
-          {
-            path: '/?job=live-in-nanny-igwuruta-ph',
-            title: 'Live in nanny needed',
-            desc: '[Rivers Port Harcourt - Igwuruta] ₦25k-₦30k • Childcare & Feeding • Contact: 07013248848',
-          },
-          {
-            path: '/?job=fashion-house-front-desk-officer-elelenwo',
-            title: 'A fashion house in Elelenwo is urgently recruiting a Front Desk Officer',
-            desc: '[Rivers Port Harcourt - Elelenwo] ₦150k-₦300k • Front Desk Admin • WhatsApp: 08136713798',
-          },
-          {
-            path: '/?job=industrial-cleaner-eneka-road-ph',
-            title: 'Industrial cleaner is needed',
-            desc: '[Rivers Port Harcourt - Eneka Road] ₦5k-₦10k daily • Sanitation • Contact: 08123662517',
-          },
-          {
-            path: '/?job=male-barbecue-sales-person-woji',
-            title: 'Male Barbecue sales person is urgently needed',
-            desc: '[Rivers Port Harcourt - Woji] ₦150k-₦300k • Food Sales • WhatsApp: 09028981777',
-          },
-          {
-            path: '/?job=bbq-assistant-grillers-airport-road-ph',
-            title: 'BBQ Assistant (Grillers) - Males or female',
-            desc: '[Rivers Port Harcourt - Rumuodomaya] ₦35,000 • 74 Airport Rd • Contact: 08032550680',
-          },
-          {
-            path: '/?job=laundry-guy-manager-oyigbo-ph',
-            title: 'An experienced Laundry guy is needed to manage a laundry shop at oyigbo',
-            desc: '[Rivers Port Harcourt - Oyigbo] ₦25k-₦30k • Laundry Shop Manager • Call: 08127126843',
-          },
-          {
-            path: '/?job=professional-cook-okota-lagos',
-            title: 'Professional cook needed at ago palace okota Lagos with accomodations',
-            desc: '[Lagos Okota / Yaba] ₦100,000 • Cook & Accommodations • DM: 07065195039',
-          },
-          {
-            path: '/?job=audit-associate-onipanu-lagos',
-            title: 'Audit Associate Location: Onipanu, Lagos State',
-            desc: '[Lagos Onipanu / Ikeja] ₦150k-₦220k • Full-time • Email: resume@talentforgesolutions.com.ng',
-          },
-          {
-            path: '/?job=house-help-old-refinery-road-ph',
-            title: 'House help needed urgently',
-            desc: '[Rivers Port Harcourt - Old Refinery Rd] ₦40,000 • 5:30am-12noon • Contact: 08169100380',
-          },
-          {
-            path: '/?job=job_101',
-            title: 'Mobile App Developer for Dispatch Rider Tracking System',
-            desc: '[Lagos Lekki] ₦450k-₦650k • React Native/Flutter • GPS & Wallet Payouts',
-          },
-          {
-            path: '/?job=job_102',
-            title: 'Brand Identity & Web UI/UX for Abuja Federal Contractor Portal',
-            desc: '[Abuja Maitama] ₦280k-₦350k • UI/UX & Agribusiness Dashboard',
-          },
-          {
-            path: '/?job=job_103',
-            title: '15kVA Commercial Solar & Lithium Battery Setup in Trans-Amadi',
-            desc: '[Rivers Port Harcourt] ₦500k-₦850k • 15kVA Hybrid Solar Inverter Lead',
-          },
-          {
-            path: '/?job=job_104',
-            title: 'Tax Compliance & Audit Specialist for Enugu Tech Startup',
-            desc: '[Enugu Independence Layout] ₦180k-₦250k • ICAN/ANAN FIRS Tax Audit',
-          },
-          {
-            path: '/?job=job_105',
-            title: 'Urgently Needed: Full-Stack Next.js & Stripe/Paystack Engineer',
-            desc: '[Lagos Ikeja] ₦500k-₦800k • Senior Next.js, Node.js & Multi-vendor Marketplace',
-          },
-          {
-            path: '/?job=job_106',
-            title: 'Social Media Content Creator & Video Editor for Skincare Brand',
-            desc: '[Oyo Bodija Ibadan] ₦120k-₦180k • Short-form Reels & Video Production',
-          },
-          {
-            path: '/?job=job_107',
-            title: 'Flutterwave & Monnify Virtual Account Payment Specialist',
-            desc: '[Lagos Yaba] ₦350k-₦500k • Dynamic NIBSS Virtual Accounts & Webhooks',
-          },
-          {
-            path: '/?job=job_108',
-            title: 'Corporate Legal Advisor for Tech Startup Incorporation & NDPR',
-            desc: '[Abuja Maitama] ₦200k-₦300k • CAC Incorporation & NDPR 2023 Compliance',
-          },
-          {
-            path: '/?job=job_109',
-            title: 'Executive Real Estate Architectural Renderings & 3D Flythrough',
-            desc: '[Rivers Port Harcourt - GRA Phase 2] ₦500k-₦750k • 3D Lumion/V-Ray Animations',
-          },
-          {
-            path: '/?job=job_110',
-            title: 'Hospitality CCTV & Biometric Access Control Installation Lead',
-            desc: '[Enugu] ₦300k-₦450k • 32 IP Camera Hikvision & RFID Door Locks',
-          },
-          {
-            path: '/?job=job_111',
-            title: 'High-Scale PostgreSQL Database Administrator & Query Optimization Specialist',
-            desc: '[Lagos Ikeja] ₦400k-₦600k • PostgreSQL 16 Cluster Tuning & AWS Backups',
-          },
-          {
-            path: '/?job=job_112',
-            title: 'E-commerce SEO Audit & Conversion Rate Optimization (CRO)',
-            desc: '[Oyo Ibadan] ₦180k-₦250k • Technical SEO & Schema Markup',
-          },
-          {
-            path: '/?job=job_113',
-            title: 'Solar Inverter System Installation & Farm Automation Control',
-            desc: '[Kaduna North] ₦350k-₦500k • 15kVA Inverter & Automated Irrigation Pumps',
-          },
-          {
-            path: '/?job=job_114',
-            title: 'Textile E-commerce Store & Hausa Multi-language UI Development',
-            desc: '[Kano Municipal] ₦280k-₦400k • Bilingual Hausa/English Storefront',
-          },
-          {
-            path: '/?job=job_115',
-            title: 'Offshore Logistics Fleet Tracking & Petroleum Inventory Dashboard',
-            desc: '[Delta Warri] ₦450k-₦700k • Vessel Tracking & Petroleum Inventory Portal',
-          },
-          {
-            path: '/?job=job_116',
-            title: 'Hospitality Management Software & POS Integration for Owerri Hotel',
-            desc: '[Imo Owerri] ₦300k-₦450k • Hotel Room Booking & Paystack POS Integration',
-          },
-        ];
-
+        const verifiedNaijaJobs = buildCrawledPagesFromListings(origin);
         for (const vj of verifiedNaijaJobs) {
           if (discoveredPages.length >= maxLinks) break;
           if (!discoveredPaths.has(vj.path)) {
             discoveredPaths.add(vj.path);
             discoveredPages.push({
-              id: `nj_${discoveredPages.length + 1}`,
+              ...vj,
               url: `${origin}${vj.path}`,
-              path: vj.path,
-              title: vj.title,
-              description: vj.desc,
-              depth: 1,
-              status: 200,
-              includedInVisits: true,
-              visitWeight: 96,
               gaDetected: !!gaMeasurementId || !!gtmId,
-              category: 'post',
             });
           }
         }

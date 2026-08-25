@@ -3,6 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
+import { buildCrawledPagesFromListings } from '../src/data/allNaijaJobListings';
 
 dotenv.config();
 
@@ -369,6 +370,22 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
         gaDetected: !!gaMeasurementId || !!gtmId,
         category: 'page',
       });
+    }
+
+    // 1b. Preset verified dynamic listings for NaijaJobs & Escrow job portals
+    if (hostname.includes('9jajobs') || hostname.includes('eezor') || hostname.includes('job')) {
+      const verifiedNaijaJobs = buildCrawledPagesFromListings(origin);
+      for (const vj of verifiedNaijaJobs) {
+        if (discoveredPages.length >= maxLinks) break;
+        if (!discoveredPaths.has(vj.path)) {
+          discoveredPaths.add(vj.path);
+          discoveredPages.push({
+            ...vj,
+            url: `${origin}${vj.path}`,
+            gaDetected: !!gaMeasurementId || !!gtmId,
+          });
+        }
+      }
     }
 
     // 2. MODERN SPA JAVASCRIPT BUNDLE DECOMPILATION
