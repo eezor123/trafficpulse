@@ -18,7 +18,7 @@ import {
   MousePointerClick,
   Sparkle
 } from 'lucide-react';
-import { Ga4TrackerConfig, VisitorBehaviorConfig } from '../types';
+import { Ga4TrackerConfig, VisitorBehaviorConfig, MemberUser } from '../types';
 
 interface BehaviorConfigPanelProps {
   behavior: VisitorBehaviorConfig;
@@ -27,6 +27,8 @@ interface BehaviorConfigPanelProps {
   onChangeGa4: (ga4: Ga4TrackerConfig) => void;
   onSaveSettings?: () => void;
   onResetDefaults?: () => void;
+  currentUser?: MemberUser | null;
+  onOpenAuth?: () => void;
 }
 
 export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
@@ -36,9 +38,18 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
   onChangeGa4,
   onSaveSettings,
   onResetDefaults,
+  currentUser,
+  onOpenAuth,
 }) => {
   const [testPingStatus, setTestPingStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
+  const [customVisitsMode, setCustomVisitsMode] = useState<'slider' | 'custom' | 'presets'>('custom');
+  const [customVisitsInput, setCustomVisitsInput] = useState<string>(
+    behavior.targetTotalVisits ? String(behavior.targetTotalVisits) : '0'
+  );
+  const [customPageViewsInput, setCustomPageViewsInput] = useState<string>(
+    behavior.targetTotalPageViews ? String(behavior.targetTotalPageViews) : '0'
+  );
 
   const handleTestGa4Ping = async () => {
     setTestPingStatus('testing');
@@ -138,51 +149,291 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
 
       {/* Main Grid: Limits, Dwell & Browsing Depth */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Visits & Page Views Goal */}
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 space-y-3">
+        {/* Total Visits & Page Views Goal (with Custom Input Mode for Members) */}
+        <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-4 space-y-3 md:col-span-2 lg:col-span-1 shadow-sm">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <Activity className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-slate-200">Total Visits / Pageviews Cap</span>
+              <span className="text-xs font-bold text-slate-100">Total Visits / Pageviews Cap</span>
+            </div>
+            {/* Mode Switcher */}
+            <div className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-[10px]">
+              <button
+                type="button"
+                onClick={() => setCustomVisitsMode('custom')}
+                className={`px-2 py-0.5 rounded font-semibold cursor-pointer transition-all ${
+                  customVisitsMode === 'custom'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Member custom numerical input"
+              >
+                Custom
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomVisitsMode('presets')}
+                className={`px-2 py-0.5 rounded font-semibold cursor-pointer transition-all ${
+                  customVisitsMode === 'presets'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Quick quota presets"
+              >
+                Presets
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomVisitsMode('slider')}
+                className={`px-2 py-0.5 rounded font-semibold cursor-pointer transition-all ${
+                  customVisitsMode === 'slider'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Range slider"
+              >
+                Slider
+              </button>
             </div>
           </div>
-          <div className="space-y-2">
-            <div>
-              <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                <span>Target Total Visits:</span>
-                <span className="font-mono font-bold text-emerald-400">
-                  {behavior.targetTotalVisits ? `${behavior.targetTotalVisits} visits` : 'Unlimited'}
-                </span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="500"
-                step="10"
-                value={behavior.targetTotalVisits || 0}
-                onChange={(e) => onChangeBehavior({ ...behavior, targetTotalVisits: parseInt(e.target.value, 10) })}
-                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-              />
-            </div>
 
-            <div>
-              <div className="flex justify-between text-[11px] text-slate-400 mb-1">
-                <span>Target Pageviews:</span>
-                <span className="font-mono font-bold text-cyan-400">
-                  {behavior.targetTotalPageViews ? `${behavior.targetTotalPageViews} views` : 'Unlimited'}
-                </span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1000"
-                step="25"
-                value={behavior.targetTotalPageViews || 0}
-                onChange={(e) => onChangeBehavior({ ...behavior, targetTotalPageViews: parseInt(e.target.value, 10) })}
-                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-              />
-            </div>
+          {/* Member Status Badge */}
+          <div className="flex items-center justify-between text-[10px] px-2 py-1 bg-slate-900/90 rounded-lg border border-slate-800">
+            <span className="text-slate-400">Member Quota:</span>
+            {currentUser ? (
+              <span className="font-mono font-bold text-emerald-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                {currentUser.tier.toUpperCase()} ({currentUser.customVisitsLimit ? `${currentUser.customVisitsLimit.toLocaleString()} max` : 'Unlimited'})
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenAuth}
+                className="text-amber-400 hover:text-amber-300 font-semibold underline cursor-pointer"
+              >
+                Login to unlock higher caps
+              </button>
+            )}
           </div>
+
+          {/* MODE 1: CUSTOM NUMERICAL INPUT */}
+          {customVisitsMode === 'custom' && (
+            <div className="space-y-3">
+              {/* Custom Visits Input */}
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-slate-300 mb-1">
+                  <label className="font-semibold flex items-center gap-1">
+                    <span>Target Total Visits</span>
+                    <span className="text-[10px] text-slate-500 font-normal">(0 = Continuous)</span>
+                  </label>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {behavior.targetTotalVisits ? `${behavior.targetTotalVisits.toLocaleString()} visits` : 'Unlimited (∞)'}
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    step="50"
+                    placeholder="Enter custom visits (e.g. 1000, 50000)"
+                    value={customVisitsInput}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomVisitsInput(val);
+                      const parsed = parseInt(val, 10);
+                      onChangeBehavior({
+                        ...behavior,
+                        targetTotalVisits: isNaN(parsed) || parsed < 0 ? 0 : parsed,
+                      });
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700/80 focus:border-emerald-500 rounded-lg px-3 py-1.5 text-xs text-slate-100 font-mono focus:outline-none"
+                  />
+                  {behavior.targetTotalVisits && behavior.targetTotalVisits > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomVisitsInput('0');
+                        onChangeBehavior({ ...behavior, targetTotalVisits: 0 });
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 hover:text-rose-400 cursor-pointer font-sans"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+                {/* Quick Add Increment Buttons */}
+                <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                  <span className="text-[9px] text-slate-500">Quick:</span>
+                  {[100, 500, 1000, 5000, 25000, 100000].map((inc) => (
+                    <button
+                      key={inc}
+                      type="button"
+                      onClick={() => {
+                        const nextVal = (behavior.targetTotalVisits || 0) + inc;
+                        setCustomVisitsInput(String(nextVal));
+                        onChangeBehavior({ ...behavior, targetTotalVisits: nextVal });
+                      }}
+                      className="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 text-[10px] text-slate-300 rounded border border-slate-800 hover:border-slate-700 cursor-pointer font-mono"
+                    >
+                      +{inc >= 1000 ? `${inc / 1000}k` : inc}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomVisitsInput('0');
+                      onChangeBehavior({ ...behavior, targetTotalVisits: 0 });
+                    }}
+                    className="px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 text-[10px] text-emerald-400 rounded border border-slate-800 cursor-pointer font-mono"
+                  >
+                    ∞
+                  </button>
+                </div>
+              </div>
+
+              {/* Custom Pageviews Input */}
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-slate-300 mb-1">
+                  <label className="font-semibold flex items-center gap-1">
+                    <span>Target Total Pageviews</span>
+                    <span className="text-[10px] text-slate-500 font-normal">(0 = Continuous)</span>
+                  </label>
+                  <span className="font-mono font-bold text-cyan-400">
+                    {behavior.targetTotalPageViews ? `${behavior.targetTotalPageViews.toLocaleString()} views` : 'Unlimited (∞)'}
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    step="100"
+                    placeholder="Enter custom pageviews cap (e.g. 5000, 100000)"
+                    value={customPageViewsInput}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomPageViewsInput(val);
+                      const parsed = parseInt(val, 10);
+                      onChangeBehavior({
+                        ...behavior,
+                        targetTotalPageViews: isNaN(parsed) || parsed < 0 ? 0 : parsed,
+                      });
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700/80 focus:border-cyan-500 rounded-lg px-3 py-1.5 text-xs text-slate-100 font-mono focus:outline-none"
+                  />
+                  {behavior.targetTotalPageViews && behavior.targetTotalPageViews > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomPageViewsInput('0');
+                        onChangeBehavior({ ...behavior, targetTotalPageViews: 0 });
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 hover:text-rose-400 cursor-pointer font-sans"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODE 2: QUICK PRESET TIERS */}
+          {customVisitsMode === 'presets' && (
+            <div className="space-y-2">
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                Select Member Visit Cap:
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { label: 'Continuous (∞)', visits: 0, views: 0 },
+                  { label: '100 Visits', visits: 100, views: 350 },
+                  { label: '500 Visits', visits: 500, views: 1800 },
+                  { label: '1,000 Visits', visits: 1000, views: 3500 },
+                  { label: '5,000 Visits', visits: 5000, views: 18000 },
+                  { label: '10,000 Visits', visits: 10000, views: 35000 },
+                  { label: '50,000 Visits', visits: 50000, views: 175000 },
+                  { label: '100,000 Visits', visits: 100000, views: 350000 },
+                ].map((item) => {
+                  const isSelected = behavior.targetTotalVisits === item.visits;
+                  return (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        setCustomVisitsInput(String(item.visits));
+                        setCustomPageViewsInput(String(item.views));
+                        onChangeBehavior({
+                          ...behavior,
+                          targetTotalVisits: item.visits,
+                          targetTotalPageViews: item.views,
+                        });
+                      }}
+                      className={`p-1.5 rounded-lg text-left text-xs font-semibold border cursor-pointer transition-all ${
+                        isSelected
+                          ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 shadow-sm'
+                          : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px]">{item.label}</span>
+                        {isSelected && <span className="text-[9px] text-emerald-400">✓</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* MODE 3: SLIDER MODE */}
+          {customVisitsMode === 'slider' && (
+            <div className="space-y-2.5">
+              <div>
+                <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                  <span>Target Total Visits:</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {behavior.targetTotalVisits ? `${behavior.targetTotalVisits.toLocaleString()} visits` : 'Unlimited'}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="10000"
+                  step="50"
+                  value={behavior.targetTotalVisits || 0}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    setCustomVisitsInput(String(v));
+                    onChangeBehavior({ ...behavior, targetTotalVisits: v });
+                  }}
+                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                  <span>Target Pageviews:</span>
+                  <span className="font-mono font-bold text-cyan-400">
+                    {behavior.targetTotalPageViews ? `${behavior.targetTotalPageViews.toLocaleString()} views` : 'Unlimited'}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="50000"
+                  step="250"
+                  value={behavior.targetTotalPageViews || 0}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    setCustomPageViewsInput(String(v));
+                    onChangeBehavior({ ...behavior, targetTotalPageViews: v });
+                  }}
+                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                />
+              </div>
+            </div>
+          )}
+
           <p className="text-[10px] text-slate-500">Auto-stops generator upon reaching configured goal (0 = infinite)</p>
         </div>
 

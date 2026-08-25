@@ -9,6 +9,7 @@ import { LiveVisitorStream } from './components/LiveVisitorStream';
 import { CrawledUrlsRadarClock } from './components/CrawledUrlsRadarClock';
 import { AIOrganicModal } from './components/AIOrganicModal';
 import { OrganicRunSummaryModal } from './components/OrganicRunSummaryModal';
+import { AuthModal } from './components/AuthModal';
 
 // Stress Load Components (for dual mode)
 import { ConfigPanel } from './components/ConfigPanel';
@@ -23,11 +24,14 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { DEFAULT_ORGANIC_CONFIG, ORGANIC_PRESETS } from './data/organicPresets';
 import { ALL_VERIFIED_NAIJA_JOBS, buildCrawledPagesFromListings } from './data/allNaijaJobListings';
 import { getClientSideCrawledPages, generateClientSideCampaign, crawlWebsiteLiveInBrowser } from './utils/clientFallbackEngine';
+import { loadStoredAuth, saveAuthSession, clearAuthSession, incrementMemberStats } from './utils/authManager';
 import { TRAFFIC_PRESETS } from './data/presets';
 import { 
   ActiveVisitorSession,
+  AuthState,
   CrawledPage,
   LiveTelemetryEvent,
+  MemberUser,
   MetricSnapshot, 
   OrganicRunSummary, 
   OrganicVisitorConfig, 
@@ -55,7 +59,8 @@ import {
   ArrowRight,
   Save,
   CheckCircle2,
-  RotateCcw
+  RotateCcw,
+  Crown
 } from 'lucide-react';
 
 const STORAGE_KEYS = {
@@ -651,6 +656,43 @@ export default function App() {
   const stressEngineRef = useRef<TrafficGeneratorEngine | null>(null);
   const stressTimerRef = useRef<any>(null);
 
+  // ==================== MEMBER AUTHENTICATION STATE ====================
+  const [authState, setAuthState] = useState<AuthState>(loadStoredAuth);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
+  const [authModalTitle, setAuthModalTitle] = useState<string | undefined>(undefined);
+  const [authModalSubtitle, setAuthModalSubtitle] = useState<string | undefined>(undefined);
+
+  const handleAuthSuccess = (user: MemberUser, token: string) => {
+    saveAuthSession(user, token);
+    setAuthState({
+      isAuthenticated: true,
+      user,
+      token,
+    });
+    setIsAuthModalOpen(false);
+    setSaveBannerMessage(`Welcome back, ${user.name}! ${user.tier.toUpperCase()} member access unlocked.`);
+    setTimeout(() => setSaveBannerMessage(null), 5000);
+  };
+
+  const handleLogout = () => {
+    clearAuthSession();
+    setAuthState({
+      isAuthenticated: false,
+      user: null,
+      token: null,
+    });
+    setSaveBannerMessage('Logged out of member session.');
+    setTimeout(() => setSaveBannerMessage(null), 4000);
+  };
+
+  const openAuthModal = (mode: 'login' | 'register' = 'login', title?: string, subtitle?: string) => {
+    setAuthModalMode(mode);
+    setAuthModalTitle(title);
+    setAuthModalSubtitle(subtitle);
+    setIsAuthModalOpen(true);
+  };
+
   // ==================== AUTO-PERSISTENCE TO LOCALSTORAGE ====================
   // Save organicConfig automatically whenever any setting changes
   useEffect(() => {
@@ -1030,6 +1072,11 @@ export default function App() {
   const handleStartOrganic = async () => {
     if (organicStatus === 'running') return;
 
+    if (!authState.isAuthenticated) {
+      openAuthModal('login', 'Member Access Required', 'Please register or log in to start generating organic traffic and custom visit sessions.');
+      return;
+    }
+
     let pagesToUse = crawlState.pages;
     const targetUrl = organicConfig.targetUrl || crawlState.targetUrl;
 
@@ -1076,6 +1123,10 @@ export default function App() {
         setOrganicStatus('completed');
         setActiveVisitors([]);
         setOrganicSummary(summary);
+        if (summary) {
+          incrementMemberStats(summary.totalVisitorsDispatched || 1);
+          setAuthState(loadStoredAuth());
+        }
       },
       onError: (err) => {
         console.error('Organic Engine error:', err);
@@ -1157,6 +1208,11 @@ export default function App() {
   const handleStartStress = () => {
     if (stressStatus === 'running') return;
 
+    if (!authState.isAuthenticated) {
+      openAuthModal('login', 'Member Access Required', 'Please register or log in to run stress tests and generate load.');
+      return;
+    }
+
     setStressStatus('running');
     setElapsedSeconds(0);
     setSnapshots([]);
@@ -1187,6 +1243,10 @@ export default function App() {
         if (stressTimerRef.current) clearInterval(stressTimerRef.current);
         setCurrentStressSummary(summary);
         setStressHistory(prev => [summary, ...prev.slice(0, 20)]);
+        if (summary) {
+          incrementMemberStats(summary.totalRequests || 1);
+          setAuthState(loadStoredAuth());
+        }
       },
       onError: (err) => {
         console.error('Stress Engine error:', err);
@@ -1231,10 +1291,51 @@ export default function App() {
         onOpenSandbox={() => setIsSandboxOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenHistory={() => setIsHistoryOpen(true)}
+        currentUser={authState.user}
+        onOpenAuth={(mode) => openAuthModal(mode)}
+        onLogout={handleLogout}
       />
 
       {/* Main Workspace Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+        {/* Unauthenticated Member Prompt Banner */}
+        {!authState.isAuthenticated && (
+          <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0 text-emerald-400">
+                <Crown className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-100">TrafficPulse Member Access</h3>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    Registration Open
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+                  Register or login before generating traffic to unlock <strong className="text-emerald-300 font-semibold">Custom Total Visits / Pageviews Cap</strong>, multi-country proxies, and real-time GA4 engagement dispatching.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2.5 shrink-0 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={() => openAuthModal('login')}
+                className="flex-1 md:flex-initial px-4 py-2 bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-200 hover:text-white font-semibold text-xs rounded-xl cursor-pointer transition-all"
+              >
+                Log In
+              </button>
+              <button
+                type="button"
+                onClick={() => openAuthModal('register')}
+                className="flex-1 md:flex-initial px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/20 cursor-pointer transition-all flex items-center justify-center gap-1.5"
+              >
+                <span>Join & Register</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
         {appMode === 'organic' ? (
           <>
             {/* Primary Target URL & Real Traffic Command Bar */}
@@ -1464,6 +1565,8 @@ export default function App() {
                 onChangeGa4={(newGa4) => setOrganicConfig(prev => ({ ...prev, ga4: newGa4 }))}
                 onSaveSettings={() => handleExplicitSave('Dwell Time & Human Behavior')}
                 onResetDefaults={handleResetToDefaults}
+                currentUser={authState.user}
+                onOpenAuth={() => openAuthModal('login')}
               />
             )}
           </>
@@ -1605,6 +1708,16 @@ export default function App() {
         history={stressHistory}
         onSelectRun={(run) => setCurrentStressSummary(run)}
         onClearHistory={() => setStressHistory([])}
+      />
+
+      {/* Member Authentication & Registration Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+        initialMode={authModalMode}
+        customTitle={authModalTitle}
+        customSubtitle={authModalSubtitle}
       />
     </div>
   );

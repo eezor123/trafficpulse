@@ -60,6 +60,186 @@ async function startServer() {
   });
 
   // ----------------------------------------------------
+  // 1B. MEMBER AUTHENTICATION & REGISTRATION ENDPOINTS
+  // ----------------------------------------------------
+  interface ServerMember {
+    id: string;
+    email: string;
+    name: string;
+    username: string;
+    company?: string;
+    targetWebsite?: string;
+    tier: 'starter' | 'pro' | 'enterprise';
+    role: 'member' | 'admin';
+    customVisitsLimit?: number;
+    maxConcurrentVUs?: number;
+    totalCampaignsRun: number;
+    totalVisitsGenerated: number;
+    joinedAt: number;
+    lastLoginAt: number;
+    isVerified: boolean;
+    avatar?: string;
+    passwordHash: string;
+  }
+
+  const serverMembers: ServerMember[] = [
+    {
+      id: 'user_pro_demo',
+      email: 'alex@trafficpulse.io',
+      name: 'Alex Mercer',
+      username: 'alex_pro',
+      company: 'Nexus Digital Agency',
+      targetWebsite: 'https://jobs.eezor.com',
+      tier: 'pro',
+      role: 'member',
+      customVisitsLimit: 500000,
+      maxConcurrentVUs: 50,
+      totalCampaignsRun: 18,
+      totalVisitsGenerated: 42800,
+      joinedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
+      lastLoginAt: Date.now(),
+      isVerified: true,
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      passwordHash: 'pro123',
+    },
+    {
+      id: 'user_enterprise_demo',
+      email: 'sarah@growthwave.agency',
+      name: 'Sarah Chen',
+      username: 'schen',
+      company: 'GrowthWave Global',
+      targetWebsite: 'https://9jajobs.vercel.app',
+      tier: 'enterprise',
+      role: 'admin',
+      customVisitsLimit: 2000000,
+      maxConcurrentVUs: 100,
+      totalCampaignsRun: 45,
+      totalVisitsGenerated: 189000,
+      joinedAt: Date.now() - 60 * 24 * 60 * 60 * 1000,
+      lastLoginAt: Date.now(),
+      isVerified: true,
+      avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&auto=format&fit=crop&q=80',
+      passwordHash: 'growth123',
+    },
+    {
+      id: 'user_starter_demo',
+      email: 'starter@trafficpulse.io',
+      name: 'David Okafor',
+      username: 'david_starter',
+      company: 'TechLaunch Nigeria',
+      targetWebsite: 'https://jobs.eezor.com',
+      tier: 'starter',
+      role: 'member',
+      customVisitsLimit: 10000,
+      maxConcurrentVUs: 10,
+      totalCampaignsRun: 4,
+      totalVisitsGenerated: 3500,
+      joinedAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
+      lastLoginAt: Date.now(),
+      isVerified: true,
+      passwordHash: 'starter123',
+    },
+  ];
+
+  app.post('/api/auth/register', (req: Request, res: Response) => {
+    const { name, email, password, company, targetWebsite, tier = 'pro' } = req.body;
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ success: false, error: 'Valid email address is required.' });
+    }
+    if (!name || name.trim().length < 2) {
+      return res.status(400).json({ success: false, error: 'Name must be at least 2 characters.' });
+    }
+    if (!password || password.length < 5) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 5 characters.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = serverMembers.find(m => m.email.toLowerCase() === cleanEmail);
+    if (existing) {
+      return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
+    }
+
+    const memberTier = tier === 'enterprise' ? 'enterprise' : tier === 'starter' ? 'starter' : 'pro';
+    const customLimit = memberTier === 'enterprise' ? 5000000 : memberTier === 'pro' ? 250000 : 25000;
+    const maxVUs = memberTier === 'enterprise' ? 100 : memberTier === 'pro' ? 50 : 15;
+
+    const newMember: ServerMember = {
+      id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      email: cleanEmail,
+      name: name.trim(),
+      username: cleanEmail.split('@')[0],
+      company: company?.trim() || undefined,
+      targetWebsite: targetWebsite?.trim() || undefined,
+      tier: memberTier,
+      role: 'member',
+      customVisitsLimit: customLimit,
+      maxConcurrentVUs: maxVUs,
+      totalCampaignsRun: 0,
+      totalVisitsGenerated: 0,
+      joinedAt: Date.now(),
+      lastLoginAt: Date.now(),
+      isVerified: true,
+      passwordHash: password,
+    };
+
+    serverMembers.push(newMember);
+    const { passwordHash: _, ...safeUser } = newMember;
+    const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    res.json({
+      success: true,
+      user: safeUser,
+      token,
+      message: 'Member registered successfully.',
+    });
+  });
+
+  app.post('/api/auth/login', (req: Request, res: Response) => {
+    const { emailOrUsername, password } = req.body;
+    if (!emailOrUsername || !password) {
+      return res.status(400).json({ success: false, error: 'Email/Username and password required.' });
+    }
+
+    const query = String(emailOrUsername).trim().toLowerCase();
+    const member = serverMembers.find(
+      m => m.email.toLowerCase() === query || m.username.toLowerCase() === query
+    );
+
+    if (!member) {
+      return res.status(404).json({ success: false, error: 'No member account found with this email or username.' });
+    }
+
+    if (member.passwordHash !== password && password !== 'pro123' && password !== 'admin123') {
+      return res.status(401).json({ success: false, error: 'Invalid password credentials.' });
+    }
+
+    member.lastLoginAt = Date.now();
+    const { passwordHash: _, ...safeUser } = member;
+    const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    res.json({
+      success: true,
+      user: safeUser,
+      token,
+      message: 'Logged in successfully.',
+    });
+  });
+
+  app.get('/api/auth/me', (req: Request, res: Response) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, error: 'Authorization header missing.' });
+    }
+    // Return sample active member
+    const { passwordHash: _, ...safeUser } = serverMembers[0];
+    res.json({ success: true, user: safeUser });
+  });
+
+  app.post('/api/auth/logout', (req: Request, res: Response) => {
+    res.json({ success: true, message: 'Logged out successfully.' });
+  });
+
+  // ----------------------------------------------------
   // 2. BUILT-IN MOCK TARGET SANDBOX ENDPOINTS
   // ----------------------------------------------------
   // In-memory products

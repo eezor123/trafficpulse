@@ -566,3 +566,33 @@ export interface RunSummary {
 }
 
 export type TestStatus = 'idle' | 'running' | 'paused' | 'completed' | 'cancelled';
+
+// ==========================================
+// MEMBER AUTHENTICATION & MEMBERSHIP TYPES
+// ==========================================
+export type MemberTier = 'starter' | 'pro' | 'enterprise';
+
+export interface MemberUser {
+  id: string;
+  email: string;
+  name: string;
+  username?: string;
+  company?: string;
+  targetWebsite?: string;
+  tier: MemberTier;
+  role: 'member' | 'admin' | 'guest';
+  customVisitsLimit?: number; // 0 or undefined = unlimited
+  maxConcurrentVUs?: number;
+  totalCampaignsRun: number;
+  totalVisitsGenerated: number;
+  joinedAt: number;
+  lastLoginAt: number;
+  isVerified: boolean;
+  avatar?: string;
+}
+
+export interface AuthState {
+  isAuthenticated: boolean;
+  user: MemberUser | null;
+  token: string | null;
+}
