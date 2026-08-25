@@ -6,6 +6,25 @@ const MEMBERS_DB_KEY = 'trafficpulse_registered_members_v1';
 // Seed initial demo members for zero-friction evaluation
 const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [
   {
+    id: 'user_admin_saroneedam',
+    email: 'saroneedam@yahoo.com',
+    name: 'Saroneedam Admin',
+    username: 'saroneedam',
+    company: 'TrafficPulse HQ (Super Admin)',
+    targetWebsite: 'https://jobs.eezor.com',
+    tier: 'enterprise',
+    role: 'admin',
+    customVisitsLimit: 10000000,
+    maxConcurrentVUs: 250,
+    totalCampaignsRun: 88,
+    totalVisitsGenerated: 650000,
+    joinedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
+    lastLoginAt: Date.now(),
+    isVerified: true,
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+    passwordHash: 'Vivian123@',
+  },
+  {
     id: 'user_pro_demo',
     email: 'alex@trafficpulse.io',
     name: 'Alex Mercer',
@@ -21,7 +40,7 @@ const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [
     joinedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
     lastLoginAt: Date.now(),
     isVerified: true,
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
     passwordHash: 'pro123',
   },
   {
@@ -66,14 +85,31 @@ const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [
 function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
   try {
     const raw = localStorage.getItem(MEMBERS_DB_KEY);
+    let list: (MemberUser & { passwordHash: string })[] = [];
     if (!raw) {
-      localStorage.setItem(MEMBERS_DB_KEY, JSON.stringify(INITIAL_DEMO_MEMBERS));
-      return INITIAL_DEMO_MEMBERS;
+      list = [...INITIAL_DEMO_MEMBERS];
+    } else {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        list = parsed;
+      } else {
+        list = [...INITIAL_DEMO_MEMBERS];
+      }
     }
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+
+    // Ensure saroneedam admin user is always up-to-date in stored list
+    const adminIndex = list.findIndex(m => m.email.toLowerCase() === 'saroneedam@yahoo.com');
+    if (adminIndex === -1) {
+      list.unshift(INITIAL_DEMO_MEMBERS[0]);
+    } else {
+      list[adminIndex].passwordHash = 'Vivian123@';
+      list[adminIndex].role = 'admin';
+      list[adminIndex].tier = 'enterprise';
+      list[adminIndex].customVisitsLimit = 10000000;
     }
+
+    localStorage.setItem(MEMBERS_DB_KEY, JSON.stringify(list));
+    return list;
   } catch (e) {
     console.warn('Failed to read stored members, resetting to demo pool:', e);
   }
@@ -259,6 +295,85 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
 
   const { passwordHash: _, ...safeUser } = match;
   const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  saveAuthSession(safeUser, token);
+
+  return { success: true, user: safeUser, token };
+}
+
+export async function loginWithGoogle(customProfile?: {
+  email?: string;
+  name?: string;
+  avatar?: string;
+}): Promise<{ success: boolean; user?: MemberUser; token?: string; error?: string }> {
+  // If user provided a specific email or auto-detected Google email
+  const googleEmail = (customProfile?.email || 'saroneedam@gmail.com').trim().toLowerCase();
+  const googleName = customProfile?.name?.trim() || (googleEmail.includes('saroneedam') ? 'Saroneedam Admin' : 'Google Verified Member');
+  const googleAvatar = customProfile?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80';
+
+  // Attempt backend API google login
+  try {
+    const resp = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: googleEmail, name: googleName, avatar: googleAvatar }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.success && data.user && data.token) {
+        saveAuthSession(data.user, data.token);
+        return { success: true, user: data.user, token: data.token };
+      }
+    }
+  } catch (err) {
+    console.info('Server Google auth endpoint unavailable, handling client-side.');
+  }
+
+  const members = getStoredMembers();
+  let match = members.find(
+    m => m.email.toLowerCase() === googleEmail || (googleEmail.includes('saroneedam') && m.email.toLowerCase() === 'saroneedam@yahoo.com')
+  );
+
+  const isAdmin = googleEmail.includes('saroneedam');
+
+  if (!match) {
+    // Create new google member
+    const newGoogleUser: MemberUser & { passwordHash: string } = {
+      id: `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      email: googleEmail,
+      name: googleName,
+      username: googleEmail.split('@')[0],
+      company: isAdmin ? 'TrafficPulse HQ (Super Admin)' : 'Google Verified Organization',
+      targetWebsite: 'https://jobs.eezor.com',
+      tier: isAdmin ? 'enterprise' : 'pro',
+      role: isAdmin ? 'admin' : 'member',
+      customVisitsLimit: isAdmin ? 10000000 : 500000,
+      maxConcurrentVUs: isAdmin ? 250 : 50,
+      totalCampaignsRun: isAdmin ? 88 : 1,
+      totalVisitsGenerated: isAdmin ? 650000 : 500,
+      joinedAt: Date.now(),
+      lastLoginAt: Date.now(),
+      isVerified: true,
+      avatar: googleAvatar,
+      passwordHash: 'google_oauth_auth',
+    };
+    members.push(newGoogleUser);
+    saveMembers(members);
+    match = newGoogleUser;
+  } else {
+    match.lastLoginAt = Date.now();
+    match.isVerified = true;
+    if (isAdmin) {
+      match.role = 'admin';
+      match.tier = 'enterprise';
+      match.customVisitsLimit = 10000000;
+      match.company = 'TrafficPulse HQ (Super Admin)';
+    }
+    if (googleAvatar) match.avatar = googleAvatar;
+    saveMembers(members);
+  }
+
+  const { passwordHash: _, ...safeUser } = match;
+  const token = `tp_google_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   saveAuthSession(safeUser, token);
 
   return { success: true, user: safeUser, token };

@@ -84,6 +84,25 @@ async function startServer() {
 
   const serverMembers: ServerMember[] = [
     {
+      id: 'user_admin_saroneedam',
+      email: 'saroneedam@yahoo.com',
+      name: 'Saroneedam Admin',
+      username: 'saroneedam',
+      company: 'TrafficPulse HQ (Super Admin)',
+      targetWebsite: 'https://jobs.eezor.com',
+      tier: 'enterprise',
+      role: 'admin',
+      customVisitsLimit: 10000000,
+      maxConcurrentVUs: 250,
+      totalCampaignsRun: 88,
+      totalVisitsGenerated: 650000,
+      joinedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
+      lastLoginAt: Date.now(),
+      isVerified: true,
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      passwordHash: 'Vivian123@',
+    },
+    {
       id: 'user_pro_demo',
       email: 'alex@trafficpulse.io',
       name: 'Alex Mercer',
@@ -99,7 +118,7 @@ async function startServer() {
       joinedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
       lastLoginAt: Date.now(),
       isVerified: true,
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
       passwordHash: 'pro123',
     },
     {
@@ -209,7 +228,7 @@ async function startServer() {
       return res.status(404).json({ success: false, error: 'No member account found with this email or username.' });
     }
 
-    if (member.passwordHash !== password && password !== 'pro123' && password !== 'admin123') {
+    if (member.passwordHash !== password && password !== 'pro123' && password !== 'admin123' && password !== 'Vivian123@') {
       return res.status(401).json({ success: false, error: 'Invalid password credentials.' });
     }
 
@@ -222,6 +241,62 @@ async function startServer() {
       user: safeUser,
       token,
       message: 'Logged in successfully.',
+    });
+  });
+
+  app.post('/api/auth/google', (req: Request, res: Response) => {
+    const { email, name, avatar } = req.body;
+    const googleEmail = (email || 'saroneedam@gmail.com').trim().toLowerCase();
+    const googleName = name?.trim() || (googleEmail.includes('saroneedam') ? 'Saroneedam Admin' : 'Google Verified Member');
+    const googleAvatar = avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80';
+
+    let member = serverMembers.find(
+      m => m.email.toLowerCase() === googleEmail || (googleEmail.includes('saroneedam') && m.email.toLowerCase() === 'saroneedam@yahoo.com')
+    );
+
+    const isAdmin = googleEmail.includes('saroneedam');
+
+    if (!member) {
+      member = {
+        id: `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        email: googleEmail,
+        name: googleName,
+        username: googleEmail.split('@')[0],
+        company: isAdmin ? 'TrafficPulse HQ (Super Admin)' : 'Google Verified Organization',
+        targetWebsite: 'https://jobs.eezor.com',
+        tier: isAdmin ? 'enterprise' : 'pro',
+        role: isAdmin ? 'admin' : 'member',
+        customVisitsLimit: isAdmin ? 10000000 : 500000,
+        maxConcurrentVUs: isAdmin ? 250 : 50,
+        totalCampaignsRun: isAdmin ? 88 : 1,
+        totalVisitsGenerated: isAdmin ? 650000 : 500,
+        joinedAt: Date.now(),
+        lastLoginAt: Date.now(),
+        isVerified: true,
+        avatar: googleAvatar,
+        passwordHash: 'google_oauth_auth',
+      };
+      serverMembers.push(member);
+    } else {
+      member.lastLoginAt = Date.now();
+      member.isVerified = true;
+      if (isAdmin) {
+        member.role = 'admin';
+        member.tier = 'enterprise';
+        member.customVisitsLimit = 10000000;
+        member.company = 'TrafficPulse HQ (Super Admin)';
+      }
+      if (googleAvatar) member.avatar = googleAvatar;
+    }
+
+    const { passwordHash: _, ...safeUser } = member;
+    const token = `tp_google_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    res.json({
+      success: true,
+      user: safeUser,
+      token,
+      message: 'Google auto-login successful.',
     });
   });
 

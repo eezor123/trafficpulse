@@ -20,7 +20,7 @@ import {
   Check
 } from 'lucide-react';
 import { MemberUser, MemberTier } from '../types';
-import { registerMember, loginMember } from '../utils/authManager';
+import { registerMember, loginMember, loginWithGoogle } from '../utils/authManager';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -132,16 +132,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       const res = await loginMember(email, pass);
       if (res.success && res.user && res.token) {
-        setSuccessMessage(`Logged in as demo member: ${res.user.name}`);
+        setSuccessMessage(`Logged in as ${res.user.role === 'admin' ? 'Super Admin' : 'member'}: ${res.user.name}`);
         setTimeout(() => {
           onAuthSuccess(res.user!, res.token!);
           if (onClose) onClose();
         }, 400);
       } else {
-        setErrorMessage(res.error || 'Failed to login with demo account.');
+        setErrorMessage(res.error || 'Failed to login with account.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Demo login error.');
+      setErrorMessage(err.message || 'Login error.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleAutoLogin = async (overrideEmail?: string) => {
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const targetEmail = overrideEmail || (mode === 'register' && regEmail ? regEmail : 'saroneedam@gmail.com');
+      const targetName = mode === 'register' && regName ? regName : (targetEmail.includes('saroneedam') ? 'Saroneedam Admin' : 'Google Member');
+      const res = await loginWithGoogle({
+        email: targetEmail,
+        name: targetName,
+      });
+
+      if (res.success && res.user && res.token) {
+        setSuccessMessage(`Google Verified: Welcome, ${res.user.name}!`);
+        setTimeout(() => {
+          onAuthSuccess(res.user!, res.token!);
+          if (onClose) onClose();
+        }, 400);
+      } else {
+        setErrorMessage(res.error || 'Google login could not be completed.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Google authentication error.');
     } finally {
       setLoading(false);
     }
@@ -215,6 +242,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </div>
 
+        {/* Auto Google Login Option Button */}
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => handleGoogleAutoLogin()}
+            disabled={loading}
+            className="w-full py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-900 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-3 cursor-pointer shadow-md hover:shadow-lg transition-all active:scale-[0.99] disabled:opacity-50 group"
+          >
+            <svg className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+            <span className="font-semibold">Continue with Auto Google Login</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold uppercase tracking-wider ml-auto">
+              1-Click Auto
+            </span>
+          </button>
+
+          <div className="relative flex items-center justify-center">
+            <div className="border-t border-slate-800 w-full" />
+            <span className="bg-slate-900 px-3 text-[10px] text-slate-500 uppercase tracking-widest font-mono">
+              Or sign in with email credentials
+            </span>
+            <div className="border-t border-slate-800 w-full" />
+          </div>
+        </div>
+
         {/* Notifications */}
         {errorMessage && (
           <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-500/40 text-xs text-rose-300 flex items-center gap-2">
@@ -243,7 +299,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="e.g., alex@trafficpulse.io"
+                    placeholder="e.g., saroneedam@yahoo.com"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
@@ -260,7 +316,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <input
                     type={showLoginPassword ? 'text' : 'password'}
                     required
-                    placeholder="Enter your member password"
+                    placeholder="Enter your member password (e.g. Vivian123@)"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-10 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
@@ -291,16 +347,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               )}
             </button>
 
-            {/* Quick Demo Logins for Fast Review */}
+            {/* Quick Demo & Admin Logins */}
             <div className="pt-2 border-t border-slate-800 space-y-2">
               <div className="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
-                <span>Fast 1-Click Demo Accounts:</span>
+                <span>1-Click Member & Admin Accounts:</span>
                 <span className="text-[10px] text-emerald-400 font-mono">Instant Access</span>
               </div>
+              
+              {/* Saroneedam Super Admin Account Card */}
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginEmail('saroneedam@yahoo.com');
+                  setLoginPassword('Vivian123@');
+                  handleQuickDemoLogin('saroneedam@yahoo.com', 'Vivian123@');
+                }}
+                className="w-full p-2.5 bg-gradient-to-r from-amber-950/40 via-slate-950 to-slate-900 hover:from-amber-950/70 border border-amber-500/50 hover:border-amber-400 rounded-xl text-left cursor-pointer transition-all group shadow-sm flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300">
+                    <Crown className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-amber-200 group-hover:text-amber-100">Saroneedam (Super Admin)</span>
+                      <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/40 font-mono">
+                        ADMIN
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400">saroneedam@yahoo.com • Pass: Vivian123@</p>
+                  </div>
+                </div>
+                <span className="text-[10px] text-amber-400 font-semibold px-2 py-1 rounded bg-amber-500/10 group-hover:bg-amber-500/20 transition-colors">
+                  Login Admin →
+                </span>
+              </button>
+
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => handleQuickDemoLogin('alex@trafficpulse.io', 'pro123')}
+                  onClick={() => {
+                    setLoginEmail('alex@trafficpulse.io');
+                    setLoginPassword('pro123');
+                    handleQuickDemoLogin('alex@trafficpulse.io', 'pro123');
+                  }}
                   className="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 rounded-xl text-left cursor-pointer transition-all group"
                 >
                   <div className="flex items-center justify-between">
@@ -311,7 +401,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleQuickDemoLogin('sarah@growthwave.agency', 'growth123')}
+                  onClick={() => {
+                    setLoginEmail('sarah@growthwave.agency');
+                    setLoginPassword('growth123');
+                    handleQuickDemoLogin('sarah@growthwave.agency', 'growth123');
+                  }}
                   className="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 rounded-xl text-left cursor-pointer transition-all group"
                 >
                   <div className="flex items-center justify-between">
