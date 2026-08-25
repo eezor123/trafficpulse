@@ -678,6 +678,17 @@ export default function App() {
     }
   }, [crawlState]);
 
+  // Synchronize document title
+  useEffect(() => {
+    if (organicStatus === 'running') {
+      document.title = `🟢 (${organicStats.activeCount} Active) TrafficPulse`;
+    } else if (stressStatus === 'running') {
+      document.title = `⚡ (${totalRequests} Reqs) TrafficPulse`;
+    } else {
+      document.title = 'TrafficPulse - Organic & Social Traffic Generator';
+    }
+  }, [organicStatus, organicStats.activeCount, stressStatus, totalRequests]);
+
   // Save stress config & app mode
   useEffect(() => {
     try {
