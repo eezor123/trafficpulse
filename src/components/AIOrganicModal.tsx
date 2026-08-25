@@ -12,6 +12,7 @@ import {
   Sliders
 } from 'lucide-react';
 import { OrganicVisitorConfig } from '../types';
+import { generateClientSideCampaign } from '../utils/clientFallbackEngine';
 
 interface AIOrganicModalProps {
   isOpen: boolean;
@@ -51,14 +52,27 @@ export const AIOrganicModal: React.FC<AIOrganicModalProps> = ({
         }),
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Fallback to client-side campaign generation
+        const clientCampaign = generateClientSideCampaign(targetUrl, prompt, objective);
+        setGeneratedResult(clientCampaign);
+        return;
+      }
+
       if (data.campaign) {
         setGeneratedResult(data.campaign);
       } else {
-        throw new Error(data.error || 'Failed to generate campaign');
+        const clientCampaign = generateClientSideCampaign(targetUrl, prompt, objective);
+        setGeneratedResult(clientCampaign);
       }
-    } catch (err: any) {
-      setError(err.message || 'Error communicating with AI campaign architect');
+    } catch {
+      // Offline / Vercel fallback
+      const clientCampaign = generateClientSideCampaign(targetUrl, prompt, objective);
+      setGeneratedResult(clientCampaign);
     } finally {
       setLoading(false);
     }
