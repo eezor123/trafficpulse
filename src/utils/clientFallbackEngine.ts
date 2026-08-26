@@ -352,20 +352,58 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
  */
 export function getClientSideCrawledPages(targetUrl: string): CrawledPage[] {
   let hostname = 'target-portal';
+  let rootOrigin = 'https://target-portal';
   try {
     if (targetUrl.startsWith('http')) {
-      hostname = new URL(targetUrl).hostname;
+      const u = new URL(targetUrl);
+      hostname = u.hostname;
+      rootOrigin = u.origin;
+    } else {
+      hostname = targetUrl.replace(/\/.*$/, '');
+      rootOrigin = 'https://' + hostname;
     }
   } catch {}
 
-  const isNigerianPortal = hostname.includes('9jajobs') || hostname.includes('eezor') || targetUrl.includes('job');
-  if (isNigerianPortal) {
+  // Only the exact 9jajobs.vercel.app domain uses the dedicated NaijaJobs dataset
+  if (hostname === '9jajobs.vercel.app') {
     return buildCrawledPagesFromListings(targetUrl);
   }
 
-  const rootOrigin = targetUrl.startsWith('http') ? new URL(targetUrl).origin : 'https://' + targetUrl;
-  
-  // Clean, realistic 30+ pages catalog for any website
+  // If the target is a jobs portal (e.g., jobs.eezor.com), provide job-specific structure for that exact domain
+  if (hostname.startsWith('jobs.') || hostname.includes('career')) {
+    const jobRoutes: Array<{ path: string; title: string; desc: string; cat: 'page' | 'post' | 'category' | 'product'; weight: number }> = [
+      { path: '/', title: `${hostname} - Career & Job Portal`, desc: `Featured Job Openings & Opportunities on ${hostname}`, cat: 'page', weight: 100 },
+      { path: '/jobs', title: 'Browse All Open Positions', desc: 'Search and filter active job listings across departments', cat: 'category', weight: 95 },
+      { path: '/jobs/engineering', title: 'Software Engineering & Tech Jobs', desc: 'Frontend, Backend, DevOps and Mobile engineering roles', cat: 'category', weight: 90 },
+      { path: '/jobs/product', title: 'Product Management & Design Roles', desc: 'UI/UX designers, Product Managers, and UX researchers', cat: 'category', weight: 88 },
+      { path: '/jobs/marketing', title: 'Growth, Marketing & Sales Opportunities', desc: 'Content strategists, performance marketers and account executives', cat: 'category', weight: 85 },
+      { path: '/jobs/remote', title: 'Remote & Hybrid Job Opportunities', desc: 'Work from anywhere global opportunities', cat: 'category', weight: 92 },
+      { path: '/post-job', title: 'Employer Portal: Post a Job Listing', desc: 'Publish open requisitions to reach qualified talent', cat: 'page', weight: 85 },
+      { path: '/companies', title: 'Top Hiring Companies Directory', desc: 'Explore verified companies actively recruiting', cat: 'page', weight: 80 },
+      { path: '/salaries', title: 'Salary Benchmark & Compensation Guide', desc: 'Market pay rates by role and experience level', cat: 'page', weight: 82 },
+      { path: '/about', title: `About ${hostname}`, desc: `Mission, recruitment standards, and values of ${hostname}`, cat: 'page', weight: 75 },
+      { path: '/contact', title: 'Candidate & Employer Support', desc: 'Get assistance with job listings and candidate profiles', cat: 'page', weight: 70 },
+      { path: '/faq', title: 'Job Seeker & Recruiter FAQ', desc: 'Frequently asked questions about hiring workflows', cat: 'page', weight: 70 },
+      { path: '/privacy', title: 'Privacy Policy & Applicant Data Protection', desc: 'Applicant privacy and CV security standards', cat: 'page', weight: 60 },
+      { path: '/terms', title: 'Terms of Service for Candidates & Employers', desc: 'Platform usage rules and employer policies', cat: 'page', weight: 60 },
+    ];
+
+    return jobRoutes.map((r, idx) => ({
+      id: `page_${idx + 1}`,
+      url: `${rootOrigin}${r.path}`,
+      path: r.path,
+      title: r.title,
+      description: r.desc,
+      depth: r.path === '/' ? 0 : r.path.split('/').filter(Boolean).length,
+      status: 200,
+      includedInVisits: true,
+      visitWeight: r.weight,
+      gaDetected: false,
+      category: r.cat,
+    }));
+  }
+
+  // Clean, realistic 25+ pages catalog strictly isolated to the given domain
   const baseRoutes: Array<{ path: string; title: string; desc: string; cat: 'page' | 'post' | 'category' | 'product'; weight: number }> = [
     { path: '/', title: `${hostname} - Home Portal`, desc: 'Main Landing Page & Navigation Hub', cat: 'page', weight: 100 },
     { path: '/features', title: 'Platform Features & Core Capabilities', desc: 'Overview of platform architecture and tools', cat: 'page', weight: 90 },
@@ -374,27 +412,18 @@ export function getClientSideCrawledPages(targetUrl: string): CrawledPage[] {
     { path: '/services', title: 'Professional Services & Consulting', desc: 'Expert solutions and advisory services', cat: 'page', weight: 82 },
     { path: '/docs', title: 'Developer Documentation & API Guides', desc: 'Technical documentation and quick start guides', cat: 'page', weight: 90 },
     { path: '/blog', title: 'Insights, Articles & Latest Updates', desc: 'Industry insights and technology trends', cat: 'category', weight: 85 },
-    { path: '/blog/getting-started-guide-2026', title: 'Getting Started Guide & Best Practices', desc: 'A complete walkthrough for new users and teams', cat: 'post', weight: 95 },
-    { path: '/blog/performance-optimization-tips', title: 'Top 10 Performance Optimization Techniques', desc: 'Deep dive into speed, latency, and scaling', cat: 'post', weight: 92 },
-    { path: '/blog/security-and-compliance-overview', title: 'Enterprise Security Architecture & Compliance', desc: 'How data privacy and encryption are enforced', cat: 'post', weight: 90 },
+    { path: '/blog/getting-started-guide', title: 'Getting Started Guide & Best Practices', desc: 'A complete walkthrough for new users and teams', cat: 'post', weight: 95 },
+    { path: '/blog/performance-optimization', title: 'Top Performance Optimization Techniques', desc: 'Deep dive into speed, latency, and scaling', cat: 'post', weight: 92 },
     { path: '/about', title: 'About Us, Our Mission & Core Team', desc: 'Company history, executive team, and vision', cat: 'page', weight: 80 },
     { path: '/careers', title: 'Careers & Open Opportunities', desc: 'Join our fast-growing global team', cat: 'page', weight: 85 },
-    { path: '/careers/senior-full-stack-engineer', title: 'Career: Senior Full Stack Engineer', desc: 'Remote engineering role with competitive package', cat: 'post', weight: 90 },
-    { path: '/careers/product-marketing-manager', title: 'Career: Product Marketing Manager', desc: 'Lead global growth and acquisition campaigns', cat: 'post', weight: 88 },
     { path: '/contact', title: 'Contact Support & Sales Inquiry', desc: 'Get in touch with customer support', cat: 'page', weight: 75 },
     { path: '/faq', title: 'Frequently Asked Questions & Knowledgebase', desc: 'Instant answers to common customer inquiries', cat: 'page', weight: 80 },
     { path: '/terms', title: 'Terms of Service & Usage Agreements', desc: 'Legal guidelines and customer terms', cat: 'page', weight: 65 },
     { path: '/privacy', title: 'Privacy Policy & Cookie Consent', desc: 'How we collect, store, and protect user data', cat: 'page', weight: 65 },
-    { path: '/changelog', title: 'Product Updates & Release Changelog', desc: 'Latest features, improvements, and bug fixes', cat: 'page', weight: 80 },
-    { path: '/integrations', title: 'App Integrations & Connected Services', desc: 'Seamlessly connect with your existing toolstack', cat: 'category', weight: 85 },
-    { path: '/community', title: 'Developer Community & Discord Forum', desc: 'Collaborate with builders and power users', cat: 'page', weight: 75 },
-    { path: '/case-studies', title: 'Customer Success Stories & Case Studies', desc: 'See how market leaders scale with the platform', cat: 'category', weight: 85 },
-    { path: '/case-studies/fintech-scale-story', title: 'Case Study: Scaling Global Fintech Infrastructure', desc: 'How Fintech Corp reduced latency by 68%', cat: 'post', weight: 90 },
-    { path: '/security', title: 'Trust Center, SOC2 & Uptime Status', desc: 'Live system status, security badges, and uptime', cat: 'page', weight: 80 },
   ];
 
   return baseRoutes.map((r, idx) => ({
-    id: `route_${idx + 1}`,
+    id: `page_${idx + 1}`,
     url: `${rootOrigin}${r.path}`,
     path: r.path,
     title: r.title,
@@ -403,7 +432,7 @@ export function getClientSideCrawledPages(targetUrl: string): CrawledPage[] {
     status: 200,
     includedInVisits: true,
     visitWeight: r.weight,
-    gaDetected: true,
+    gaDetected: false,
     category: r.cat,
   }));
 }

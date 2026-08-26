@@ -99,7 +99,7 @@ async function startServer() {
       joinedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
       lastLoginAt: Date.now(),
       isVerified: true,
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      avatar: '/admin-avatar.jpg',
       passwordHash: 'Vivian123@',
     },
     {
@@ -245,16 +245,33 @@ async function startServer() {
   });
 
   app.post('/api/auth/google', (req: Request, res: Response) => {
-    const { email, name, avatar } = req.body;
-    const googleEmail = (email || 'saroneedam@gmail.com').trim().toLowerCase();
-    const googleName = name?.trim() || (googleEmail.includes('saroneedam') ? 'Saroneedam Admin' : 'Google Verified Member');
-    const googleAvatar = avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80';
+    const { email, name, avatar, adminPasscode } = req.body;
+    const googleEmail = (email || 'user@example.com').trim().toLowerCase();
+    const isSaroneedam = googleEmail.includes('saroneedam');
+
+    // Admin elevation security check: Never automatically grant admin without passkey
+    let isAdmin = false;
+    if (isSaroneedam) {
+      if (adminPasscode === 'Vivian123@') {
+        isAdmin = true;
+      } else {
+        return res.status(403).json({
+          success: false,
+          requiresAdminPasscode: true,
+          error: 'Admin verification required: Please provide the Super Admin passkey to log in with this account.',
+        });
+      }
+    }
+
+    const defaultAvatar = isAdmin 
+      ? '/admin-avatar.jpg' 
+      : (avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(googleEmail)}`);
+    const googleAvatar = isAdmin ? '/admin-avatar.jpg' : (avatar || defaultAvatar);
+    const googleName = name?.trim() || (isAdmin ? 'Saroneedam Admin' : 'Google Verified Member');
 
     let member = serverMembers.find(
-      m => m.email.toLowerCase() === googleEmail || (googleEmail.includes('saroneedam') && m.email.toLowerCase() === 'saroneedam@yahoo.com')
+      m => m.email.toLowerCase() === googleEmail || (isAdmin && m.email.toLowerCase() === 'saroneedam@yahoo.com')
     );
-
-    const isAdmin = googleEmail.includes('saroneedam');
 
     if (!member) {
       member = {
@@ -264,17 +281,17 @@ async function startServer() {
         username: googleEmail.split('@')[0],
         company: isAdmin ? 'TrafficPulse HQ (Super Admin)' : 'Google Verified Organization',
         targetWebsite: 'https://jobs.eezor.com',
-        tier: isAdmin ? 'enterprise' : 'pro',
+        tier: isAdmin ? 'enterprise' : 'starter',
         role: isAdmin ? 'admin' : 'member',
-        customVisitsLimit: isAdmin ? 10000000 : 500000,
-        maxConcurrentVUs: isAdmin ? 250 : 50,
+        customVisitsLimit: isAdmin ? 10000000 : 50000,
+        maxConcurrentVUs: isAdmin ? 250 : 25,
         totalCampaignsRun: isAdmin ? 88 : 1,
-        totalVisitsGenerated: isAdmin ? 650000 : 500,
+        totalVisitsGenerated: isAdmin ? 650000 : 0,
         joinedAt: Date.now(),
         lastLoginAt: Date.now(),
         isVerified: true,
         avatar: googleAvatar,
-        passwordHash: 'google_oauth_auth',
+        passwordHash: isAdmin ? 'Vivian123@' : 'google_oauth_auth',
       };
       serverMembers.push(member);
     } else {
@@ -285,8 +302,10 @@ async function startServer() {
         member.tier = 'enterprise';
         member.customVisitsLimit = 10000000;
         member.company = 'TrafficPulse HQ (Super Admin)';
+        member.avatar = '/admin-avatar.jpg';
+      } else {
+        if (googleAvatar) member.avatar = googleAvatar;
       }
-      if (googleAvatar) member.avatar = googleAvatar;
     }
 
     const { passwordHash: _, ...safeUser } = member;
@@ -296,7 +315,7 @@ async function startServer() {
       success: true,
       user: safeUser,
       token,
-      message: 'Google auto-login successful.',
+      message: isAdmin ? 'Super Admin authenticated successfully.' : 'Google login successful.',
     });
   });
 
@@ -763,8 +782,8 @@ async function startServer() {
       // 2. MODERN SPA REVERSE-ENGINEERING (React, Vite, Next.js, Vue, Nuxt, Svelte)
       //    Parses JavaScript bundles and inline scripts for embedded Job Listings, Articles, Categories & Routes
       // ----------------------------------------------------------------------
-      // A0. Preset verified dynamic listings for NaijaJobs & Escrow job portals
-      if (hostname.includes('9jajobs') || hostname.includes('eezor') || hostname.includes('job')) {
+      // A0. Preset verified dynamic listings ONLY for exact 9jajobs domain
+      if (hostname === '9jajobs.vercel.app') {
         const verifiedNaijaJobs = buildCrawledPagesFromListings(origin);
         for (const vj of verifiedNaijaJobs) {
           if (discoveredPages.length >= maxLinks) break;
@@ -1436,16 +1455,86 @@ async function startServer() {
       }
 
       // ----------------------------------------------------------------------
-      // 6. FALLBACK ROUTE EXPANSION (Only if zero additional pages found)
+      // 5b. DEEP LEVEL-2 INTERNAL CRAWL (Fetch top discovered sections on target domain)
+      // ----------------------------------------------------------------------
+      try {
+        const topInternalPages = discoveredPages
+          .filter(p => p.depth === 1 && p.path !== '/' && !p.path.includes('?') && (p.category === 'category' || p.category === 'page'))
+          .slice(0, 6);
+
+        for (const subPage of topInternalPages) {
+          if (discoveredPages.length >= maxLinks) break;
+          try {
+            const subCtrl = new AbortController();
+            const subTimer = setTimeout(() => subCtrl.abort(), 3500);
+            const subRes = await fetch(subPage.url, { headers: browserHeaders, signal: subCtrl.signal, redirect: 'follow' });
+            clearTimeout(subTimer);
+
+            if (subRes.ok) {
+              const subHtml = await subRes.text();
+              const subLinkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
+              let sm: RegExpExecArray | null;
+              while ((sm = subLinkRegex.exec(subHtml)) !== null && discoveredPages.length < maxLinks) {
+                const sHref = (sm[1] || sm[2] || sm[3] || '').trim();
+                const sText = (sm[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+                if (!sHref || sHref.startsWith('#') || sHref.startsWith('javascript:') || sHref.startsWith('mailto:')) continue;
+
+                try {
+                  const resolvedSub = new URL(sHref, origin);
+                  if (resolvedSub.hostname === hostname || resolvedSub.hostname.endsWith(`.${hostname}`)) {
+                    const subCleanPath = normalizePathWithQuery(resolvedSub);
+                    if (!isCleanPublicPage(subCleanPath, sText)) continue;
+                    if (!discoveredPaths.has(subCleanPath)) {
+                      discoveredPaths.add(subCleanPath);
+                      const subCat = classifyPage(subCleanPath, sText);
+                      let sTitle = sText || subCleanPath.replace(/^\//, '').replace(/\/$/, '').replace(/[-_/=?&]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                      discoveredPages.push({
+                        id: `page_${discoveredPages.length + 1}`,
+                        url: resolvedSub.toString(),
+                        path: subCleanPath,
+                        title: sTitle.length > 70 ? sTitle.slice(0, 70) + '...' : sTitle,
+                        description: `${subCat.toUpperCase()}: ${sTitle}`,
+                        depth: 2,
+                        status: 200,
+                        includedInVisits: true,
+                        visitWeight: subCat === 'post' ? 90 : 75,
+                        gaDetected: !!gaMeasurementId || !!gtmId,
+                        category: subCat,
+                      });
+                    }
+                  }
+                } catch {}
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+
+      // ----------------------------------------------------------------------
+      // 6. DOMAIN-AWARE FALLBACK ROUTE EXPANSION (Only if zero additional pages found)
       // ----------------------------------------------------------------------
       if (discoveredPages.length <= 1) {
-        const standardRoutes = [
-          { path: '/jobs', title: 'Job Listings & Escrow Projects', category: 'category' as const, weight: 90 },
-          { path: '/blog', title: 'Blog & Career Articles', category: 'category' as const, weight: 85 },
-          { path: '/pricing', title: 'Pricing & Plans', category: 'product' as const, weight: 75 },
-          { path: '/features', title: 'Features & Solutions', category: 'page' as const, weight: 70 },
-          { path: '/about', title: 'About Us', category: 'page' as const, weight: 60 },
-          { path: '/contact', title: 'Contact Support', category: 'page' as const, weight: 50 },
+        const isJobDomain = hostname.startsWith('jobs.') || hostname.includes('career');
+        const standardRoutes = isJobDomain ? [
+          { path: '/jobs', title: 'Browse Active Job Listings', category: 'category' as const, weight: 95 },
+          { path: '/jobs/engineering', title: 'Software Engineering Roles', category: 'category' as const, weight: 90 },
+          { path: '/jobs/product', title: 'Product & Design Jobs', category: 'category' as const, weight: 88 },
+          { path: '/post-job', title: 'Post a Job Opening', category: 'page' as const, weight: 85 },
+          { path: '/companies', title: 'Top Hiring Companies', category: 'page' as const, weight: 80 },
+          { path: '/salaries', title: 'Salary Insights & Benchmark', category: 'page' as const, weight: 80 },
+          { path: '/about', title: `About ${hostname}`, category: 'page' as const, weight: 65 },
+          { path: '/contact', title: 'Employer & Candidate Support', category: 'page' as const, weight: 60 },
+          { path: '/terms', title: 'Terms of Service', category: 'page' as const, weight: 50 },
+          { path: '/privacy', title: 'Privacy Policy', category: 'page' as const, weight: 50 },
+        ] : [
+          { path: '/products', title: 'Products & Solutions', category: 'category' as const, weight: 90 },
+          { path: '/features', title: 'Platform Features & Capabilities', category: 'page' as const, weight: 85 },
+          { path: '/pricing', title: 'Plans & Pricing', category: 'product' as const, weight: 80 },
+          { path: '/blog', title: 'Articles & Company Insights', category: 'category' as const, weight: 80 },
+          { path: '/about', title: `About ${hostname}`, category: 'page' as const, weight: 65 },
+          { path: '/contact', title: 'Contact & Support', category: 'page' as const, weight: 60 },
+          { path: '/terms', title: 'Terms of Service', category: 'page' as const, weight: 50 },
+          { path: '/privacy', title: 'Privacy Policy', category: 'page' as const, weight: 50 },
         ];
 
         standardRoutes.forEach((route) => {

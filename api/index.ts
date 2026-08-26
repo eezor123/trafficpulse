@@ -372,8 +372,8 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       });
     }
 
-    // 1b. Preset verified dynamic listings for NaijaJobs & Escrow job portals
-    if (hostname.includes('9jajobs') || hostname.includes('eezor') || hostname.includes('job')) {
+    // 1b. Preset verified dynamic listings ONLY for exact 9jajobs domain
+    if (hostname === '9jajobs.vercel.app') {
       const verifiedNaijaJobs = buildCrawledPagesFromListings(origin);
       for (const vj of verifiedNaijaJobs) {
         if (discoveredPages.length >= maxLinks) break;

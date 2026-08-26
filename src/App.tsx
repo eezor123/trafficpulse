@@ -827,15 +827,17 @@ export default function App() {
       }
 
       if (data.pages && data.pages.length > 0) {
-        // Retain any user-custom-added pages so they are never lost on re-scrape
-        const existingCustomPages = crawlState.pages.filter(p => p.id.startsWith('custom_') || p.id.startsWith('user_'));
+        const newHostname = data.hostname || (urlToCrawl.startsWith('/') ? 'Local Sandbox' : new URL(urlToCrawl).hostname);
+        // Retain user-custom-added pages ONLY if re-scraping the same domain
+        const isSameDomain = crawlState.hostname === newHostname;
+        const existingCustomPages = isSameDomain ? crawlState.pages.filter(p => p.id.startsWith('custom_') || p.id.startsWith('user_')) : [];
         const existingCustomPaths = new Set(data.pages.map((p: any) => p.path));
         const retainedCustom = existingCustomPages.filter(p => !existingCustomPaths.has(p.path));
         const mergedPages = [...retainedCustom, ...data.pages];
 
         setCrawlState({
           targetUrl: data.targetUrl || urlToCrawl,
-          hostname: data.hostname || (urlToCrawl.startsWith('/') ? 'Local Sandbox' : new URL(urlToCrawl).hostname),
+          hostname: newHostname,
           title: data.title || 'Discovered Website',
           pages: mergedPages,
           isCrawling: false,

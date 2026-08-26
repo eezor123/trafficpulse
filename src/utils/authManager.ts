@@ -305,52 +305,76 @@ export async function loginWithGoogle(customProfile?: {
   email?: string;
   name?: string;
   avatar?: string;
-}): Promise<{ success: boolean; user?: MemberUser; token?: string; error?: string }> {
-  // If user provided a specific email or auto-detected Google email
-  const googleEmail = (customProfile?.email || 'saroneedam@gmail.com').trim().toLowerCase();
-  const googleName = customProfile?.name?.trim() || (googleEmail.includes('saroneedam') ? 'Saroneedam Admin' : 'Google Verified Member');
-  const googleAvatar = customProfile?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80';
+  adminPasscode?: string;
+}): Promise<{ success: boolean; user?: MemberUser; token?: string; error?: string; requiresAdminPasscode?: boolean }> {
+  const providedEmail = (customProfile?.email || '').trim().toLowerCase();
+  
+  if (!providedEmail) {
+    return { success: false, error: 'Please enter or select a valid Google Account email address.' };
+  }
+
+  const isSaroneedamAdmin = providedEmail === 'saroneedam@yahoo.com' || providedEmail === 'saroneedam@gmail.com' || providedEmail === 'saroneedam';
+  const providedPasscode = customProfile?.adminPasscode?.trim();
+
+  // If someone attempts to claim the Saroneedam Super Admin identity, require the Master Admin Passkey
+  if (isSaroneedamAdmin && providedPasscode !== 'Vivian123@') {
+    return {
+      success: false,
+      requiresAdminPasscode: true,
+      error: 'Security Verification Required: Please enter the Saroneedam Super Admin master passkey to unlock administrative rights.',
+    };
+  }
+
+  const googleEmail = providedEmail;
+  const isVerifiedAdmin = isSaroneedamAdmin && providedPasscode === 'Vivian123@';
+  const googleName = customProfile?.name?.trim() || (isVerifiedAdmin ? 'Saroneedam Admin' : googleEmail.split('@')[0]);
+  const googleAvatar = isVerifiedAdmin
+    ? '/admin-avatar.jpg'
+    : (customProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80');
 
   // Attempt backend API google login
   try {
     const resp = await fetch('/api/auth/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: googleEmail, name: googleName, avatar: googleAvatar }),
+      body: JSON.stringify({
+        email: googleEmail,
+        name: googleName,
+        avatar: googleAvatar,
+        adminPasscode: customProfile?.adminPasscode,
+      }),
     });
     if (resp.ok) {
       const data = await resp.json();
       if (data.success && data.user && data.token) {
         saveAuthSession(data.user, data.token);
         return { success: true, user: data.user, token: data.token };
+      } else if (data.requiresAdminPasscode) {
+        return { success: false, requiresAdminPasscode: true, error: data.error };
       }
     }
   } catch (err) {
-    console.info('Server Google auth endpoint unavailable, handling client-side.');
+    console.info('Server Google auth endpoint unavailable, handling client-side verification.');
   }
 
   const members = getStoredMembers();
-  let match = members.find(
-    m => m.email.toLowerCase() === googleEmail || (googleEmail.includes('saroneedam') && m.email.toLowerCase() === 'saroneedam@yahoo.com')
-  );
-
-  const isAdmin = googleEmail.includes('saroneedam');
+  let match = members.find(m => m.email.toLowerCase() === googleEmail);
 
   if (!match) {
-    // Create new google member
+    // Create new google member (regular member by default, admin ONLY if verified)
     const newGoogleUser: MemberUser & { passwordHash: string } = {
-      id: `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      id: isVerifiedAdmin ? 'user_admin_saroneedam' : `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       email: googleEmail,
       name: googleName,
       username: googleEmail.split('@')[0],
-      company: isAdmin ? 'TrafficPulse HQ (Super Admin)' : 'Google Verified Organization',
+      company: isVerifiedAdmin ? 'TrafficPulse HQ (Super Admin)' : 'Google Verified Member',
       targetWebsite: 'https://jobs.eezor.com',
-      tier: isAdmin ? 'enterprise' : 'pro',
-      role: isAdmin ? 'admin' : 'member',
-      customVisitsLimit: isAdmin ? 10000000 : 500000,
-      maxConcurrentVUs: isAdmin ? 250 : 50,
-      totalCampaignsRun: isAdmin ? 88 : 1,
-      totalVisitsGenerated: isAdmin ? 650000 : 500,
+      tier: isVerifiedAdmin ? 'enterprise' : 'starter',
+      role: isVerifiedAdmin ? 'admin' : 'member',
+      customVisitsLimit: isVerifiedAdmin ? 10000000 : 25000,
+      maxConcurrentVUs: isVerifiedAdmin ? 250 : 20,
+      totalCampaignsRun: isVerifiedAdmin ? 88 : 0,
+      totalVisitsGenerated: isVerifiedAdmin ? 650000 : 0,
       joinedAt: Date.now(),
       lastLoginAt: Date.now(),
       isVerified: true,
@@ -363,13 +387,20 @@ export async function loginWithGoogle(customProfile?: {
   } else {
     match.lastLoginAt = Date.now();
     match.isVerified = true;
-    if (isAdmin) {
+    if (isVerifiedAdmin) {
       match.role = 'admin';
       match.tier = 'enterprise';
       match.customVisitsLimit = 10000000;
       match.company = 'TrafficPulse HQ (Super Admin)';
+      match.avatar = '/admin-avatar.jpg';
+    } else {
+      // Ensure regular Google users never stay admin unless specifically authorized
+      if (match.role === 'admin' && !isVerifiedAdmin) {
+        match.role = 'member';
+        match.tier = 'starter';
+      }
+      if (googleAvatar) match.avatar = googleAvatar;
     }
-    if (googleAvatar) match.avatar = googleAvatar;
     saveMembers(members);
   }
 
