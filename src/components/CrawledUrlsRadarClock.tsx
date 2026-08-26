@@ -583,6 +583,13 @@ export const CrawledUrlsRadarClock: React.FC<CrawledUrlsRadarClockProps> = ({
               const isPinging = isPingingUrl === page.id;
               const pStatus = pingStatus[page.id];
 
+              const targetBase = (crawlState.targetUrl && crawlState.targetUrl.trim())
+                ? (crawlState.targetUrl.startsWith('http') ? crawlState.targetUrl.replace(/\/$/, '') : `https://${crawlState.targetUrl.replace(/\/$/, '')}`)
+                : 'https://9jajobs.vercel.app';
+              const fullPageUrl = (page.url && page.url.startsWith('http'))
+                ? page.url
+                : `${targetBase}${page.path.startsWith('/') ? page.path : `/${page.path}`}`;
+
               return (
                 <div
                   key={page.id || index}
@@ -668,9 +675,9 @@ export const CrawledUrlsRadarClock: React.FC<CrawledUrlsRadarClockProps> = ({
                     {/* Ping Test Button */}
                     <button
                       type="button"
-                      onClick={() => handleTestUrlPing(page.url, page.id)}
+                      onClick={() => handleTestUrlPing(fullPageUrl, page.id)}
                       disabled={isPinging}
-                      title="Test HTTP Ping to this URL"
+                      title={`Test HTTP Ping to ${fullPageUrl}`}
                       className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-cyan-300 border border-slate-800 cursor-pointer transition-all disabled:opacity-50"
                     >
                       <Zap className={`w-3.5 h-3.5 ${isPinging ? 'animate-bounce text-amber-400' : ''}`} />
@@ -678,11 +685,11 @@ export const CrawledUrlsRadarClock: React.FC<CrawledUrlsRadarClockProps> = ({
 
                     {/* External Link */}
                     <a
-                      href={page.url}
+                      href={fullPageUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 cursor-pointer transition-all"
-                      title="Open page in new browser tab"
+                      className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 cursor-pointer transition-all flex items-center gap-1"
+                      title={`Open exact listing page: ${fullPageUrl}`}
                     >
                       <ArrowUpRight className="w-3.5 h-3.5" />
                     </a>

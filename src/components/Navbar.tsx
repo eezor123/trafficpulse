@@ -17,7 +17,10 @@ import {
   ChevronDown,
   Crown,
   ShieldCheck,
-  Lock
+  Lock,
+  Camera,
+  Settings,
+  UserCheck
 } from 'lucide-react';
 import { TrafficConfig, OrganicVisitorConfig, MemberUser } from '../types';
 import { TRAFFIC_PRESETS } from '../data/presets';
@@ -48,6 +51,7 @@ interface NavbarProps {
   // Auth Props
   currentUser?: MemberUser | null;
   onOpenAuth?: (mode?: 'login' | 'register') => void;
+  onOpenProfileEdit?: () => void;
   onLogout?: () => void;
 }
 
@@ -73,9 +77,21 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenHistory,
   currentUser,
   onOpenAuth,
+  onOpenProfileEdit,
   onLogout,
 }) => {
+  const [showPresetDropdown, setShowPresetDropdown] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const getInitials = (name?: string) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
+
   const isRunning = appMode === 'organic' ? isOrganicRunning : isStressRunning;
 
   return (
@@ -197,18 +213,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-xl text-left cursor-pointer transition-all shadow-sm"
               >
-                <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white text-[11px] font-bold overflow-hidden">
-                  {currentUser.avatar ? (
-                    <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <span>{currentUser.name.charAt(0).toUpperCase()}</span>
-                  )}
+                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-emerald-600 via-teal-600 to-cyan-600 p-0.5 flex items-center justify-center overflow-hidden shrink-0">
+                  <div className="w-full h-full rounded-full bg-slate-950 flex items-center justify-center overflow-hidden">
+                    {currentUser.avatar ? (
+                      <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-[10px] font-bold text-emerald-400 font-mono">
+                        {getInitials(currentUser.name)}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="hidden lg:block text-left">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-semibold text-slate-200 truncate max-w-[100px]">{currentUser.name}</span>
-                    <span className="text-[9px] font-extrabold uppercase px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      {currentUser.tier}
+                    <span className="text-[9px] font-extrabold uppercase px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono">
+                      {currentUser.role === 'admin' ? 'ADMIN' : currentUser.tier}
                     </span>
                   </div>
                 </div>
@@ -217,37 +237,79 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               {/* User Dropdown Menu */}
               {showUserMenu && (
-                <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2 shadow-2xl z-50 animate-fadeIn">
-                  <div className="pb-2 border-b border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-200">{currentUser.name}</span>
-                      <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/40">
-                        {currentUser.tier} member
-                      </span>
+                <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-3 shadow-2xl z-50 animate-fadeIn">
+                  {/* User Header */}
+                  <div className="pb-3 border-b border-slate-800 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 p-0.5 shrink-0 shadow-md">
+                      <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center overflow-hidden">
+                        {currentUser.avatar ? (
+                          <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-xs font-bold text-emerald-400 font-mono">
+                            {getInitials(currentUser.name)}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-[11px] text-slate-400 truncate mt-0.5">{currentUser.email}</p>
-                    {currentUser.company && (
-                      <p className="text-[10px] text-slate-500 truncate">{currentUser.company}</p>
-                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-xs font-bold text-slate-200 truncate">{currentUser.name}</span>
+                        <span className="text-[9px] uppercase font-mono px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/40 shrink-0">
+                          {currentUser.role === 'admin' ? 'Super Admin' : `${currentUser.tier}`}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 truncate mt-0.5">{currentUser.email}</p>
+                      {currentUser.company && (
+                        <p className="text-[10px] text-slate-500 truncate">{currentUser.company}</p>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="space-y-1 text-xs">
-                    <div className="flex justify-between py-1 text-slate-400">
-                      <span>Custom Visits Cap:</span>
+                  {/* Edit Profile & Photo Action Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      if (onOpenProfileEdit) onOpenProfileEdit();
+                    }}
+                    className="w-full py-2 px-3 bg-gradient-to-r from-emerald-500/15 to-teal-500/15 hover:from-emerald-500/25 hover:to-teal-500/25 border border-emerald-500/30 hover:border-emerald-500/50 rounded-xl text-xs font-bold text-emerald-300 flex items-center justify-between transition-all cursor-pointer shadow-sm"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Edit Profile & Photo</span>
+                    </span>
+                    <span className="text-[10px] text-emerald-400/80 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                      Settings
+                    </span>
+                  </button>
+
+                  {/* User Stats & Quota */}
+                  <div className="space-y-1.5 text-xs bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Visits Quota:</span>
                       <span className="font-mono font-bold text-emerald-400">
                         {currentUser.customVisitsLimit ? `${currentUser.customVisitsLimit.toLocaleString()}` : 'Unlimited'}
                       </span>
                     </div>
-                    <div className="flex justify-between py-1 text-slate-400">
+                    <div className="flex justify-between text-slate-400">
                       <span>Campaigns Run:</span>
                       <span className="font-mono text-slate-200">{currentUser.totalCampaignsRun}</span>
                     </div>
-                    <div className="flex justify-between py-1 text-slate-400">
+                    <div className="flex justify-between text-slate-400">
                       <span>Total Visits Made:</span>
                       <span className="font-mono text-cyan-400">{(currentUser.totalVisitsGenerated || 0).toLocaleString()}</span>
                     </div>
+                    {currentUser.targetWebsite && (
+                      <div className="flex justify-between text-slate-400 pt-1 border-t border-slate-800">
+                        <span className="truncate">Default Target:</span>
+                        <span className="font-mono text-[10px] text-slate-300 truncate max-w-[120px]" title={currentUser.targetWebsite}>
+                          {currentUser.targetWebsite.replace(/^https?:\/\//, '')}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
+                  {/* Menu Footer */}
                   <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                     <button
                       type="button"
@@ -258,7 +320,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       className="text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer flex items-center gap-1"
                     >
                       <User className="w-3.5 h-3.5" />
-                      <span>Switch / Register</span>
+                      <span>Switch Account</span>
                     </button>
                     {onLogout && (
                       <button

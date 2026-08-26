@@ -639,18 +639,41 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
                         </div>
                       </td>
 
-                      {/* Delete action */}
+                      {/* Actions: Open in tab & Delete */}
                       <td className="py-2.5 px-3 text-right">
-                        {page.path !== '/' && (
-                          <button
-                            type="button"
-                            onClick={() => onRemovePage(page.id)}
-                            className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
-                            title="Remove Page"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-1">
+                          {(() => {
+                            const targetBase = (crawlState.targetUrl && crawlState.targetUrl.trim())
+                              ? (crawlState.targetUrl.startsWith('http') ? crawlState.targetUrl.replace(/\/$/, '') : `https://${crawlState.targetUrl.replace(/\/$/, '')}`)
+                              : 'https://9jajobs.vercel.app';
+                            const fullUrl = (page.url && page.url.startsWith('http'))
+                              ? page.url
+                              : `${targetBase}${page.path.startsWith('/') ? page.path : `/${page.path}`}`;
+
+                            return (
+                              <a
+                                href={fullUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-slate-500 hover:text-cyan-400 p-1 rounded hover:bg-slate-800 transition-colors"
+                                title={`Visit exact page: ${fullUrl}`}
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            );
+                          })()}
+
+                          {page.path !== '/' && (
+                            <button
+                              type="button"
+                              onClick={() => onRemovePage(page.id)}
+                              className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+                              title="Remove Page"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))

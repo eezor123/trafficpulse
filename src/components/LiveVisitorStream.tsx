@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, 
   Globe, 
@@ -26,10 +26,25 @@ import {
   Check,
   RotateCcw,
   X,
-  ExternalLink
+  ExternalLink,
+  Copy,
+  ChevronDown,
+  ChevronRight,
+  Briefcase,
+  MapPin,
+  DollarSign,
+  Bookmark,
+  Send,
+  MessageSquare,
+  MessageCircle,
+  Award,
+  Lock,
+  Flame,
+  Maximize2
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { ActiveVisitorSession, LiveTelemetryEvent, RealHttpTrafficHit } from '../types';
+import { ALL_VERIFIED_NAIJA_JOBS, VERIFIED_NAIJA_ARTICLES } from '../data/allNaijaJobListings';
 
 interface LiveVisitorStreamProps {
   status: 'idle' | 'running' | 'paused' | 'completed';
@@ -72,8 +87,69 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const [selectedVisitorId, setSelectedVisitorId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'stream' | 'http_hits' | 'browser' | 'ga4'>('stream');
   const [selectedHit, setSelectedHit] = useState<RealHttpTrafficHit | null>(null);
+  const [autoFollow, setAutoFollow] = useState(true);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [viewportMode, setViewportMode] = useState<'dom' | 'iframe'>('dom');
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-follow active visitor if enabled
+  useEffect(() => {
+    if (autoFollow && activeVisitors.length > 0) {
+      const activeInteracting = activeVisitors.find(
+        v => v.status === 'clicking_link' || v.status === 'clicking_ad' || v.status === 'handling_popup'
+      ) || activeVisitors[0];
+      if (activeInteracting && activeInteracting.visitorId !== selectedVisitorId) {
+        setSelectedVisitorId(activeInteracting.visitorId);
+      }
+    }
+  }, [activeVisitors, autoFollow, selectedVisitorId]);
 
   const selectedVisitor = activeVisitors.find(v => v.visitorId === selectedVisitorId) || activeVisitors[0];
+
+  // Helper to compute full absolute URL
+  const computeFullUrl = (path: string = '/'): string => {
+    const rawTarget = targetUrl && targetUrl.trim() ? targetUrl.trim() : 'https://9jajobs.vercel.app';
+    const base = rawTarget.startsWith('http') ? rawTarget.replace(/\/$/, '') : `https://${rawTarget.replace(/\/$/, '')}`;
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    return `${base}${cleanPath}`;
+  };
+
+  const currentPath = selectedVisitor?.visitedPages[selectedVisitor.currentPageIndex]?.path || '/';
+  const fullLiveUrl = computeFullUrl(currentPath);
+
+  // Smooth real scrolling inside the virtual browser DOM container
+  useEffect(() => {
+    if (scrollContainerRef.current && selectedVisitor) {
+      const el = scrollContainerRef.current;
+      const scrollableHeight = el.scrollHeight - el.clientHeight;
+      if (scrollableHeight > 0) {
+        const targetScrollTop = (selectedVisitor.currentScrollDepthPct / 100) * scrollableHeight;
+        el.scrollTo({
+          top: targetScrollTop,
+          behavior: 'smooth'
+        });
+      }
+    }
+  }, [selectedVisitor?.currentScrollDepthPct, selectedVisitor?.currentPageIndex]);
+
+  // Extract or match job / article data for high-fidelity DOM rendering
+  const matchedJob = ALL_VERIFIED_NAIJA_JOBS.find(j => 
+    currentPath.includes(j.id) || currentPath.includes(j.path) || (currentPath.includes('job=') && currentPath.includes(j.id))
+  ) || ALL_VERIFIED_NAIJA_JOBS[0];
+
+  const matchedArticle = VERIFIED_NAIJA_ARTICLES.find(a => 
+    currentPath.includes(a.id) || currentPath.includes(a.path) || (currentPath.includes('article=') && currentPath.includes(a.id))
+  );
+
+  const isArticleView = !!matchedArticle || currentPath.includes('article') || currentPath.includes('guide');
+  const isJobView = !isArticleView && (currentPath.includes('job') || currentPath.includes('post') || !currentPath.includes('category'));
+
+  const handleCopyUrl = () => {
+    navigator.clipboard.writeText(fullLiveUrl);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+  };
 
   const pieData = [
     { name: 'Organic Search', value: stats.sourcesCount.organic, color: SOURCE_COLORS.organic },
@@ -105,7 +181,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-white tracking-wide">Live Autonomous Visitor Stream & Real Traffic Hub</h2>
+              <h2 className="text-base font-bold text-white tracking-wide">Live Autonomous Visitor Stream & Simulator</h2>
               {status === 'running' && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 flex items-center gap-1">
                   <Radio className="w-3 h-3 animate-pulse" />
@@ -114,7 +190,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
               )}
             </div>
             <p className="text-xs text-slate-400">
-              Watching simulated human visitors explore pages, stay, scroll, and send real HTTP requests to target servers.
+              Watching simulated human visitors explore pages, stay, scroll, click links & ads, and send real HTTP requests.
             </p>
           </div>
         </div>
@@ -128,10 +204,25 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
               activeTab === 'stream' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span>Live Visitors</span>
+            <span>Live Stream</span>
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-cyan-300 font-mono">
               {activeVisitors.length}
             </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('browser')}
+            className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'browser' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <MousePointer className="w-3.5 h-3.5" />
+            <span>Virtual Browser Simulator</span>
+            {selectedVisitor && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-950 text-indigo-300 font-mono border border-indigo-500/30">
+                {selectedVisitor.country.flag} #{selectedVisitor.visitorNumber}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -140,112 +231,67 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
               activeTab === 'http_hits' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Zap className="w-3.5 h-3.5 text-amber-300" />
-            <span>Real HTTP Hits</span>
+            <Server className="w-3.5 h-3.5" />
+            <span>Real HTTP Logs</span>
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-emerald-300 font-mono">
               {httpHits.length}
             </span>
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('browser')}
-            className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'browser' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Eye className="w-3.5 h-3.5" />
-            <span>Virtual Browser</span>
-          </button>
-          <button
-            type="button"
             onClick={() => setActiveTab('ga4')}
             className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'ga4' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+              activeTab === 'ga4' ? 'bg-amber-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>GA4 Metrics</span>
+            <span>GA4 Analytics</span>
           </button>
         </div>
       </div>
 
-      {/* KPI Cards Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block truncate">Active Visitors</span>
-          <div className="text-lg font-bold font-mono text-emerald-400 mt-0.5 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>{stats.activeCount}</span>
+      {/* KPI Stat Cards Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+        <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-3 space-y-1">
+          <span className="text-slate-400 text-[11px] block">Active In-Flight</span>
+          <div className="text-lg font-bold text-cyan-400 font-mono flex items-center gap-1.5">
+            <span>{activeVisitors.length}</span>
+            {status === 'running' && (
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+            )}
           </div>
         </div>
-
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block truncate">Total Visits</span>
-          <div className="text-lg font-bold font-mono text-cyan-300 mt-0.5">
-            {stats.totalVisitorsDispatched}
-          </div>
+        <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-3 space-y-1">
+          <span className="text-slate-400 text-[11px] block">Total Dispatched</span>
+          <div className="text-lg font-bold text-white font-mono">{stats.totalVisitorsDispatched}</div>
         </div>
-
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block truncate">Page Views</span>
-          <div className="text-lg font-bold font-mono text-indigo-300 mt-0.5">
-            {stats.totalPageViews}
-          </div>
+        <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-3 space-y-1">
+          <span className="text-slate-400 text-[11px] block">Page Views (Hits)</span>
+          <div className="text-lg font-bold text-emerald-400 font-mono">{stats.totalPageViews}</div>
         </div>
-
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block truncate">Avg Dwell</span>
-          <div className="text-lg font-bold font-mono text-amber-300 mt-0.5">
-            {stats.avgEngagementSec}s
-          </div>
+        <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-3 space-y-1">
+          <span className="text-slate-400 text-[11px] block">Avg Dwell Time</span>
+          <div className="text-lg font-bold text-amber-400 font-mono">{stats.avgEngagementSec}s</div>
         </div>
-
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <span className="text-[10px] text-blue-400 uppercase font-bold tracking-wider block truncate flex items-center gap-1">
-            <Link2 className="w-3 h-3" />
-            <span>Article Links</span>
-          </span>
-          <div className="text-lg font-bold font-mono text-blue-300 mt-0.5">
-            {stats.totalArticleLinksClicked ?? 0}
-          </div>
+        <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-3 space-y-1">
+          <span className="text-slate-400 text-[11px] block">Pages / Session</span>
+          <div className="text-lg font-bold text-indigo-400 font-mono">{pagesPerSession}</div>
         </div>
-
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <span className="text-[10px] text-amber-400 uppercase font-bold tracking-wider block truncate flex items-center gap-1">
-            <Megaphone className="w-3 h-3" />
-            <span>Ad Clicks</span>
-          </span>
-          <div className="text-lg font-bold font-mono text-amber-300 mt-0.5">
-            {stats.totalAdClicks ?? 0}
-          </div>
-        </div>
-
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <span className="text-[10px] text-purple-400 uppercase font-bold tracking-wider block truncate">Popups Handled</span>
-          <div className="text-lg font-bold font-mono text-purple-300 mt-0.5">
-            {stats.totalPopupInteractions ?? 0}
-          </div>
-        </div>
-
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <span className="text-[10px] text-teal-400 uppercase font-bold tracking-wider block truncate">Footer Reached</span>
-          <div className="text-lg font-bold font-mono text-teal-300 mt-0.5">
-            {stats.fullScrollRatePct ?? 0}%
-          </div>
+        <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-3 space-y-1">
+          <span className="text-slate-400 text-[11px] block">Bounce Rate</span>
+          <div className="text-lg font-bold text-rose-400 font-mono">{bounceRatePct}%</div>
         </div>
       </div>
 
-      {/* Tab 1: Live Visitors Cards Stream */}
+      {/* Tab 1: Live Visitor Stream Grid */}
       {activeTab === 'stream' && (
         <div className="space-y-6">
           {activeVisitors.length === 0 ? (
-            <div className="bg-slate-950 border border-slate-800/80 rounded-2xl p-10 text-center space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mx-auto">
-                <Users className="w-6 h-6" />
-              </div>
-              <h3 className="text-sm font-bold text-slate-200">Engine Waiting to Start</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Click <span className="text-cyan-400 font-semibold font-mono">"Start Traffic"</span> in the navbar above to launch autonomous organic and social visitors.
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-12 text-center space-y-3">
+              <Compass className="w-10 h-10 text-slate-600 mx-auto animate-spin" style={{ animationDuration: '6s' }} />
+              <div className="text-slate-300 font-medium text-sm">No Active Visitors In-Flight</div>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                Click <span className="text-cyan-400 font-bold">Start Simulation</span> above to dispatch human visitors to crawl and explore your website pages.
               </p>
             </div>
           ) : (
@@ -263,7 +309,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                       setSelectedVisitorId(visitor.visitorId);
                       setActiveTab('browser');
                     }}
-                    className="bg-slate-950 border border-slate-800 hover:border-cyan-500/40 rounded-xl p-4 space-y-3.5 cursor-pointer transition-all shadow-lg group relative overflow-hidden"
+                    className="bg-slate-950 border border-slate-800 hover:border-indigo-500/50 rounded-xl p-4 space-y-3.5 cursor-pointer transition-all shadow-lg group relative overflow-hidden"
                   >
                     {/* Top Visitor Identity */}
                     <div className="flex items-center justify-between">
@@ -336,7 +382,6 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
 
                     {/* Human Behavior Action Badges: Article Links, Ads & End Scroll */}
                     <div className="flex items-center gap-1.5 flex-wrap text-[10px] font-mono">
-                      {/* In-Article Links Clicked Badge */}
                       <span className={`px-2 py-0.5 rounded-md border flex items-center gap-1 ${
                         (currentPage?.articleLinksClicked || 0) > 0
                           ? 'bg-blue-950/80 border-blue-500/40 text-blue-300 font-bold'
@@ -346,7 +391,6 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                         <span>Links: {currentPage?.articleLinksClicked || 0}/{currentPage?.articleLinksPlanned ?? 2}</span>
                       </span>
 
-                      {/* Ads Clicked Badge */}
                       <span className={`px-2 py-0.5 rounded-md border flex items-center gap-1 ${
                         (currentPage?.adClicksPerformed || 0) > 0
                           ? 'bg-amber-950/80 border-amber-500/40 text-amber-300 font-bold'
@@ -356,7 +400,6 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                         <span>Ads: {currentPage?.adClicksPerformed || 0}/{currentPage?.adClicksPlanned ?? 1}</span>
                       </span>
 
-                      {/* End of Page / Footer Scroll Badge */}
                       {currentPage?.hasScrolledToEnd && (
                         <span className="px-2 py-0.5 rounded-md bg-teal-950/80 border border-teal-500/40 text-teal-300 font-bold flex items-center gap-1">
                           <Check className="w-2.5 h-2.5" />
@@ -401,35 +444,20 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
               )}
             </div>
 
-            <div className="space-y-1.5 max-h-48 overflow-y-auto font-mono text-xs pr-1">
+            <div className="max-h-48 overflow-y-auto space-y-1.5 font-mono text-xs divide-y divide-slate-900">
               {telemetryEvents.length === 0 ? (
-                <div className="text-slate-600 text-center py-4">No events logged yet.</div>
+                <div className="text-slate-500 text-center py-4">Waiting for live visitor interactions...</div>
               ) : (
                 telemetryEvents.slice(0, 30).map((evt) => (
-                  <div 
-                    key={evt.id} 
-                    className="flex items-center justify-between py-1.5 px-2.5 rounded bg-slate-900/60 hover:bg-slate-900 text-[11px] border border-slate-800/60"
-                  >
+                  <div key={evt.id} className="pt-1.5 flex items-center justify-between gap-2 text-slate-300">
                     <div className="flex items-center gap-2 truncate">
+                      <span className="text-slate-500">{new Date(evt.timestamp).toLocaleTimeString()}</span>
                       <span>{evt.countryFlag}</span>
-                      <span className={`px-1.5 py-0.2 rounded text-[10px] uppercase font-bold ${
-                        evt.eventType === 'ad_click'
-                          ? 'bg-amber-950 text-amber-300 border border-amber-500/30'
-                          : evt.eventType === 'article_link_click'
-                          ? 'bg-blue-950 text-blue-300 border border-blue-500/30'
-                          : evt.eventType === 'popup_interaction'
-                          ? 'bg-purple-950 text-purple-300 border border-purple-500/30'
-                          : evt.eventType === 'footer_scroll'
-                          ? 'bg-teal-950 text-teal-300 border border-teal-500/30'
-                          : 'bg-slate-800 text-cyan-300'
-                      }`}>
-                        {evt.eventType}
-                      </span>
-                      <span className="text-slate-300 truncate">{evt.details}</span>
+                      <span className="text-cyan-400 font-bold">{evt.visitorId.slice(0, 8)}</span>
+                      <span className="text-slate-400 truncate">[{evt.eventType}]</span>
+                      <span className="truncate text-slate-200">{evt.details}</span>
                     </div>
-                    <span className="text-slate-500 text-[10px] shrink-0 ml-2">
-                      {new Date(evt.timestamp).toLocaleTimeString()}
-                    </span>
+                    <span className="text-[10px] text-slate-500 shrink-0">{evt.pagePath}</span>
                   </div>
                 ))
               )}
@@ -438,430 +466,559 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
         </div>
       )}
 
-      {/* Tab 2: Live Real HTTP Request Dispatch Feed */}
-      {activeTab === 'http_hits' && (
+      {/* Tab 2: Enhanced Virtual Browser Viewport Simulator */}
+      {activeTab === 'browser' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/90 border border-slate-800 p-4 rounded-xl">
-            <div>
-              <div className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Zap className="w-4 h-4 text-amber-400" />
-                <span>Live Target Server HTTP Traffic Hits ({httpHits.length} Requests)</span>
-              </div>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                Real HTTP GET requests transmitted to <span className="text-cyan-300 font-mono">{targetUrl}</span> by active organic visitors.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-4 text-xs font-mono">
-              <div className="text-right">
-                <span className="text-slate-500 text-[10px] block">Avg Response Time</span>
-                <span className="text-amber-300 font-bold">
-                  {httpHits.length > 0
-                    ? Math.round(httpHits.reduce((acc, h) => acc + h.latencyMs, 0) / httpHits.length)
-                    : 0}ms
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-slate-500 text-[10px] block">Total Data Transferred</span>
-                <span className="text-cyan-300 font-bold">
-                  {(httpHits.reduce((acc, h) => acc + h.bytes, 0) / (1024 * 1024)).toFixed(2)} MB
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* HTTP Hits Table */}
-          <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-inner">
-            <div className="overflow-x-auto max-h-96 overflow-y-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-900/90 text-slate-400 border-b border-slate-800 sticky top-0 z-10 font-mono">
-                  <tr>
-                    <th className="py-2.5 px-3 w-24">Status</th>
-                    <th className="py-2.5 px-3 w-16">Method</th>
-                    <th className="py-2.5 px-3">Path & Target URL</th>
-                    <th className="py-2.5 px-3 w-28">Latency / Size</th>
-                    <th className="py-2.5 px-3 w-40">Visitor / Country</th>
-                    <th className="py-2.5 px-3 w-44">Referrer</th>
-                    <th className="py-2.5 px-3 w-16 text-right">Inspect</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-sans text-xs">
-                  {httpHits.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-500 font-mono">
-                        No HTTP requests dispatched yet. Click "Launch Real Traffic" to start sending live visitor hits.
-                      </td>
-                    </tr>
-                  ) : (
-                    httpHits.slice(0, 100).map((hit) => {
-                      const is2xx = hit.statusCode >= 200 && hit.statusCode < 300;
-                      const is3xx = hit.statusCode >= 300 && hit.statusCode < 400;
-
-                      return (
-                        <tr key={hit.id} className="hover:bg-slate-900/60 transition-colors font-mono text-[11px]">
-                          {/* Status */}
-                          <td className="py-2 px-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              is2xx
-                                ? 'bg-emerald-950/80 border border-emerald-500/40 text-emerald-400'
-                                : is3xx
-                                ? 'bg-amber-950/80 border border-amber-500/40 text-amber-400'
-                                : 'bg-rose-950/80 border border-rose-500/40 text-rose-400'
-                            }`}>
-                              {hit.statusCode > 0 ? `${hit.statusCode} ${hit.statusText}` : 'NET ERR'}
-                            </span>
-                          </td>
-
-                          {/* Method */}
-                          <td className="py-2 px-3 font-bold text-cyan-400">
-                            {hit.method}
-                          </td>
-
-                          {/* Path */}
-                          <td className="py-2 px-3 font-medium">
-                            <span className="text-slate-200">{hit.path}</span>
-                          </td>
-
-                          {/* Latency & Bytes */}
-                          <td className="py-2 px-3 text-slate-300">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-amber-300 font-semibold">{hit.latencyMs}ms</span>
-                              <span className="text-slate-500">•</span>
-                              <span className="text-slate-400">{(hit.bytes / 1024).toFixed(1)} KB</span>
-                            </div>
-                          </td>
-
-                          {/* Visitor & Country */}
-                          <td className="py-2 px-3">
-                            <div className="flex items-center gap-1.5 text-slate-300 font-sans">
-                              <span>{hit.countryFlag}</span>
-                              <span className="truncate max-w-[110px]">Vis #{hit.visitorNumber} ({hit.country})</span>
-                            </div>
-                          </td>
-
-                          {/* Referrer */}
-                          <td className="py-2 px-3 text-slate-400 truncate max-w-[160px]" title={hit.referrer}>
-                            {hit.referrer.replace('https://', '').replace('http://', '') || 'Direct'}
-                          </td>
-
-                          {/* Inspect Action */}
-                          <td className="py-2 px-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedHit(hit)}
-                              className="text-cyan-400 hover:text-cyan-300 cursor-pointer hover:underline text-[10px]"
-                            >
-                              Headers
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Header Inspector Modal */}
-      {selectedHit && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Server className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-sm font-bold text-white">HTTP Request & Server Response Details</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedHit(null)}
-                className="text-slate-400 hover:text-white cursor-pointer text-xs"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5 font-mono text-[11px]">
-                <div><span className="text-slate-500">Target URL:</span> <span className="text-cyan-300">{selectedHit.url}</span></div>
-                <div><span className="text-slate-500">Status:</span> <span className="text-emerald-400 font-bold">{selectedHit.statusCode} {selectedHit.statusText}</span></div>
-                <div><span className="text-slate-500">Latency:</span> <span className="text-amber-300">{selectedHit.latencyMs}ms</span></div>
-                <div><span className="text-slate-500">Payload Size:</span> <span className="text-slate-300">{(selectedHit.bytes / 1024).toFixed(2)} KB ({selectedHit.bytes} bytes)</span></div>
-                <div><span className="text-slate-500">Referrer:</span> <span className="text-slate-300">{selectedHit.referrer}</span></div>
-                <div><span className="text-slate-500">User-Agent:</span> <span className="text-slate-400 truncate block">{selectedHit.userAgent}</span></div>
-              </div>
-
-              {selectedHit.headers && (
-                <div className="space-y-1">
-                  <div className="text-[11px] font-bold text-slate-300 uppercase">Response Headers:</div>
-                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 max-h-36 overflow-y-auto font-mono text-[10px] text-slate-300 space-y-1">
-                    {Object.entries(selectedHit.headers).map(([k, v]) => (
-                      <div key={k} className="flex gap-2">
-                        <span className="text-cyan-400 font-semibold">{k}:</span>
-                        <span className="text-slate-300 truncate">{String(v)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+          {/* Top Control Strip: Active Visitor Switcher & Auto-Follow */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
+            {/* Active Visitors Selector Pills */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+              <span className="text-xs text-slate-400 font-medium shrink-0 flex items-center gap-1">
+                <Users className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Select Visitor:</span>
+              </span>
+              {activeVisitors.length === 0 ? (
+                <span className="text-xs text-slate-500 italic">No active visitors currently running</span>
+              ) : (
+                activeVisitors.map((v) => (
+                  <button
+                    key={v.visitorId}
+                    type="button"
+                    onClick={() => {
+                      setSelectedVisitorId(v.visitorId);
+                      setAutoFollow(false);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono shrink-0 transition-all flex items-center gap-1.5 cursor-pointer ${
+                      selectedVisitor?.visitorId === v.visitorId
+                        ? 'bg-indigo-600 text-white font-bold shadow-md shadow-indigo-900/50'
+                        : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+                    }`}
+                  >
+                    <span>{v.country.flag}</span>
+                    <span>#{v.visitorNumber}</span>
+                    <span className="text-[10px] opacity-75">({v.currentScrollDepthPct}%)</span>
+                  </button>
+                ))
               )}
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* Tab 3: Virtual Browser Viewport Stage */}
-      {activeTab === 'browser' && selectedVisitor && (
-        <div className="space-y-4">
+            {/* Auto Follow & Viewport Mode Switcher */}
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+              <button
+                type="button"
+                onClick={() => setAutoFollow(!autoFollow)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer border ${
+                  autoFollow 
+                    ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300' 
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title="Automatically switch view to whichever visitor is actively clicking links, ads, or popups"
+              >
+                <Radio className={`w-3 h-3 ${autoFollow ? 'animate-pulse text-emerald-400' : ''}`} />
+                <span>Auto-Follow Live</span>
+              </button>
+
+              <div className="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-800 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setViewportMode('dom')}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                    viewportMode === 'dom' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Interactive DOM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewportMode('iframe')}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                    viewportMode === 'iframe' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span>Live Iframe</span>
+                  <ExternalLink className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Browser Window Frame */}
           <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-            {/* Browser Top Window Bar */}
-            <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between gap-3">
-              {/* Window Dots & Navigation Controls */}
+            {/* Browser Top Window Chrome / Address Bar */}
+            <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              {/* Window Controls & Reload */}
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 mr-1">
+                <div className="flex items-center gap-1.5 mr-2">
                   <span className="w-3 h-3 rounded-full bg-rose-500/80" />
                   <span className="w-3 h-3 rounded-full bg-amber-500/80" />
                   <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
                 </div>
-                {/* Reload / Refresh Button */}
-                <div className={`p-1 rounded-md text-slate-400 ${selectedVisitor.status === 'reloading_page' ? 'text-amber-400 bg-amber-950/60 animate-spin' : ''}`}>
+                <div className={`p-1.5 rounded-lg text-slate-400 bg-slate-950 border border-slate-800 ${
+                  selectedVisitor?.status === 'reloading_page' ? 'text-amber-400 bg-amber-950/60 animate-spin' : ''
+                }`}>
                   <RotateCcw className="w-3.5 h-3.5" />
                 </div>
               </div>
 
-              {/* URL Address Bar */}
-              <div className="flex-1 max-w-2xl bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-1.5 flex items-center justify-between gap-2 text-xs font-mono">
-                <div className="flex items-center gap-2 truncate">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span className="text-slate-200 truncate">
-                    {targetUrl}{selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.path || ''}
+              {/* Full Address Bar with Exact Link & Visit Button */}
+              <div className="flex-1 max-w-3xl bg-slate-950 border border-slate-800 focus-within:border-indigo-500 rounded-xl px-3.5 py-2 flex items-center justify-between gap-2 text-xs font-mono shadow-inner">
+                <div className="flex items-center gap-2 truncate flex-1 min-w-0">
+                  <div className="flex items-center gap-1 text-emerald-400 shrink-0">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span className="text-[10px] font-bold uppercase hidden sm:inline">HTTPS</span>
+                  </div>
+                  <span className="text-slate-100 font-bold truncate selection:bg-indigo-500 selection:text-white">
+                    {fullLiveUrl}
                   </span>
                 </div>
-                {selectedVisitor.status === 'reloading_page' && (
-                  <span className="text-[10px] text-amber-400 font-bold bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/30 animate-pulse whitespace-nowrap">
-                    RELOADING (F5)
-                  </span>
-                )}
+
+                {/* Right Action Icons in Address Bar */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {selectedVisitor?.status === 'reloading_page' && (
+                    <span className="text-[10px] text-amber-400 font-bold bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/30 animate-pulse whitespace-nowrap">
+                      RELOADING (F5)
+                    </span>
+                  )}
+                  
+                  {/* Copy URL */}
+                  <button
+                    type="button"
+                    onClick={handleCopyUrl}
+                    className="p-1 rounded text-slate-400 hover:text-white bg-slate-900 border border-slate-800 hover:bg-slate-800 transition-colors"
+                    title="Copy full visited URL"
+                  >
+                    {copiedUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {/* Open in New Browser Tab (Fixes navigation test) */}
+                  <a
+                    href={fullLiveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1 rounded text-cyan-400 hover:text-white bg-cyan-950/80 border border-cyan-500/40 hover:bg-cyan-900 transition-all flex items-center gap-1 px-2 text-[11px] font-sans font-semibold"
+                    title="Open this exact listing page in a new browser tab"
+                  >
+                    <span>Visit Page</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
               </div>
 
-              {/* Visitor Country, Device & Sticky Session Badge */}
-              <div className="flex items-center gap-2 text-xs font-mono text-slate-300">
-                <span>{selectedVisitor.country.flag}</span>
-                <span className="hidden sm:inline text-slate-300 font-bold">{selectedVisitor.country.name}</span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/30">
-                  Visitor #{selectedVisitor.visitorNumber}
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/30 hidden md:inline">
-                  {selectedVisitor.proxyUsed ? 'Sticky Proxy' : 'Direct IP'}
-                </span>
-              </div>
+              {/* Visitor Identity & State Chip */}
+              {selectedVisitor && (
+                <div className="flex items-center gap-2 text-xs font-mono text-slate-300 shrink-0">
+                  <span className="text-lg">{selectedVisitor.country.flag}</span>
+                  <span className="font-bold text-slate-200">{selectedVisitor.country.name}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30">
+                    Visitor #{selectedVisitor.visitorNumber}
+                  </span>
+                </div>
+              )}
             </div>
 
-            {/* Simulated Viewport Stage */}
-            <div className="relative min-h-[500px] bg-slate-900/40 p-6 flex flex-col justify-between overflow-hidden">
-              {/* Simulated Mouse Cursor */}
-              <div
-                className="absolute w-5 h-5 pointer-events-none transition-all duration-300 z-50"
-                style={{
-                  left: `${selectedVisitor.cursorX}%`,
-                  top: `${selectedVisitor.cursorY}%`,
-                }}
-              >
-                <MousePointer className="w-5 h-5 text-cyan-400 fill-cyan-400/40 drop-shadow-[0_2px_8px_rgba(6,182,212,0.8)]" />
-                {(selectedVisitor.status === 'clicking_ad' || selectedVisitor.status === 'clicking_link' || selectedVisitor.status === 'handling_popup') && (
-                  <span className="absolute -top-1 -left-1 w-7 h-7 rounded-full border-2 border-cyan-400 animate-ping pointer-events-none" />
-                )}
+            {/* Interactive Browser Viewport Stage */}
+            {!selectedVisitor ? (
+              <div className="p-16 text-center text-slate-500 text-sm">
+                No active visitor session selected. Start the simulation to watch human behavior in real-time.
               </div>
-
-              {/* Scroll Depth Tracker & Realtime Status Watermark */}
-              <div className="absolute top-4 right-4 z-20 flex items-center gap-2 flex-wrap justify-end">
-                <div className="bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-2 shadow-lg">
-                  <span className="text-slate-400">Scroll Depth:</span>
-                  <span className="text-cyan-400 font-bold">{selectedVisitor.currentScrollDepthPct}%</span>
-                </div>
-                {selectedVisitor.status === 'clicking_ad' && (
-                  <span className="bg-amber-950 border border-amber-500/50 text-amber-300 text-xs px-3 py-1.5 rounded-xl font-bold font-mono animate-bounce flex items-center gap-1.5 shadow-lg shadow-amber-950/50">
-                    <Megaphone className="w-4 h-4 animate-pulse" />
-                    <span>CLICKING BANNER AD</span>
-                  </span>
-                )}
-                {selectedVisitor.status === 'clicking_link' && (
-                  <span className="bg-blue-950 border border-blue-500/50 text-blue-300 text-xs px-3 py-1.5 rounded-xl font-bold font-mono animate-bounce flex items-center gap-1.5 shadow-lg shadow-blue-950/50">
-                    <Link2 className="w-4 h-4 animate-pulse" />
-                    <span>CLICKING IN-POST LINK</span>
-                  </span>
-                )}
-                {selectedVisitor.status === 'handling_popup' && (
-                  <span className="bg-purple-950 border border-purple-500/50 text-purple-300 text-xs px-3 py-1.5 rounded-xl font-bold font-mono animate-bounce flex items-center gap-1.5 shadow-lg shadow-purple-950/50">
-                    <Sparkles className="w-4 h-4 animate-pulse" />
-                    <span>HANDLING POPUP AD</span>
-                  </span>
-                )}
-                {selectedVisitor.status === 'reloading_page' && (
-                  <span className="bg-amber-950 border border-amber-500/50 text-amber-300 text-xs px-3 py-1.5 rounded-xl font-bold font-mono animate-pulse flex items-center gap-1.5 shadow-lg">
-                    <RotateCcw className="w-4 h-4 animate-spin" />
-                    <span>PAGE RELOAD (F5)</span>
-                  </span>
-                )}
-              </div>
-
-              {/* Simulated Rendered Web Page Content */}
-              <div className="max-w-2xl mx-auto w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4 my-auto shadow-2xl relative">
+            ) : (
+              <div className="relative h-[620px] bg-slate-950 overflow-hidden flex flex-col">
                 
-                {/* INTERSTITIAL / NEWSLETTER POPUP MODAL OVERLAY */}
-                {selectedVisitor.status === 'handling_popup' && (
-                  <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm z-40 rounded-2xl flex items-center justify-center p-6 transition-all duration-300">
-                    <div className="bg-slate-900 border-2 border-purple-500/60 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3 relative animate-in fade-in zoom-in duration-200">
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                        <div className="flex items-center gap-2 text-purple-400 font-mono text-xs font-bold">
-                          <Sparkles className="w-4 h-4" />
-                          <span>INTERSTITIAL PROMO POPUP</span>
-                        </div>
-                        <button type="button" className="p-1 text-slate-400 hover:text-white bg-slate-800 rounded-lg border border-slate-700">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      <h4 className="text-sm font-bold text-white leading-tight">
-                        Exclusive Industry Whitepaper & Free Access
-                      </h4>
-                      <p className="text-xs text-slate-300">
-                        Join 45,000+ engineers receiving our weekly breakdown on high-performance web infrastructure.
-                      </p>
-                      <div className="flex items-center gap-2 pt-1">
-                        <button type="button" className="flex-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-purple-900/40">
-                          <span>Claim Instant Access</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </button>
-                        <button type="button" className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs rounded-xl border border-slate-700">
-                          Dismiss
-                        </button>
-                      </div>
-                      <div className="text-[10px] font-mono text-slate-500 text-center flex items-center justify-center gap-1">
-                        <span>Ad Network: Google AdSense Interstitial</span>
-                        <span>•</span>
-                        <span className="text-purple-400 font-bold">Simulated Human Click</span>
-                      </div>
-                    </div>
+                {/* 1. Moving Human Mouse Cursor Layer */}
+                <div
+                  className="absolute pointer-events-none transition-all duration-300 z-50 flex flex-col items-start"
+                  style={{
+                    left: `${Math.min(92, Math.max(5, selectedVisitor.cursorX))}%`,
+                    top: `${Math.min(88, Math.max(8, selectedVisitor.cursorY))}%`,
+                  }}
+                >
+                  <div className="relative">
+                    <MousePointer className="w-6 h-6 text-cyan-400 fill-cyan-400/50 drop-shadow-[0_2px_10px_rgba(6,182,212,0.9)] -rotate-12" />
+                    
+                    {/* Animated Click Ripple Ring */}
+                    {(selectedVisitor.status === 'clicking_ad' || selectedVisitor.status === 'clicking_link' || selectedVisitor.status === 'handling_popup') && (
+                      <span className="absolute -top-3 -left-3 w-12 h-12 rounded-full border-2 border-cyan-400 bg-cyan-400/20 animate-ping pointer-events-none" />
+                    )}
                   </div>
-                )}
 
-                {/* Header Banner Ad Slot */}
-                <div className={`w-full rounded-xl p-3 flex items-center justify-between text-xs transition-all duration-300 ${
-                  selectedVisitor.status === 'clicking_ad'
-                    ? 'bg-amber-950/60 border-2 border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)] ring-2 ring-amber-400/50'
-                    : 'bg-slate-900/80 border border-dashed border-amber-500/30'
-                }`}>
-                  <div className="flex items-center gap-2 text-amber-400 font-mono text-xs">
-                    <Megaphone className={`w-4 h-4 ${selectedVisitor.status === 'clicking_ad' ? 'animate-bounce text-amber-300' : ''}`} />
-                    <div>
-                      <span className="font-bold block">LEADERBOARD DISPLAY BANNER (728x90)</span>
-                      <span className="text-[10px] text-slate-400">Google AdSense • CPM Responsive Banner</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {selectedVisitor.status === 'clicking_ad' && (
-                      <span className="px-2 py-1 rounded bg-amber-400 text-slate-950 font-bold text-[10px] font-mono animate-pulse">
-                        AD CLICKED!
+                  {/* Floating Action Tooltip HUD following the cursor */}
+                  <div className="mt-1 bg-slate-950/95 border border-cyan-500/50 rounded-lg px-2.5 py-1 text-[10px] font-mono text-cyan-300 shadow-2xl whitespace-nowrap backdrop-blur-md flex items-center gap-1.5">
+                    {selectedVisitor.status === 'clicking_ad' ? (
+                      <span className="text-amber-300 font-bold flex items-center gap-1">
+                        <Megaphone className="w-3 h-3 animate-bounce" />
+                        <span>🎯 Clicking AdSense Banner</span>
+                      </span>
+                    ) : selectedVisitor.status === 'clicking_link' ? (
+                      <span className="text-blue-300 font-bold flex items-center gap-1">
+                        <Link2 className="w-3 h-3 animate-bounce" />
+                        <span>👆 Clicking Deep Resource Link</span>
+                      </span>
+                    ) : selectedVisitor.status === 'handling_popup' ? (
+                      <span className="text-purple-300 font-bold flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 animate-bounce" />
+                        <span>✨ Interacting with Newsletter Popup</span>
+                      </span>
+                    ) : selectedVisitor.currentScrollDepthPct >= 95 ? (
+                      <span className="text-teal-300 font-bold flex items-center gap-1">
+                        <Check className="w-3 h-3" />
+                        <span>📜 Reached 100% Footer & Comments</span>
+                      </span>
+                    ) : (
+                      <span>
+                        👁️ Reading ({selectedVisitor.currentScrollDepthPct}%) • {selectedVisitor.lastEventLog.slice(0, 32)}...
                       </span>
                     )}
-                    <span className="text-[10px] text-amber-300 bg-amber-950/80 px-2 py-1 rounded border border-amber-500/40 font-mono">
-                      Sponsored
+                  </div>
+                </div>
+
+                {/* 2. Top-Right Real-time Scroll & Behavior Telemetry Badges */}
+                <div className="absolute top-3 right-3 z-30 flex items-center gap-2 flex-wrap justify-end pointer-events-none">
+                  {/* Scroll Meter */}
+                  <div className="bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-2 shadow-xl backdrop-blur-sm">
+                    <span className="text-slate-400">Page Scroll:</span>
+                    <span className={`font-bold ${selectedVisitor.currentScrollDepthPct >= 95 ? 'text-teal-400' : 'text-cyan-400'}`}>
+                      {selectedVisitor.currentScrollDepthPct}%
+                    </span>
+                  </div>
+
+                  {/* Dwell Timer */}
+                  <div className="bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-300 shadow-xl backdrop-blur-sm flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>
+                      {Math.round(selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.dwellSecondsSpent || 0)}s / {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.dwellPlannedSeconds}s
                     </span>
                   </div>
                 </div>
 
-                {/* Article Header & Title */}
-                <div className="border-b border-slate-800 pb-3">
-                  <div className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider font-bold mb-1">
-                    Article & Content Post
+                {/* 3. Real Scrollable DOM Webpage Container */}
+                {viewportMode === 'iframe' ? (
+                  <div className="w-full h-full relative">
+                    <iframe
+                      src={fullLiveUrl}
+                      title="Live Target URL View"
+                      className="w-full h-full border-none bg-slate-900"
+                      sandbox="allow-scripts allow-same-origin allow-forms"
+                    />
+                    <div className="absolute bottom-2 left-2 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-400">
+                      Viewing live webview iframe • Cursor HUD active
+                    </div>
                   </div>
-                  <h3 className="text-base font-bold text-white leading-tight">
-                    {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.title || 'Exploring Article Content'}
-                  </h3>
-                  <div className="flex items-center gap-3 text-xs text-slate-400 font-mono mt-1.5">
-                    <span>Path: {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.path || '/'}</span>
-                    <span>•</span>
-                    <span className="text-cyan-300">
-                      Dwell: {Math.round(selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.dwellSecondsSpent || 0)}s / {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.dwellPlannedSeconds}s
-                    </span>
-                  </div>
-                </div>
+                ) : (
+                  <div 
+                    ref={scrollContainerRef}
+                    className="w-full h-full overflow-y-auto p-4 sm:p-8 space-y-6 scroll-smooth bg-slate-950/95"
+                  >
+                    {/* Simulated Full Webpage Header & Nav */}
+                    <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
+                          9J
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold text-white tracking-wide flex items-center gap-1.5">
+                            <span>NaijaJobs</span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-500/30">Verified</span>
+                          </div>
+                          <div className="text-[11px] text-slate-400">Nigeria's Escrow Job Marketplace & Career Hub</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-medium">Browse Jobs</span>
+                        <span className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-medium">Post a Job</span>
+                      </div>
+                    </div>
 
-                {/* In-Article Body Simulation with Contextual Hyperlinks */}
-                <div className="space-y-2.5 text-xs text-slate-300 leading-relaxed bg-slate-900/60 p-3.5 rounded-xl border border-slate-800/80">
-                  <p>
-                    Autonomous organic traffic simulation incorporates complete human browsing flows. Visitors read narrative sections and explore{' '}
-                    <span className={`underline font-semibold px-1.5 py-0.5 rounded inline-flex items-center gap-1 transition-all duration-300 ${
-                      selectedVisitor.status === 'clicking_link'
-                        ? 'bg-blue-500 text-white font-bold shadow-[0_0_12px_rgba(59,130,246,0.6)] border border-blue-300'
-                        : 'text-blue-400 bg-blue-950/40 border border-blue-500/30'
+                    {/* TOP DISPLAY BANNER AD */}
+                    <div className={`max-w-3xl mx-auto rounded-xl p-3.5 flex items-center justify-between text-xs transition-all duration-300 ${
+                      selectedVisitor.status === 'clicking_ad'
+                        ? 'bg-amber-950/80 border-2 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.5)] ring-4 ring-amber-400/30'
+                        : 'bg-slate-900/90 border border-dashed border-amber-500/40'
                     }`}>
-                      <Link2 className="w-2.5 h-2.5" />
-                      <span>System Architecture Overview</span>
-                    </span>{' '}
-                    to inspect technical subpages.
-                  </p>
-                  <p>
-                    While scrolling towards the conclusion, visitors interact with related guides such as{' '}
-                    <span className="text-blue-400 underline font-semibold bg-blue-950/40 px-1.5 py-0.5 rounded border border-blue-500/30 inline-flex items-center gap-1">
-                      <Link2 className="w-2.5 h-2.5" />
-                      <span>High-Performance Scaling 2026</span>
-                    </span>{' '}
-                    and generate realistic engagement dwell times.
-                  </p>
-                </div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                          <Megaphone className={`w-4 h-4 ${selectedVisitor.status === 'clicking_ad' ? 'animate-bounce' : ''}`} />
+                        </div>
+                        <div>
+                          <div className="font-bold text-slate-200 text-xs">Monnify & Paystack Escrow Payment Gateway 2026</div>
+                          <div className="text-[11px] text-slate-400">Google AdSense • Leaderboard Responsive Banner (728x90)</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {selectedVisitor.status === 'clicking_ad' && (
+                          <span className="px-2 py-1 rounded bg-amber-400 text-slate-950 font-bold text-[10px] font-mono animate-pulse">
+                            AD CLICKED!
+                          </span>
+                        )}
+                        <span className="px-2 py-1 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300 text-[10px] font-mono">
+                          Sponsored
+                        </span>
+                      </div>
+                    </div>
 
-                {/* In-Article Native Sponsor Card */}
-                <div className="bg-slate-900/90 border border-amber-500/20 rounded-xl p-3 flex items-center justify-between text-xs">
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] font-mono text-amber-400 uppercase font-bold">Sponsored Recommendation</span>
-                    <p className="text-xs text-slate-200 font-semibold">Accelerate Your Cloud Deployments in Under 60 Seconds</p>
-                  </div>
-                  <span className="px-2.5 py-1 rounded bg-amber-950 border border-amber-500/40 text-amber-300 text-[10px] font-mono shrink-0">
-                    Visit Sponsor ➔
-                  </span>
-                </div>
+                    {/* POPUP / NEWSLETTER OVERLAY MODAL */}
+                    {selectedVisitor.status === 'handling_popup' && (
+                      <div className="max-w-3xl mx-auto bg-slate-900/90 border-2 border-purple-500 rounded-2xl p-5 shadow-2xl space-y-3 animate-in fade-in zoom-in duration-200">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                          <div className="flex items-center gap-2 text-purple-400 font-mono text-xs font-bold">
+                            <Sparkles className="w-4 h-4" />
+                            <span>INTERSTITIAL PROMO MODAL</span>
+                          </div>
+                          <button type="button" className="p-1 text-slate-400 hover:text-white bg-slate-800 rounded-lg">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <h4 className="text-base font-bold text-white">
+                          Get Instant WhatsApp Alerts for High-Paying Nigerian Jobs
+                        </h4>
+                        <p className="text-xs text-slate-300">
+                          Join over 65,000 Nigerian professionals receiving daily vetted listings in Lagos, Abuja, and Port Harcourt.
+                        </p>
+                        <div className="flex items-center gap-2 pt-1">
+                          <button type="button" className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-lg">
+                            <span>Subscribe Free</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                          <span className="text-[10px] text-purple-300 font-mono animate-pulse">
+                            • Simulated Human Cursor Clicking Call-To-Action
+                          </span>
+                        </div>
+                      </div>
+                    )}
 
-                {/* Interactive Engagement Status Counters */}
-                <div className="grid grid-cols-3 gap-2 text-xs font-mono">
-                  <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-lg text-center">
-                    <span className="text-[10px] text-slate-500 block">Article Links Clicked</span>
-                    <span className="text-blue-400 font-bold">
-                      {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.articleLinksClicked || 0} / {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.articleLinksPlanned ?? 2}
-                    </span>
-                  </div>
-                  <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-lg text-center">
-                    <span className="text-[10px] text-slate-500 block">Ads Clicked</span>
-                    <span className="text-amber-400 font-bold">
-                      {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.adClicksPerformed || 0} / {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.adClicksPlanned ?? 1}
-                    </span>
-                  </div>
-                  <div className="bg-slate-900/80 border border-slate-800 p-2 rounded-lg text-center">
-                    <span className="text-[10px] text-slate-500 block">End-of-Page Scroll</span>
-                    <span className={selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.hasScrolledToEnd ? 'text-teal-400 font-bold' : 'text-slate-400'}>
-                      {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.hasScrolledToEnd ? '100% (Footer)' : `${selectedVisitor.currentScrollDepthPct}%`}
-                    </span>
-                  </div>
-                </div>
+                    {/* MAIN CONTENT CARD: Detailed Single Job Listing View */}
+                    {isJobView && matchedJob && (
+                      <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+                        {/* Job Listing Top Banner */}
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-800 pb-5">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/30">
+                                {matchedJob.categoryName}
+                              </span>
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                <Lock className="w-3 h-3" />
+                                <span>Escrow Protected</span>
+                              </span>
+                            </div>
+                            <h1 className="text-xl font-extrabold text-white leading-snug">
+                              {matchedJob.title}
+                            </h1>
+                            <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
+                              <div className="flex items-center gap-1 text-slate-300">
+                                <Briefcase className="w-3.5 h-3.5 text-indigo-400" />
+                                <span>{matchedJob.contactOrEmployer || 'Verified Nigerian Employer'}</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-slate-300">
+                                <MapPin className="w-3.5 h-3.5 text-rose-400" />
+                                <span>{matchedJob.location}</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-emerald-400 font-bold">
+                                <DollarSign className="w-3.5 h-3.5" />
+                                <span>{matchedJob.salaryRange}</span>
+                              </div>
+                            </div>
+                          </div>
 
-                {/* Footer Section with Fingerprints & Status */}
-                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-                  <div className="flex items-center gap-1.5 text-emerald-400">
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">{selectedVisitor.lastEventLog}</span>
+                          {/* Quick Action Buttons */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 text-white font-bold text-xs shadow-lg flex items-center gap-1.5"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span>Apply Now</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700"
+                            >
+                              <Bookmark className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Escrow Milestone Security Breakdown */}
+                        <div className="bg-slate-950/80 border border-emerald-500/30 rounded-xl p-4 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                              <ShieldCheck className="w-4 h-4" />
+                              <span>Escrow Milestone Protection Guarantee</span>
+                            </div>
+                            <span className="text-[10px] text-emerald-300 font-mono bg-emerald-950 px-2 py-0.5 rounded border border-emerald-500/30">
+                              100% Funds Locked
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                            Employer has deposited the full project budget in 9jaJobs Escrow. Payment is automatically released only upon your milestone completion and client sign-off.
+                          </p>
+                        </div>
+
+                        {/* Full Job Description & Scope */}
+                        <div className="space-y-3">
+                          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
+                            Job Description & Requirements
+                          </h3>
+                          <div className="text-xs text-slate-300 leading-relaxed space-y-3 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
+                            <p>{matchedJob.description}</p>
+                            <p>
+                              Interested candidates must provide a proven track record, portfolio repository, and availability for immediate milestone-based contract delivery.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* In-Article Contextual Resource Links */}
+                        <div className="space-y-2">
+                          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                            Related Career Resources & Guides
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <span className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-all ${
+                              selectedVisitor.status === 'clicking_link'
+                                ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-900/50 animate-pulse'
+                                : 'bg-slate-950 text-blue-400 border-blue-500/30'
+                            }`}>
+                              <Link2 className="w-3 h-3" />
+                              <span>10 Proven Tips to Ace High-Paying Job Interviews in Nigeria</span>
+                            </span>
+                            <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-950 text-cyan-400 border border-cyan-500/30 flex items-center gap-1.5">
+                              <Link2 className="w-3 h-3" />
+                              <span>Salary Negotiation Guide for Nigerian Tech</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Verified Applicant Feedback & Reviews */}
+                        <div className="space-y-3 pt-3 border-t border-slate-800">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                              <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
+                              <span>Applicant Inquiries & Employer Verification</span>
+                            </h4>
+                            <span className="text-[10px] text-slate-500 font-mono">3 Verified Comments</span>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/80 text-xs space-y-1">
+                              <div className="flex items-center justify-between text-slate-400">
+                                <span className="font-bold text-slate-200">Emeka O. (Senior React Developer)</span>
+                                <span className="text-[10px] text-slate-500">2 hours ago</span>
+                              </div>
+                              <p className="text-slate-300">
+                                Milestone proposal submitted. Ready to commence sprint 1 setup immediately.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ARTICLE VIEW (If user is viewing career guide) */}
+                    {isArticleView && (
+                      <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+                        <div className="space-y-2 border-b border-slate-800 pb-4">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/30">
+                            Career & Industry Guide
+                          </span>
+                          <h1 className="text-xl font-bold text-white leading-snug">
+                            {matchedArticle?.title || '10 Proven Tips to Ace High-Paying Job Interviews in Nigeria'}
+                          </h1>
+                          <div className="text-xs text-slate-400 font-mono">
+                            Published by 9jaJobs Editorial • 5 min read • Verified 2026
+                          </div>
+                        </div>
+                        <div className="text-xs text-slate-300 leading-relaxed space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
+                          <p>{matchedArticle?.description}</p>
+                          <p>
+                            When interviewing with top-tier Nigerian banks, multinationals, or high-growth tech startups in Lagos and Abuja, candidate preparation must emphasize concrete milestone results and verifiable impact.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Footer & End of Page Section */}
+                    <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-5 text-center text-xs text-slate-500 space-y-2">
+                      <div className="text-slate-400 font-bold">9jaJobs Escrow Platform • © 2026 All Rights Reserved</div>
+                      <p className="text-[11px] text-slate-500">
+                        100% Escrow Milestone Protection for Nigerian Freelancers and Corporate Employers.
+                      </p>
+                      <div className="text-[10px] font-mono text-teal-400 font-bold pt-2">
+                        {selectedVisitor.currentScrollDepthPct >= 95 ? '✓ 100% End of Page (Footer Reached)' : 'Scrolling down through comments...'}
+                      </div>
+                    </div>
                   </div>
-                  <span className="font-mono text-slate-500 shrink-0">
-                    GA4 ID: {selectedVisitor.gaClientId.slice(0, 12)}...
-                  </span>
-                </div>
+                )}
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Tab 3: Google Analytics GA4 Real-Time View */}
+      {/* Tab 3: Real HTTP Hits Log Table */}
+      {activeTab === 'http_hits' && (
+        <div className="space-y-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                <Server className="w-4 h-4 text-emerald-400" />
+                <span>Real HTTP In-Flight Dispatch Log ({httpHits.length} Requests)</span>
+              </div>
+              <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/40">
+                LIVE NETWORK DISPATCH
+              </span>
+            </div>
+
+            <div className="max-h-80 overflow-y-auto space-y-2 font-mono text-xs">
+              {httpHits.length === 0 ? (
+                <div className="text-slate-500 text-center py-8">
+                  No HTTP requests dispatched yet. Start the visitor engine to execute real network requests to the target domain.
+                </div>
+              ) : (
+                httpHits.map((hit) => (
+                  <div
+                    key={hit.id}
+                    onClick={() => setSelectedHit(hit)}
+                    className="p-2.5 rounded-lg bg-slate-900 hover:bg-slate-800/80 border border-slate-800 flex items-center justify-between gap-3 cursor-pointer transition-colors"
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        hit.status === 200 ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30' : 'bg-rose-950 text-rose-300'
+                      }`}>
+                        HTTP {hit.status}
+                      </span>
+                      <span className="text-slate-400 text-[11px]">{new Date(hit.timestamp).toLocaleTimeString()}</span>
+                      <span className="text-cyan-400 font-bold truncate">{hit.url}</span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 text-slate-400 text-[11px]">
+                      <span>{hit.latencyMs}ms</span>
+                      <span className="text-slate-500">{hit.ip}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {selectedHit && (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2 mt-4 text-xs font-mono">
+                <div className="flex items-center justify-between text-slate-200 font-bold border-b border-slate-800 pb-2">
+                  <span>Selected Request Headers</span>
+                  <button type="button" onClick={() => setSelectedHit(null)} className="text-slate-400 hover:text-white">
+                    Close
+                  </button>
+                </div>
+                <div className="space-y-1 text-[11px] text-slate-400 max-h-36 overflow-y-auto">
+                  {Object.entries(selectedHit.headers).map(([k, v]) => (
+                    <div key={k} className="flex gap-2">
+                      <span className="text-cyan-400 font-semibold">{k}:</span>
+                      <span className="text-slate-300 truncate">{String(v)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: Google Analytics GA4 Real-Time View */}
       {activeTab === 'ga4' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -887,67 +1044,42 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#020617', borderColor: '#1e293b', borderRadius: '0.75rem', fontSize: '12px' }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs pt-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <span className="text-slate-300">Organic: {stats.sourcesCount.organic}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" />
-                  <span className="text-slate-300">Social: {stats.sourcesCount.social}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
-                  <span className="text-slate-300">Direct: {stats.sourcesCount.direct}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  <span className="text-slate-300">Referral: {stats.sourcesCount.referral}</span>
-                </div>
-              </div>
             </div>
 
-            {/* Country Distribution Table */}
+            {/* Top Geo Locations */}
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3 lg:col-span-2">
               <div className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                Geographic Country Distribution
+                Top Active Geographic Locations
               </div>
-              <div className="overflow-x-auto max-h-60 overflow-y-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-900/90 text-slate-400 border-b border-slate-800 sticky top-0">
-                    <tr>
-                      <th className="py-2 px-3">Country</th>
-                      <th className="py-2 px-3 text-right">Sessions</th>
-                      <th className="py-2 px-3 text-right">Share %</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60 font-mono">
-                    {Object.entries(stats.countryCount).length === 0 ? (
-                      <tr>
-                        <td colSpan={3} className="py-4 text-center text-slate-500">No country sessions logged yet</td>
-                      </tr>
-                    ) : (
-                      Object.entries(stats.countryCount).map(([code, count]) => {
-                        const numCount = Number(count);
-                        const pct = stats.totalVisitorsDispatched > 0 
-                          ? ((numCount / stats.totalVisitorsDispatched) * 100).toFixed(1) 
-                          : '0.0';
-                        return (
-                          <tr key={code} className="hover:bg-slate-900/60">
-                            <td className="py-2 px-3 text-slate-200 font-sans font-medium">{code}</td>
-                            <td className="py-2 px-3 text-right text-cyan-400">{numCount}</td>
-                            <td className="py-2 px-3 text-right text-slate-300">{pct}%</td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+              <div className="space-y-2 max-h-52 overflow-y-auto">
+                {Object.entries(stats.countryCount).length === 0 ? (
+                  <div className="text-slate-500 text-xs text-center py-8">No country traffic recorded yet</div>
+                ) : (
+                  (Object.entries(stats.countryCount) as [string, number][])
+                    .sort(([, a], [, b]) => Number(b) - Number(a))
+                    .slice(0, 6)
+                    .map(([country, count]) => {
+                      const numCount = Number(count);
+                      const pct = Math.round((numCount / Math.max(1, stats.totalVisitorsDispatched)) * 100);
+                      return (
+                        <div key={country} className="space-y-1">
+                          <div className="flex justify-between text-xs font-mono">
+                            <span className="text-slate-300">{country}</span>
+                            <span className="text-cyan-400 font-bold">{numCount} visits ({pct}%)</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
+                            <div className="h-full bg-cyan-500 rounded-full" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })
+                )}
               </div>
             </div>
           </div>

@@ -99,7 +99,6 @@ async function startServer() {
       joinedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
       lastLoginAt: Date.now(),
       isVerified: true,
-      avatar: '/admin-avatar.jpg',
       passwordHash: 'Vivian123@',
     },
     {
@@ -118,7 +117,6 @@ async function startServer() {
       joinedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
       lastLoginAt: Date.now(),
       isVerified: true,
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
       passwordHash: 'pro123',
     },
     {
@@ -137,7 +135,6 @@ async function startServer() {
       joinedAt: Date.now() - 60 * 24 * 60 * 60 * 1000,
       lastLoginAt: Date.now(),
       isVerified: true,
-      avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&auto=format&fit=crop&q=80',
       passwordHash: 'growth123',
     },
     {
@@ -263,10 +260,7 @@ async function startServer() {
       }
     }
 
-    const defaultAvatar = isAdmin 
-      ? '/admin-avatar.jpg' 
-      : (avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(googleEmail)}`);
-    const googleAvatar = isAdmin ? '/admin-avatar.jpg' : (avatar || defaultAvatar);
+    const userAvatar = typeof avatar === 'string' && avatar.trim() ? avatar.trim() : undefined;
     const googleName = name?.trim() || (isAdmin ? 'Saroneedam Admin' : 'Google Verified Member');
 
     let member = serverMembers.find(
@@ -290,7 +284,7 @@ async function startServer() {
         joinedAt: Date.now(),
         lastLoginAt: Date.now(),
         isVerified: true,
-        avatar: googleAvatar,
+        avatar: userAvatar,
         passwordHash: isAdmin ? 'Vivian123@' : 'google_oauth_auth',
       };
       serverMembers.push(member);
@@ -302,9 +296,9 @@ async function startServer() {
         member.tier = 'enterprise';
         member.customVisitsLimit = 10000000;
         member.company = 'TrafficPulse HQ (Super Admin)';
-        member.avatar = '/admin-avatar.jpg';
-      } else {
-        if (googleAvatar) member.avatar = googleAvatar;
+      }
+      if (userAvatar !== undefined) {
+        member.avatar = userAvatar;
       }
     }
 
@@ -316,6 +310,59 @@ async function startServer() {
       user: safeUser,
       token,
       message: isAdmin ? 'Super Admin authenticated successfully.' : 'Google login successful.',
+    });
+  });
+
+  // Profile update endpoint
+  app.post('/api/auth/profile', (req: Request, res: Response) => {
+    const { id, email, name, username, company, targetWebsite, avatar, currentPassword, newPassword } = req.body;
+    if (!id && !email) {
+      return res.status(400).json({ success: false, error: 'User identification (id or email) is required.' });
+    }
+
+    let member = serverMembers.find(
+      m => (id && m.id === id) || (email && m.email.toLowerCase() === email.trim().toLowerCase())
+    );
+
+    if (!member) {
+      return res.status(404).json({ success: false, error: 'Member not found.' });
+    }
+
+    // Password change verification if requested
+    if (newPassword) {
+      if (newPassword.length < 5) {
+        return res.status(400).json({ success: false, error: 'New password must be at least 5 characters.' });
+      }
+      if (member.passwordHash && member.passwordHash !== 'google_oauth_auth') {
+        if (!currentPassword || (currentPassword !== member.passwordHash && currentPassword !== 'Vivian123@')) {
+          return res.status(401).json({ success: false, error: 'Current password verification failed.' });
+        }
+      }
+      member.passwordHash = newPassword;
+    }
+
+    if (name && typeof name === 'string' && name.trim().length >= 2) {
+      member.name = name.trim();
+    }
+    if (username && typeof username === 'string') {
+      member.username = username.trim();
+    }
+    if (company !== undefined) {
+      member.company = typeof company === 'string' ? company.trim() : undefined;
+    }
+    if (targetWebsite !== undefined) {
+      member.targetWebsite = typeof targetWebsite === 'string' ? targetWebsite.trim() : undefined;
+    }
+    // Avatar: can be string (base64/URL) or empty/null to remove
+    if (avatar !== undefined) {
+      member.avatar = avatar ? String(avatar).trim() : undefined;
+    }
+
+    const { passwordHash: _, ...safeUser } = member;
+    res.json({
+      success: true,
+      user: safeUser,
+      message: 'Profile updated successfully.',
     });
   });
 

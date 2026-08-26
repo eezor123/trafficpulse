@@ -10,6 +10,7 @@ import { CrawledUrlsRadarClock } from './components/CrawledUrlsRadarClock';
 import { AIOrganicModal } from './components/AIOrganicModal';
 import { OrganicRunSummaryModal } from './components/OrganicRunSummaryModal';
 import { AuthModal } from './components/AuthModal';
+import { ProfileEditModal } from './components/ProfileEditModal';
 
 // Stress Load Components (for dual mode)
 import { ConfigPanel } from './components/ConfigPanel';
@@ -92,463 +93,7 @@ function loadInitialOrganicConfig(): OrganicVisitorConfig {
   return DEFAULT_ORGANIC_CONFIG;
 }
 
-const DEFAULT_CRAWLED_PAGES: CrawledPage[] = [
-  {
-    id: 'page_root',
-    url: 'https://9jajobs.vercel.app/',
-    path: '/',
-    title: 'NaijaJobs - Escrow Job Marketplace',
-    description: 'Main portal for 9jajobs.vercel.app',
-    depth: 0,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 100,
-    gaDetected: true,
-    category: 'page'
-  },
-  {
-    id: 'spa_job_101',
-    url: 'https://9jajobs.vercel.app/?job=job_101',
-    path: '/?job=job_101',
-    title: 'Mobile App Developer for Dispatch Rider Tracking System',
-    description: '[Job Listing] Lagos Express Parcel Ltd • Mobile App Development',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_102',
-    url: 'https://9jajobs.vercel.app/?job=job_102',
-    path: '/?job=job_102',
-    title: 'Brand Identity & Web UI/UX for Abuja Federal Contractor Portal',
-    description: '[Job Listing] PrimeEdge Consult • Graphic Design & UI/UX',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_103',
-    url: 'https://9jajobs.vercel.app/?job=job_103',
-    path: '/?job=job_103',
-    title: '15kVA Commercial Solar & Lithium Battery Setup in Trans-Amadi',
-    description: '[Job Listing] Horizon Cold Storage Ltd • Solar Energy Systems',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_104',
-    url: 'https://9jajobs.vercel.app/?job=job_104',
-    path: '/?job=job_104',
-    title: 'Tax Compliance & Audit Specialist for Enugu Tech Startup',
-    description: '[Job Listing] CoalCity Pay Ltd • Accounting & Financial Consulting',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_105',
-    url: 'https://9jajobs.vercel.app/?job=job_105',
-    path: '/?job=job_105',
-    title: 'Urgently Needed: Full-Stack Next.js & Stripe/Paystack Engineer',
-    description: '[Job Listing] AfriRemit FinTech • Software & Web Engineering',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_106',
-    url: 'https://9jajobs.vercel.app/?job=job_106',
-    path: '/?job=job_106',
-    title: 'Social Media Content Creator & Video Editor for Skincare Brand',
-    description: '[Job Listing] GlowNaturals NG • Digital Marketing & Content',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_107',
-    url: 'https://9jajobs.vercel.app/?job=job_107',
-    path: '/?job=job_107',
-    title: 'Flutterwave & Monnify Virtual Account Payment Specialist',
-    description: '[Job Listing] NaijaSub VTU Services • FinTech Integrations',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_108',
-    url: 'https://9jajobs.vercel.app/?job=job_108',
-    path: '/?job=job_108',
-    title: 'Corporate Legal Advisor for Tech Startup Incorporation & NDPR',
-    description: '[Job Listing] Apex Chambers & Partners • Legal Advisory',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_109',
-    url: 'https://9jajobs.vercel.app/?job=job_109',
-    path: '/?job=job_109',
-    title: 'Executive Real Estate Architectural Renderings & 3D Flythrough',
-    description: '[Job Listing] Haven Ridge Properties • 3D Architectural Design',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_110',
-    url: 'https://9jajobs.vercel.app/?job=job_110',
-    path: '/?job=job_110',
-    title: 'Hospitality CCTV & Biometric Access Control Installation Lead',
-    description: '[Job Listing] Grand View Continental Hotel • Security Systems',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_111',
-    url: 'https://9jajobs.vercel.app/?job=job_111',
-    path: '/?job=job_111',
-    title: 'High-Scale PostgreSQL Database Administrator & Query Optimization Specialist',
-    description: '[Job Listing] DataBridge Systems • Database Engineering',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_112',
-    url: 'https://9jajobs.vercel.app/?job=job_112',
-    path: '/?job=job_112',
-    title: 'E-commerce SEO Audit & Conversion Rate Optimization (CRO)',
-    description: '[Job Listing] Zikora Fashion House • Search Engine Optimization',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_113',
-    url: 'https://9jajobs.vercel.app/?job=job_113',
-    path: '/?job=job_113',
-    title: 'Solar Inverter System Installation & Farm Automation Control',
-    description: '[Job Listing] AgroGreen Farms Ibadan • Renewable Energy & IoT',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_114',
-    url: 'https://9jajobs.vercel.app/?job=job_114',
-    path: '/?job=job_114',
-    title: 'Textile E-commerce Store & Hausa Multi-language UI Development',
-    description: '[Job Listing] Arewa Wears Kano • Frontend Localization',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_115',
-    url: 'https://9jajobs.vercel.app/?job=job_115',
-    path: '/?job=job_115',
-    title: 'Offshore Logistics Fleet Tracking & Petroleum Inventory Dashboard',
-    description: '[Job Listing] Niger Delta Maritime Energy • Fleet Tracking',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_116',
-    url: 'https://9jajobs.vercel.app/?job=job_116',
-    path: '/?job=job_116',
-    title: 'Hospitality Management Software & POS Integration for Owerri Hotel',
-    description: '[Job Listing] Heritage Suites Owerri • POS & Hotel Software',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_barbecue',
-    url: 'https://9jajobs.vercel.app/?job=job_1787164089747',
-    path: '/?job=job_1787164089747',
-    title: 'Male Barbecue sales person is urgently needed',
-    description: '[Job Listing] Direct Escrow Listing • Sales & Food Service',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_job_solar_inv',
-    url: 'https://9jajobs.vercel.app/?job=job_1785681865131',
-    path: '/?job=job_1785681865131',
-    title: 'Solar Inverter System Installation & Farm Automation Control',
-    description: '[Job Listing] Farm Automation & Solar Installation Lead',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 95,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_art_101',
-    url: 'https://9jajobs.vercel.app/?job=art_101',
-    path: '/?job=art_101',
-    title: '10 Proven Tips to Ace High-Paying Job Interviews in Nigeria',
-    description: '[Career Article] Interview Preparation Guide',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 90,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_art_102',
-    url: 'https://9jajobs.vercel.app/?job=art_102',
-    path: '/?job=art_102',
-    title: 'How to Build an ATS-Friendly CV That Nigerian HRs Love in 2026',
-    description: '[Career Article] ATS Resume & CV Optimization',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 90,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_art_103',
-    url: 'https://9jajobs.vercel.app/?job=art_103',
-    path: '/?job=art_103',
-    title: 'Top 8 High-Demand Remote Tech Skills for Nigerians',
-    description: '[Career Article] Remote Work & International Freelancing',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 90,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_art_104',
-    url: 'https://9jajobs.vercel.app/?job=art_104',
-    path: '/?job=art_104',
-    title: 'Salary Negotiation Strategies in the Nigerian Tech & Oil Sectors',
-    description: '[Career Article] Salary & Compensation Negotiation',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 90,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_art_105',
-    url: 'https://9jajobs.vercel.app/?job=art_105',
-    path: '/?job=art_105',
-    title: 'Navigating NYSC Service Year to Land Your First Corporate Job',
-    description: '[Career Article] Fresh Graduate & NYSC Career Growth',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 90,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'spa_art_106',
-    url: 'https://9jajobs.vercel.app/?job=art_106',
-    path: '/?job=art_106',
-    title: 'Freelancing vs Full-Time Jobs: Choosing Your Career Path in Nigeria',
-    description: '[Career Article] Freelance vs Corporate Career Advice',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 90,
-    gaDetected: true,
-    category: 'post'
-  },
-  {
-    id: 'cat_mobile',
-    url: 'https://9jajobs.vercel.app/category/mobile-app-development',
-    path: '/category/mobile-app-development',
-    title: 'Mobile App Development (Job Category)',
-    description: 'Category: React Native, Flutter, Swift, Kotlin Jobs',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 85,
-    gaDetected: true,
-    category: 'category'
-  },
-  {
-    id: 'cat_design',
-    url: 'https://9jajobs.vercel.app/category/graphic-design-ui-ux',
-    path: '/category/graphic-design-ui-ux',
-    title: 'Graphic Design & UI/UX (Job Category)',
-    description: 'Category: Figma, Brand Identity, Motion Graphics',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 85,
-    gaDetected: true,
-    category: 'category'
-  },
-  {
-    id: 'cat_solar',
-    url: 'https://9jajobs.vercel.app/category/solar-energy-electrical-systems',
-    path: '/category/solar-energy-electrical-systems',
-    title: 'Solar Energy & Electrical Systems (Job Category)',
-    description: 'Category: Commercial Solar, Inverters, Battery Setup',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 85,
-    gaDetected: true,
-    category: 'category'
-  },
-  {
-    id: 'cat_finance',
-    url: 'https://9jajobs.vercel.app/category/accounting-financial-consulting',
-    path: '/category/accounting-financial-consulting',
-    title: 'Accounting & Financial Consulting (Job Category)',
-    description: 'Category: Tax Compliance, FIRS TCC, Audits',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 85,
-    gaDetected: true,
-    category: 'category'
-  },
-  {
-    id: 'cat_engineering',
-    url: 'https://9jajobs.vercel.app/category/software-web-engineering',
-    path: '/category/software-web-engineering',
-    title: 'Software & Web Engineering (Job Category)',
-    description: 'Category: Full-Stack, Next.js, Node.js, Python',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 85,
-    gaDetected: true,
-    category: 'category'
-  },
-  {
-    id: 'cat_marketing',
-    url: 'https://9jajobs.vercel.app/category/digital-marketing-content',
-    path: '/category/digital-marketing-content',
-    title: 'Digital Marketing & Content (Job Category)',
-    description: 'Category: Social Media, Video Editing, SEO, Ads',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 85,
-    gaDetected: true,
-    category: 'category'
-  },
-  {
-    id: 'page_jobs',
-    url: 'https://9jajobs.vercel.app/jobs',
-    path: '/jobs',
-    title: 'Browse All Jobs & Escrow Listings',
-    description: 'Search and filter all available opportunities',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 90,
-    gaDetected: true,
-    category: 'page'
-  },
-  {
-    id: 'page_freelancers',
-    url: 'https://9jajobs.vercel.app/freelancers',
-    path: '/freelancers',
-    title: 'Find Top Verified Freelancers',
-    description: 'Hire verified Nigerian experts with escrow protection',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 80,
-    gaDetected: true,
-    category: 'page'
-  },
-  {
-    id: 'page_escrow',
-    url: 'https://9jajobs.vercel.app/escrow',
-    path: '/escrow',
-    title: 'Escrow Protection & Milestone Security',
-    description: 'How fund security and milestone releases work',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 75,
-    gaDetected: true,
-    category: 'page'
-  },
-  {
-    id: 'page_safety',
-    url: 'https://9jajobs.vercel.app/safety',
-    path: '/safety',
-    title: 'Trust, Safety & Dispute Resolution',
-    description: 'Verification standards, BVN/NIN checks, and buyer safety',
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: 70,
-    gaDetected: true,
-    category: 'page'
-  }
-];
+const DEFAULT_CRAWLED_PAGES: CrawledPage[] = buildCrawledPagesFromListings('https://9jajobs.vercel.app');
 
 function loadInitialCrawlState(): SiteCrawlState {
   const defaultCrawl: SiteCrawlState = {
@@ -659,6 +204,7 @@ export default function App() {
   // ==================== MEMBER AUTHENTICATION STATE ====================
   const [authState, setAuthState] = useState<AuthState>(loadStoredAuth);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [isProfileEditOpen, setIsProfileEditOpen] = useState<boolean>(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
   const [authModalTitle, setAuthModalTitle] = useState<string | undefined>(undefined);
   const [authModalSubtitle, setAuthModalSubtitle] = useState<string | undefined>(undefined);
@@ -673,6 +219,15 @@ export default function App() {
     setIsAuthModalOpen(false);
     setSaveBannerMessage(`Welcome back, ${user.name}! ${user.tier.toUpperCase()} member access unlocked.`);
     setTimeout(() => setSaveBannerMessage(null), 5000);
+  };
+
+  const handleProfileUpdated = (updatedUser: MemberUser) => {
+    setAuthState(prev => ({
+      ...prev,
+      user: updatedUser,
+    }));
+    setSaveBannerMessage(`Profile updated: ${updatedUser.name}`);
+    setTimeout(() => setSaveBannerMessage(null), 4000);
   };
 
   const handleLogout = () => {
@@ -1295,6 +850,7 @@ export default function App() {
         onOpenHistory={() => setIsHistoryOpen(true)}
         currentUser={authState.user}
         onOpenAuth={(mode) => openAuthModal(mode)}
+        onOpenProfileEdit={() => setIsProfileEditOpen(true)}
         onLogout={handleLogout}
       />
 
@@ -1720,6 +1276,14 @@ export default function App() {
         initialMode={authModalMode}
         customTitle={authModalTitle}
         customSubtitle={authModalSubtitle}
+      />
+
+      {/* Member Profile & Photo Edit Modal */}
+      <ProfileEditModal
+        isOpen={isProfileEditOpen}
+        onClose={() => setIsProfileEditOpen(false)}
+        currentUser={authState.user}
+        onProfileUpdated={handleProfileUpdated}
       />
     </div>
   );

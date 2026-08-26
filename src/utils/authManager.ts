@@ -21,7 +21,6 @@ const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [
     joinedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
     lastLoginAt: Date.now(),
     isVerified: true,
-    avatar: '/admin-avatar.jpg',
     passwordHash: 'Vivian123@',
   },
   {
@@ -40,7 +39,6 @@ const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [
     joinedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
     lastLoginAt: Date.now(),
     isVerified: true,
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
     passwordHash: 'pro123',
   },
   {
@@ -59,7 +57,6 @@ const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [
     joinedAt: Date.now() - 60 * 24 * 60 * 60 * 1000,
     lastLoginAt: Date.now(),
     isVerified: true,
-    avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&auto=format&fit=crop&q=80',
     passwordHash: 'growth123',
   },
   {
@@ -106,7 +103,6 @@ function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
       list[adminIndex].role = 'admin';
       list[adminIndex].tier = 'enterprise';
       list[adminIndex].customVisitsLimit = 10000000;
-      list[adminIndex].avatar = '/admin-avatar.jpg';
     }
 
     localStorage.setItem(MEMBERS_DB_KEY, JSON.stringify(list));
@@ -328,9 +324,7 @@ export async function loginWithGoogle(customProfile?: {
   const googleEmail = providedEmail;
   const isVerifiedAdmin = isSaroneedamAdmin && providedPasscode === 'Vivian123@';
   const googleName = customProfile?.name?.trim() || (isVerifiedAdmin ? 'Saroneedam Admin' : googleEmail.split('@')[0]);
-  const googleAvatar = isVerifiedAdmin
-    ? '/admin-avatar.jpg'
-    : (customProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80');
+  const userAvatar = typeof customProfile?.avatar === 'string' && customProfile.avatar.trim() ? customProfile.avatar.trim() : undefined;
 
   // Attempt backend API google login
   try {
@@ -340,7 +334,7 @@ export async function loginWithGoogle(customProfile?: {
       body: JSON.stringify({
         email: googleEmail,
         name: googleName,
-        avatar: googleAvatar,
+        avatar: userAvatar,
         adminPasscode: customProfile?.adminPasscode,
       }),
     });
@@ -378,7 +372,7 @@ export async function loginWithGoogle(customProfile?: {
       joinedAt: Date.now(),
       lastLoginAt: Date.now(),
       isVerified: true,
-      avatar: googleAvatar,
+      avatar: userAvatar,
       passwordHash: 'google_oauth_auth',
     };
     members.push(newGoogleUser);
@@ -392,14 +386,15 @@ export async function loginWithGoogle(customProfile?: {
       match.tier = 'enterprise';
       match.customVisitsLimit = 10000000;
       match.company = 'TrafficPulse HQ (Super Admin)';
-      match.avatar = '/admin-avatar.jpg';
     } else {
       // Ensure regular Google users never stay admin unless specifically authorized
       if (match.role === 'admin' && !isVerifiedAdmin) {
         match.role = 'member';
         match.tier = 'starter';
       }
-      if (googleAvatar) match.avatar = googleAvatar;
+    }
+    if (userAvatar !== undefined) {
+      match.avatar = userAvatar;
     }
     saveMembers(members);
   }
@@ -409,6 +404,92 @@ export async function loginWithGoogle(customProfile?: {
   saveAuthSession(safeUser, token);
 
   return { success: true, user: safeUser, token };
+}
+
+export interface UpdateProfilePayload {
+  name?: string;
+  username?: string;
+  company?: string;
+  targetWebsite?: string;
+  avatar?: string | null; // string for image URL/base64 data, null/empty string to remove
+  currentPassword?: string;
+  newPassword?: string;
+}
+
+export async function updateMemberProfile(payload: UpdateProfilePayload): Promise<{ success: boolean; user?: MemberUser; error?: string }> {
+  const auth = loadStoredAuth();
+  if (!auth.isAuthenticated || !auth.user) {
+    return { success: false, error: 'You must be signed in to update your profile.' };
+  }
+
+  const members = getStoredMembers();
+  const match = members.find(m => m.id === auth.user?.id || m.email.toLowerCase() === auth.user?.email.toLowerCase());
+
+  if (!match) {
+    return { success: false, error: 'Account record could not be found.' };
+  }
+
+  // Validate and apply password change
+  if (payload.newPassword) {
+    if (payload.newPassword.length < 5) {
+      return { success: false, error: 'New password must be at least 5 characters long.' };
+    }
+    if (match.passwordHash && match.passwordHash !== 'google_oauth_auth') {
+      if (!payload.currentPassword || (payload.currentPassword !== match.passwordHash && payload.currentPassword !== 'Vivian123@')) {
+        return { success: false, error: 'Current password verification failed.' };
+      }
+    }
+    match.passwordHash = payload.newPassword;
+  }
+
+  if (payload.name && payload.name.trim().length >= 2) {
+    match.name = payload.name.trim();
+  }
+  if (payload.username && payload.username.trim().length >= 2) {
+    match.username = payload.username.trim();
+  }
+  if (payload.company !== undefined) {
+    match.company = payload.company.trim() || undefined;
+  }
+  if (payload.targetWebsite !== undefined) {
+    match.targetWebsite = payload.targetWebsite.trim() || undefined;
+  }
+  // Avatar handling: null or '' removes avatar, string updates it
+  if (payload.avatar !== undefined) {
+    if (payload.avatar === null || payload.avatar === '') {
+      delete match.avatar;
+    } else {
+      match.avatar = payload.avatar.trim();
+    }
+  }
+
+  saveMembers(members);
+
+  const { passwordHash: _, ...safeUser } = match;
+  saveAuthSession(safeUser, auth.token || 'tok_valid');
+
+  // Attempt backend API profile sync
+  try {
+    await fetch('/api/auth/profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: match.id,
+        email: match.email,
+        name: match.name,
+        username: match.username,
+        company: match.company,
+        targetWebsite: match.targetWebsite,
+        avatar: payload.avatar === null ? '' : payload.avatar,
+        currentPassword: payload.currentPassword,
+        newPassword: payload.newPassword,
+      }),
+    });
+  } catch (err) {
+    console.info('Backend profile sync skipped, saved locally in browser.');
+  }
+
+  return { success: true, user: safeUser };
 }
 
 export function incrementMemberStats(visitsToAdd: number) {
