@@ -133,27 +133,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleQuickDemoLogin = async (email: string, pass: string) => {
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-      const res = await loginMember(email, pass);
-      if (res.success && res.user && res.token) {
-        setSuccessMessage(`Logged in as ${res.user.role === 'admin' ? 'Super Admin' : 'member'}: ${res.user.name}`);
-        setTimeout(() => {
-          onAuthSuccess(res.user!, res.token!);
-          if (onClose) onClose();
-        }, 400);
-      } else {
-        setErrorMessage(res.error || 'Failed to login with account.');
-      }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Login error.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleGoogleAuthSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const emailToUse = (googleInputEmail || (mode === 'register' && regEmail ? regEmail : '')).trim().toLowerCase();
@@ -351,11 +330,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       <span>Admin Passkey Verification Required</span>
                     </div>
                     <p className="text-[10px] text-slate-300">
-                      Saroneedam Super Admin access requires the Master Passkey to prevent unauthorized privilege elevation.
+                      Administrative access requires Master Passkey verification to prevent unauthorized privilege elevation.
                     </p>
                     <input
                       type="password"
-                      placeholder="Enter Admin Passkey (Vivian123@)"
+                      placeholder="••••••••••••"
                       value={googleAdminPasscode}
                       onChange={(e) => setGoogleAdminPasscode(e.target.value)}
                       className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-3 py-1.5 text-xs text-amber-100 placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
@@ -411,7 +390,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="e.g., saroneedam@yahoo.com"
+                    placeholder="Enter your email or username"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
@@ -428,7 +407,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <input
                     type={showLoginPassword ? 'text' : 'password'}
                     required
-                    placeholder="Enter your member password (e.g. Vivian123@)"
+                    placeholder="••••••••••••"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-10 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
@@ -458,76 +437,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </>
               )}
             </button>
-
-            {/* Quick Demo & Admin Logins */}
-            <div className="pt-2 border-t border-slate-800 space-y-2">
-              <div className="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
-                <span>1-Click Member & Admin Accounts:</span>
-                <span className="text-[10px] text-emerald-400 font-mono">Instant Access</span>
-              </div>
-              
-              {/* Saroneedam Super Admin Account Card */}
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginEmail('saroneedam@yahoo.com');
-                  setLoginPassword('Vivian123@');
-                  handleQuickDemoLogin('saroneedam@yahoo.com', 'Vivian123@');
-                }}
-                className="w-full p-2.5 bg-gradient-to-r from-amber-950/40 via-slate-950 to-slate-900 hover:from-amber-950/70 border border-amber-500/50 hover:border-amber-400 rounded-xl text-left cursor-pointer transition-all group shadow-sm flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-lg overflow-hidden border border-amber-500/50 shrink-0 bg-slate-950">
-                    <img src="/admin-avatar.jpg" alt="Saroneedam Admin" className="w-full h-full object-cover" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-amber-200 group-hover:text-amber-100">Saroneedam (Super Admin)</span>
-                      <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/40 font-mono">
-                        ADMIN
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-slate-400">saroneedam@yahoo.com • Pass: Vivian123@</p>
-                  </div>
-                </div>
-                <span className="text-[10px] text-amber-400 font-semibold px-2 py-1 rounded bg-amber-500/10 group-hover:bg-amber-500/20 transition-colors">
-                  Login Admin →
-                </span>
-              </button>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginEmail('alex@trafficpulse.io');
-                    setLoginPassword('pro123');
-                    handleQuickDemoLogin('alex@trafficpulse.io', 'pro123');
-                  }}
-                  className="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 rounded-xl text-left cursor-pointer transition-all group"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-200 group-hover:text-emerald-300">Alex Mercer</span>
-                    <span className="text-[9px] font-bold bg-emerald-950 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30">PRO</span>
-                  </div>
-                  <p className="text-[10px] text-slate-400 truncate mt-0.5">alex@trafficpulse.io</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginEmail('sarah@growthwave.agency');
-                    setLoginPassword('growth123');
-                    handleQuickDemoLogin('sarah@growthwave.agency', 'growth123');
-                  }}
-                  className="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 rounded-xl text-left cursor-pointer transition-all group"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-200 group-hover:text-cyan-300">Sarah Chen</span>
-                    <span className="text-[9px] font-bold bg-cyan-950 text-cyan-400 px-1.5 py-0.5 rounded border border-cyan-500/30">ENTERPRISE</span>
-                  </div>
-                  <p className="text-[10px] text-slate-400 truncate mt-0.5">sarah@growthwave.agency</p>
-                </button>
-              </div>
-            </div>
           </form>
         )}
 
