@@ -688,10 +688,21 @@ async function startServer() {
       const rawDesc = descMatch ? descMatch[1].trim() : `Main portal for ${hostname}`;
       const description = rawDesc.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
 
-      // Detect GA4 / GTM
-      const ga4Match = html.match(/G-[A-Z0-9]{8,12}/i) || html.match(/gtag\(['"]config['"],\s*['"](G-[A-Z0-9]+)['"]/i);
-      if (ga4Match) {
-        gaMeasurementId = Array.isArray(ga4Match) ? ga4Match[1] || ga4Match[0] : ga4Match;
+      // Detect GA4 / GTM / Google Analytics
+      const ga4Regexes = [
+        /G-[A-Z0-9]{7,15}/i,
+        /gtag\(['"]config['"],\s*['"](G-[A-Z0-9]+)['"]/i,
+        /googletagmanager\.com\/gtag\/js\?id=(G-[A-Z0-9]+)/i,
+        /["'](G-[A-Z0-9]{8,14})["']/,
+        /measurementId["']?\s*:\s*["'](G-[A-Z0-9]+)["']/,
+        /UA-\d+-\d+/i
+      ];
+      for (const rx of ga4Regexes) {
+        const m = html.match(rx);
+        if (m) {
+          gaMeasurementId = m[1] || m[0];
+          break;
+        }
       }
       const gtmMatch = html.match(/GTM-[A-Z0-9]{4,10}/i);
       if (gtmMatch) {
@@ -716,7 +727,7 @@ async function startServer() {
 
         // Drop API routes, telemetry, auth endpoints, admin/dashboard internals, and webhooks
         const bannedPrefixes = [
-          '/api/', '/api', '/_next/', '/__next', '/_nuxt/', '/static/', '/assets/', '/node_modules/',
+          '/api/', '/api', '/_next/data/', '/__next', '/_nuxt/', '/static/', '/assets/', '/node_modules/',
           '/cdn-cgi/', '/wp-admin/', '/wp-includes/', '/xmlrpc.php', '/autodiscover/',
           '/.well-known/', '/graphql', '/socket.io', '/sockjs', '/telescope/', '/horizon/',
           '/oauth/', '/auth/callback', '/auth/login', '/auth/signup', '/health', '/healthz', '/metrics',
@@ -849,11 +860,7 @@ async function startServer() {
         });
       }
 
-      // ----------------------------------------------------------------------
-      // 2. MODERN SPA REVERSE-ENGINEERING (React, Vite, Next.js, Vue, Nuxt, Svelte)
-      //    Parses JavaScript bundles and inline scripts for embedded Job Listings, Articles, Categories & Routes
-      // ----------------------------------------------------------------------
-      // A0. Preset verified dynamic listings ONLY for exact 9jajobs domain
+      // Preset verified dynamic listings for 9jajobs domain
       if (hostname === '9jajobs.vercel.app') {
         const verifiedNaijaJobs = buildCrawledPagesFromListings(origin);
         for (const vj of verifiedNaijaJobs) {
@@ -869,202 +876,56 @@ async function startServer() {
         }
       }
 
+      // ----------------------------------------------------------------------
+      // 2. PARALLEL HIGH-SPEED SCRAPER ENGINE
+      //    Runs Script Bundle analysis, Next.js __NEXT_DATA__, Sitemaps, WP REST APIs,
+      //    RSS feeds and HTML links simultaneously in parallel!
+      // ----------------------------------------------------------------------
+
+      // A. Extract Embedded JSON / Next.js / Nuxt state directly from HTML
       try {
-        const scriptRegex = /<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
-        let scriptMatch: RegExpExecArray | null;
-        const scriptUrls: string[] = [];
-
-        while ((scriptMatch = scriptRegex.exec(html)) !== null) {
-          const src = scriptMatch[1].trim();
-          if (!src.includes('googletagmanager.com') && !src.includes('google-analytics.com') && !src.includes('clarity.ms') && !src.includes('facebook.net')) {
-            try {
-              const fullScriptUrl = src.startsWith('http://') || src.startsWith('https://') 
-                ? src 
-                : new URL(src, origin).toString();
-              scriptUrls.push(fullScriptUrl);
-            } catch {}
-          }
-        }
-
-        // Collect all inline scripts from HTML
-        const inlineScriptRegex = /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
-        let inlineMatch: RegExpExecArray | null;
-        const jsContents: string[] = [];
-        while ((inlineMatch = inlineScriptRegex.exec(html)) !== null) {
-          const content = inlineMatch[1].trim();
-          if (content.length > 20 && !content.includes('gtag(') && !content.includes('analytics.js')) {
-            jsContents.push(content);
-          }
-        }
-
-        // Fetch external JS bundles
-        for (const sUrl of scriptUrls.slice(0, 15)) {
+        const nextDataMatch = html.match(/<script\b[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
+        if (nextDataMatch) {
           try {
-            const jsCtrl = new AbortController();
-            const jsTimer = setTimeout(() => jsCtrl.abort(), 7000);
-            const jsRes = await fetch(sUrl, { headers: browserHeaders, signal: jsCtrl.signal });
-            clearTimeout(jsTimer);
-
-            if (jsRes.ok) {
-              const js = await jsRes.text();
-              jsContents.push(js);
-            }
+            const nextJson = JSON.parse(nextDataMatch[1]);
+            const searchForEntities = (obj: any) => {
+              if (!obj || typeof obj !== 'object' || discoveredPages.length >= maxLinks) return;
+              if (obj.id && typeof obj.id === 'string' && (obj.title || obj.name)) {
+                const id = obj.id;
+                const entTitle = obj.title || obj.name || id;
+                const isJob = id.startsWith('job_') || id.includes('job') || hostname.startsWith('jobs.');
+                const candPath = isJob ? `/?job=${id}` : id.startsWith('post_') ? `/?post=${id}` : `/${id}`;
+                if (!discoveredPaths.has(candPath) && isCleanPublicPage(candPath, entTitle)) {
+                  discoveredPaths.add(candPath);
+                  discoveredPages.push({
+                    id: `next_${id}`,
+                    url: `${origin}${candPath}`,
+                    path: candPath,
+                    title: String(entTitle).slice(0, 80),
+                    description: `Next.js Entity: ${entTitle}`,
+                    depth: 2,
+                    status: 200,
+                    includedInVisits: true,
+                    visitWeight: isJob ? 95 : 85,
+                    gaDetected: !!gaMeasurementId || !!gtmId,
+                    category: isJob ? 'post' : 'page',
+                  });
+                }
+              }
+              if (Array.isArray(obj)) {
+                for (const item of obj.slice(0, 100)) searchForEntities(item);
+              } else {
+                for (const key of Object.keys(obj)) {
+                  if (typeof obj[key] === 'object') searchForEntities(obj[key]);
+                }
+              }
+            };
+            searchForEntities(nextJson.props?.pageProps || nextJson);
           } catch {}
         }
+      } catch {}
 
-        // Decompile discovered JS and inline contents
-        for (const js of jsContents) {
-          if (discoveredPages.length >= maxLinks) break;
-
-          // Detect GA4 / GTM from JS if not yet found
-          if (!gaMeasurementId) {
-            const jsGa = js.match(/G-[A-Z0-9]{8,12}/i);
-            if (jsGa) gaMeasurementId = jsGa[0];
-          }
-          if (!gtmId) {
-            const jsGtm = js.match(/GTM-[A-Z0-9]{4,10}/i);
-            if (jsGtm) gtmId = jsGtm[0];
-          }
-
-          // A. Extract Structured Job / Post / Listing entities
-          const entityRegex = /\{(?:\s*["']?id["']?\s*:\s*["']([a-zA-Z0-9_\-]+)["']|\s*["']?jobId["']?\s*:\s*["']([a-zA-Z0-9_\-]+)["']|\s*["']?job_id["']?\s*:\s*["']([a-zA-Z0-9_\-]+)["'])[^}]*?["']?title["']?\s*:\s*["']([^"']+)["'][^}]*?(?:["']?category["']?\s*:\s*["']([^"']+)["'])?[^}]*?(?:["']?description["']?\s*:\s*["']([^"']+)["'])?/g;
-          let em: RegExpExecArray | null;
-          while ((em = entityRegex.exec(js)) !== null && discoveredPages.length < maxLinks) {
-            const id = em[1] || em[2] || em[3];
-            const rawTitle = (em[4] || '').trim();
-            const category = em[5] || 'Job Listing';
-            const rawDesc = em[6] ? em[6].slice(0, 120) : rawTitle;
-
-            if (!id) continue;
-            if (/^m\d/.test(id)) continue;
-
-            const isJob = id.startsWith('job_') || id.includes('job') || hostname.startsWith('jobs.') || html.includes('?job=') || js.includes('?job=');
-            const isArticle = id.startsWith('art_') || id.startsWith('article_');
-
-            const candidatePaths: string[] = [];
-            if (isJob) {
-              candidatePaths.push(`/?job=${id}`);
-              candidatePaths.push(`/job/${id}`);
-            } else if (id.startsWith('post_')) {
-              candidatePaths.push(`/?post=${id}`);
-              candidatePaths.push(`/post/${id}`);
-            } else if (isArticle) {
-              candidatePaths.push(`/article/${id}`);
-            } else if (id.startsWith('listing_')) {
-              candidatePaths.push(`/?listing=${id}`);
-              candidatePaths.push(`/listing/${id}`);
-            } else {
-              candidatePaths.push(`/?id=${id}`);
-              candidatePaths.push(`/${id}`);
-            }
-
-            for (const itemPath of candidatePaths) {
-              if (!isCleanPublicPage(itemPath, rawTitle)) continue;
-              if (!discoveredPaths.has(itemPath) && discoveredPages.length < maxLinks) {
-                discoveredPaths.add(itemPath);
-                discoveredPages.push({
-                  id: `spa_${id}_${discoveredPages.length + 1}`,
-                  url: `${origin}${itemPath}`,
-                  path: itemPath,
-                  title: rawTitle ? (rawTitle.length > 80 ? rawTitle.slice(0, 80) + '...' : rawTitle) : `Job Listing: ${id}`,
-                  description: isJob ? `[Job Listing] ${category}: ${rawDesc || rawTitle}` : isArticle ? `[Career Article] ${rawTitle}` : `${category}: ${rawDesc}`,
-                  depth: 2,
-                  status: 200,
-                  includedInVisits: true,
-                  visitWeight: isJob ? 95 : isArticle ? 90 : 85,
-                  gaDetected: !!gaMeasurementId || !!gtmId,
-                  category: 'post',
-                });
-                break;
-              }
-            }
-          }
-
-          // A2. Extract all dynamic entity tokens
-          const dynamicTokenRegex = /\b(job_\d{3,25}|job_[a-zA-Z0-9_\-]{4,30}|post_\d{3,25}|article_\d{3,25}|listing_\d{3,25})\b/g;
-          let jm: RegExpExecArray | null;
-          while ((jm = dynamicTokenRegex.exec(js)) !== null && discoveredPages.length < maxLinks) {
-            const rawToken = jm[1];
-            if (rawToken.startsWith('m10') || rawToken.startsWith('job_listing') || rawToken.startsWith('job_ids') || rawToken.startsWith('job_comments')) continue;
-            
-            let queryPath = `/?job=${rawToken}`;
-            let itemCategory: 'post' = 'post';
-            let itemTitle = `Job Listing: ${rawToken}`;
-
-            if (rawToken.startsWith('post_')) {
-              queryPath = `/?post=${rawToken}`;
-              itemTitle = `Post Listing: ${rawToken}`;
-            } else if (rawToken.startsWith('article_')) {
-              queryPath = `/article/${rawToken}`;
-              itemTitle = `Article: ${rawToken}`;
-            } else if (rawToken.startsWith('listing_')) {
-              queryPath = `/?listing=${rawToken}`;
-              itemTitle = `Listing: ${rawToken}`;
-            }
-
-            if (!isCleanPublicPage(queryPath, itemTitle)) continue;
-            if (!discoveredPaths.has(queryPath)) {
-              discoveredPaths.add(queryPath);
-              discoveredPages.push({
-                id: `ent_${rawToken}_${discoveredPages.length + 1}`,
-                url: `${origin}${queryPath}`,
-                path: queryPath,
-                title: itemTitle,
-                description: `Dynamic content listing: ${rawToken}`,
-                depth: 2,
-                status: 200,
-                includedInVisits: true,
-                visitWeight: 95,
-                gaDetected: !!gaMeasurementId || !!gtmId,
-                category: itemCategory,
-              });
-            }
-          }
-
-          // B. Extract Job Categories / Sectors
-          const catMatches = js.match(/category:["']([^"']+)["']/g) || [];
-          const uniqueCats = new Set<string>();
-          catMatches.forEach(cm => {
-            const catName = cm.replace(/category:["']/, '').replace(/["']$/, '').trim();
-            if (
-              catName.length > 2 && 
-              catName.length < 50 && 
-              !['custom', 'chat', 'analytics', 'marketing', 'user', 'guest', 'admin', 'json', 'script', 'null', 'undefined'].includes(catName.toLowerCase())
-            ) {
-              uniqueCats.add(catName);
-            }
-          });
-
-          uniqueCats.forEach(catName => {
-            if (discoveredPages.length >= maxLinks) return;
-            const catSlug = catName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-            const catPath = `/category/${catSlug}`;
-            if (!isCleanPublicPage(catPath, catName)) return;
-            if (!discoveredPaths.has(catPath)) {
-              discoveredPaths.add(catPath);
-              discoveredPages.push({
-                id: `cat_${catSlug}`,
-                url: `${origin}${catPath}`,
-                path: catPath,
-                title: `${catName} (Job Category)`,
-                description: `Browse verified ${catName} jobs & projects`,
-                depth: 2,
-                status: 200,
-                includedInVisits: true,
-                visitWeight: 82,
-                gaDetected: !!gaMeasurementId || !!gtmId,
-                category: 'category',
-              });
-            }
-          });
-        }
-      } catch (spaErr) {
-        console.error('SPA extractor notice:', spaErr);
-      }
-
-      // ----------------------------------------------------------------------
-      // 3. JSON-LD SCHEMA & METADATA SCRAPER (JobPosting, Article, BlogPosting, Product)
-      // ----------------------------------------------------------------------
+      // B. Extract JSON-LD Schemas
       try {
         const jsonLdRegex = /<script\b[^>]*\btype=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
         let ldMatch: RegExpExecArray | null;
@@ -1081,7 +942,7 @@ async function startServer() {
               if (itemUrl && itemTitle && typeof itemTitle === 'string') {
                 try {
                   const resolved = new URL(itemUrl, origin);
-                  if (resolved.hostname === hostname && !discoveredPaths.has(resolved.pathname)) {
+                  if ((resolved.hostname === hostname || resolved.hostname.endsWith(`.${hostname}`)) && !discoveredPaths.has(resolved.pathname)) {
                     discoveredPaths.add(resolved.pathname);
                     const isJob = type === 'JobPosting' || /job/i.test(type);
                     const isArticle = type === 'Article' || type === 'BlogPosting' || type === 'NewsArticle';
@@ -1108,328 +969,7 @@ async function startServer() {
         }
       } catch {}
 
-      // ----------------------------------------------------------------------
-      // 4. RSS & ATOM XML FEEDS DISCOVERY (Universal for Blogs, News & Career Portals)
-      // ----------------------------------------------------------------------
-      try {
-        const feedPaths = ['/feed', '/feed/', '/rss', '/rss.xml', '/atom.xml', '/feed.xml', '/blog/feed', '/jobs/feed', '/rss/all.xml'];
-        for (const fPath of feedPaths) {
-          if (discoveredPages.length >= maxLinks) break;
-          try {
-            const feedUrl = `${origin}${fPath}`;
-            const fCtrl = new AbortController();
-            const fTimer = setTimeout(() => fCtrl.abort(), 4000);
-            const fRes = await fetch(feedUrl, { headers: browserHeaders, signal: fCtrl.signal });
-            clearTimeout(fTimer);
-
-            if (fRes.ok) {
-              const fText = await fRes.text();
-              const itemRegex = /<item>[\s\S]*?<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>[\s\S]*?<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>[\s\S]*?<\/item>/gi;
-              let im: RegExpExecArray | null;
-              while ((im = itemRegex.exec(fText)) !== null && discoveredPages.length < maxLinks) {
-                const itemTitle = im[1].trim().replace(/<[^>]*>/g, '');
-                const itemLink = im[2].trim();
-                try {
-                  const pUrl = new URL(itemLink, origin);
-                  if (pUrl.hostname === hostname && !discoveredPaths.has(pUrl.pathname)) {
-                    discoveredPaths.add(pUrl.pathname);
-                    discoveredPages.push({
-                      id: `rss_${discoveredPages.length + 1}`,
-                      url: pUrl.toString(),
-                      path: pUrl.pathname,
-                      title: itemTitle.length > 70 ? itemTitle.slice(0, 70) + '...' : itemTitle,
-                      description: `Feed Item: ${itemTitle}`,
-                      depth: 2,
-                      status: 200,
-                      includedInVisits: true,
-                      visitWeight: 90,
-                      gaDetected: !!gaMeasurementId || !!gtmId,
-                      category: 'post',
-                    });
-                  }
-                } catch {}
-              }
-            }
-          } catch {}
-        }
-      } catch {}
-
-      // ----------------------------------------------------------------------
-      // 5. SHOPIFY & E-COMMERCE PRODUCTS/COLLECTIONS JSON APIS
-      // ----------------------------------------------------------------------
-      try {
-        const shopifyProductsUrl = `${origin}/products.json?limit=250`;
-        const sCtrl = new AbortController();
-        const sTimer = setTimeout(() => sCtrl.abort(), 4000);
-        const sRes = await fetch(shopifyProductsUrl, { headers: browserHeaders, signal: sCtrl.signal });
-        clearTimeout(sTimer);
-
-        if (sRes.ok) {
-          const sData = await sRes.json();
-          if (sData && Array.isArray(sData.products)) {
-            for (const prod of sData.products) {
-              if (discoveredPages.length >= maxLinks) break;
-              const prodPath = `/products/${prod.handle}`;
-              if (!discoveredPaths.has(prodPath)) {
-                discoveredPaths.add(prodPath);
-                discoveredPages.push({
-                  id: `prod_${prod.id || discoveredPages.length + 1}`,
-                  url: `${origin}${prodPath}`,
-                  path: prodPath,
-                  title: prod.title || 'Product Listing',
-                  description: `Shopify Product: ${prod.title}`,
-                  depth: 2,
-                  status: 200,
-                  includedInVisits: true,
-                  visitWeight: 88,
-                  gaDetected: !!gaMeasurementId || !!gtmId,
-                  category: 'product',
-                });
-              }
-            }
-          }
-        }
-      } catch {}
-
-      // ----------------------------------------------------------------------
-      // 6. COMPREHENSIVE WORDPRESS REST API DISCOVERY (Posts, Job Listings, Pages, Categories)
-      // ----------------------------------------------------------------------
-      try {
-        // A. Posts & Job Listings
-        const wpEndpoints = [
-          `/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug`,
-          `/wp-json/wp/v2/job-listings?per_page=100&_fields=id,link,title,slug`,
-          `/wp-json/wp/v2/vacancies?per_page=100&_fields=id,link,title,slug`,
-        ];
-
-        for (const wpUrl of wpEndpoints) {
-          if (discoveredPages.length >= maxLinks) break;
-          try {
-            const fullWp = `${origin}${wpUrl}`;
-            const wpCtrl = new AbortController();
-            const wpTimer = setTimeout(() => wpCtrl.abort(), 5000);
-            const wpRes = await fetch(fullWp, { headers: browserHeaders, signal: wpCtrl.signal });
-            clearTimeout(wpTimer);
-
-            if (wpRes.ok) {
-              const postsData = await wpRes.json();
-              if (Array.isArray(postsData) && postsData.length > 0) {
-                for (const post of postsData) {
-                  if (discoveredPages.length >= maxLinks) break;
-                  if (post.link) {
-                    try {
-                      const postUrl = new URL(post.link);
-                      const postPath = postUrl.pathname;
-                      if (!discoveredPaths.has(postPath)) {
-                        discoveredPaths.add(postPath);
-                        const postTitle = (typeof post.title === 'object' && post.title?.rendered ? post.title.rendered : post.title) || post.slug || 'Article';
-                        const cleanPostTitle = postTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
-
-                        discoveredPages.push({
-                          id: `wp_post_${post.id || discoveredPages.length + 1}`,
-                          url: post.link,
-                          path: postPath,
-                          title: cleanPostTitle.length > 70 ? cleanPostTitle.slice(0, 70) + '...' : cleanPostTitle,
-                          description: `WordPress Listing: ${cleanPostTitle}`,
-                          depth: postPath.split('/').filter(Boolean).length || 1,
-                          status: 200,
-                          includedInVisits: true,
-                          visitWeight: 88,
-                          gaDetected: !!gaMeasurementId || !!gtmId,
-                          category: 'post',
-                        });
-                      }
-                    } catch {}
-                  }
-                }
-              }
-            }
-          } catch {}
-        }
-
-        // B. Pages
-        try {
-          const wpPagesUrl = `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug`;
-          const pgCtrl = new AbortController();
-          const pgTimer = setTimeout(() => pgCtrl.abort(), 4000);
-          const pgRes = await fetch(wpPagesUrl, { headers: browserHeaders, signal: pgCtrl.signal });
-          clearTimeout(pgTimer);
-
-          if (pgRes.ok) {
-            const pagesData = await pgRes.json();
-            if (Array.isArray(pagesData) && pagesData.length > 0) {
-              for (const pg of pagesData) {
-                if (discoveredPages.length >= maxLinks) break;
-                if (pg.link) {
-                  try {
-                    const pgUrl = new URL(pg.link);
-                    const pgPath = pgUrl.pathname;
-                    if (!discoveredPaths.has(pgPath)) {
-                      discoveredPaths.add(pgPath);
-                      const pgTitle = (typeof pg.title === 'object' && pg.title?.rendered ? pg.title.rendered : pg.title) || pg.slug || 'Page';
-                      const cleanPgTitle = pgTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
-
-                      discoveredPages.push({
-                        id: `wp_page_${pg.id || discoveredPages.length + 1}`,
-                        url: pg.link,
-                        path: pgPath,
-                        title: cleanPgTitle.length > 70 ? cleanPgTitle.slice(0, 70) + '...' : cleanPgTitle,
-                        description: `Core Page: ${cleanPgTitle}`,
-                        depth: pgPath.split('/').filter(Boolean).length || 1,
-                        status: 200,
-                        includedInVisits: true,
-                        visitWeight: 75,
-                        gaDetected: !!gaMeasurementId || !!gtmId,
-                        category: 'page',
-                      });
-                    }
-                  } catch {}
-                }
-              }
-            }
-          }
-        } catch {}
-
-        // C. Categories
-        try {
-          const wpCatUrl = `${origin}/wp-json/wp/v2/categories?per_page=100&_fields=id,link,name,slug`;
-          const catCtrl = new AbortController();
-          const catTimer = setTimeout(() => catCtrl.abort(), 4000);
-          const catRes = await fetch(wpCatUrl, { headers: browserHeaders, signal: catCtrl.signal });
-          clearTimeout(catTimer);
-
-          if (catRes.ok) {
-            const catData = await catRes.json();
-            if (Array.isArray(catData)) {
-              for (const cat of catData) {
-                if (discoveredPages.length >= maxLinks) break;
-                if (cat.link) {
-                  try {
-                    const catUrl = new URL(cat.link);
-                    const catPath = catUrl.pathname;
-                    if (!discoveredPaths.has(catPath)) {
-                      discoveredPaths.add(catPath);
-                      const catName = (cat.name || cat.slug || 'Category').replace(/&amp;/g, '&').trim();
-
-                      discoveredPages.push({
-                        id: `wp_cat_${cat.id || discoveredPages.length + 1}`,
-                        url: cat.link,
-                        path: catPath,
-                        title: `${catName} (Topic)`,
-                        description: `Category Archive: ${catName}`,
-                        depth: 2,
-                        status: 200,
-                        includedInVisits: true,
-                        visitWeight: 80,
-                        gaDetected: !!gaMeasurementId || !!gtmId,
-                        category: 'category',
-                      });
-                    }
-                  } catch {}
-                }
-              }
-            }
-          }
-        } catch {}
-      } catch (e) {
-        console.error('WP REST crawler notice:', e);
-      }
-
-      // ----------------------------------------------------------------------
-      // 7. XML SITEMAP & SITEMAP INDEX RECURSIVE PARSER
-      // ----------------------------------------------------------------------
-      const locRegex = /(?:<loc>|<loc><!\[CDATA\[)(https?:\/\/[^<\]\s]+)(?:\]\]><\/loc>|<\/loc>)/gi;
-      const sitemapRoots = [
-        `${origin}/sitemap.xml`,
-        `${origin}/wp-sitemap.xml`,
-        `${origin}/sitemap_index.xml`,
-        `${origin}/post-sitemap.xml`,
-        `${origin}/page-sitemap.xml`,
-        `${origin}/category-sitemap.xml`,
-        `${origin}/sitemap/sitemap.xml`,
-        `${origin}/job-sitemap.xml`,
-        `${origin}/sitemap-posts.xml`,
-      ];
-
-      // Check robots.txt for custom sitemap locations
-      try {
-        const rbCtrl = new AbortController();
-        const rbTimer = setTimeout(() => rbCtrl.abort(), 3000);
-        const rbRes = await fetch(`${origin}/robots.txt`, { headers: browserHeaders, signal: rbCtrl.signal });
-        clearTimeout(rbTimer);
-        if (rbRes.ok) {
-          const rbTxt = await rbRes.text();
-          const smMatches = rbTxt.matchAll(/Sitemap:\s*(https?:\/\/[^\s]+)/gi);
-          for (const m of smMatches) {
-            if (m[1]) sitemapRoots.push(m[1].trim());
-          }
-        }
-      } catch {}
-
-      const sitemapsToFetch = new Set<string>(sitemapRoots);
-      const visitedSitemaps = new Set<string>();
-
-      for (const smUrl of Array.from(sitemapsToFetch)) {
-        if (discoveredPages.length >= maxLinks) break;
-        if (visitedSitemaps.has(smUrl)) continue;
-        visitedSitemaps.add(smUrl);
-
-        try {
-          const smCtrl = new AbortController();
-          const smTimer = setTimeout(() => smCtrl.abort(), 4000);
-          const smRes = await fetch(smUrl, { headers: browserHeaders, signal: smCtrl.signal, redirect: 'follow' });
-          clearTimeout(smTimer);
-
-          if (smRes.ok) {
-            const smXml = await smRes.text();
-            let locMatch: RegExpExecArray | null;
-            locRegex.lastIndex = 0;
-
-            while ((locMatch = locRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
-              const matchedUrl = locMatch[1].trim();
-              if (matchedUrl.endsWith('.xml') || matchedUrl.includes('sitemap')) {
-                try {
-                  const parsedSm = new URL(matchedUrl);
-                  if (parsedSm.hostname === hostname && !visitedSitemaps.has(matchedUrl)) {
-                    sitemapsToFetch.add(matchedUrl);
-                  }
-                } catch {}
-              } else {
-                try {
-                  const parsedSUrl = new URL(matchedUrl);
-                  if (parsedSUrl.hostname === hostname || parsedSUrl.hostname.endsWith(`.${hostname}`)) {
-                    const sPath = parsedSUrl.pathname || '/';
-                    const sTitle = sPath.replace(/^\//, '').replace(/\/$/, '').replace(/[-_/]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Page';
-                    if (!isCleanPublicPage(sPath, sTitle)) continue;
-                    if (!discoveredPaths.has(sPath)) {
-                      discoveredPaths.add(sPath);
-                      const cat = classifyPage(sPath, '');
-
-                      discoveredPages.push({
-                        id: `sm_${discoveredPages.length + 1}`,
-                        url: matchedUrl,
-                        path: sPath,
-                        title: sTitle.length > 70 ? sTitle.slice(0, 70) + '...' : sTitle,
-                        description: `${cat.toUpperCase()}: ${sTitle}`,
-                        depth: sPath.split('/').filter(Boolean).length || 1,
-                        status: 200,
-                        includedInVisits: true,
-                        visitWeight: cat === 'post' ? 88 : cat === 'category' ? 80 : cat === 'product' ? 85 : 70,
-                        gaDetected: !!gaMeasurementId || !!gtmId,
-                        category: cat,
-                      });
-                    }
-                  }
-                } catch {}
-              }
-            }
-          }
-        } catch {}
-      }
-
-      // ----------------------------------------------------------------------
-      // 8. HTML ANCHOR & DEEP ATTRIBUTE EXTRACTION
-      // ----------------------------------------------------------------------
+      // C. Extract All HTML Anchor Links
       const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
       let match: RegExpExecArray | null;
       let rawLinksFound = 0;
@@ -1487,25 +1027,304 @@ async function startServer() {
         } catch {}
       }
 
-      // ----------------------------------------------------------------------
-      // 9. RECURSIVE LEVEL-2/3 SUB-PAGE CRAWLING (Deep Exploration)
-      //    Autonomously fetches top discovered sections to discover all child listings!
-      // ----------------------------------------------------------------------
-      try {
-        const topInternalPages = discoveredPages
-          .filter(p => p.path !== '/' && !p.path.includes('?') && (p.category === 'category' || p.category === 'page' || p.path.includes('job') || p.path.includes('blog') || p.path.includes('news')))
-          .slice(0, 10);
-
-        for (const subPage of topInternalPages) {
-          if (discoveredPages.length >= maxLinks) break;
+      // D. Collect Scripts, Feeds, Sitemaps & APIs to fetch in PARALLEL
+      const scriptUrls: string[] = [];
+      const scriptRegex = /<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+      let scriptMatch: RegExpExecArray | null;
+      while ((scriptMatch = scriptRegex.exec(html)) !== null) {
+        const src = scriptMatch[1].trim();
+        if (!src.includes('googletagmanager.com') && !src.includes('google-analytics.com') && !src.includes('clarity.ms') && !src.includes('facebook.net') && !src.includes('cloudflare.com')) {
           try {
-            const subCtrl = new AbortController();
-            const subTimer = setTimeout(() => subCtrl.abort(), 4000);
-            const subRes = await fetch(subPage.url, { headers: browserHeaders, signal: subCtrl.signal, redirect: 'follow' });
-            clearTimeout(subTimer);
+            const fullScriptUrl = src.startsWith('http://') || src.startsWith('https://') 
+              ? src 
+              : new URL(src, origin).toString();
+            scriptUrls.push(fullScriptUrl);
+          } catch {}
+        }
+      }
 
-            if (subRes.ok) {
-              const subHtml = await subRes.text();
+      const sitemapUrls = [
+        `${origin}/sitemap.xml`,
+        `${origin}/wp-sitemap.xml`,
+        `${origin}/sitemap_index.xml`,
+        `${origin}/post-sitemap.xml`,
+        `${origin}/job-sitemap.xml`,
+        `${origin}/category-sitemap.xml`,
+        `${origin}/page-sitemap.xml`,
+      ];
+
+      const wpEndpoints = [
+        `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug`,
+        `${origin}/wp-json/wp/v2/job-listings?per_page=100&_fields=id,link,title,slug`,
+        `${origin}/wp-json/wp/v2/vacancies?per_page=100&_fields=id,link,title,slug`,
+        `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug`,
+        `${origin}/wp-json/wp/v2/categories?per_page=100&_fields=id,link,name,slug`,
+      ];
+
+      const feedUrls = [
+        `${origin}/feed`,
+        `${origin}/rss.xml`,
+        `${origin}/atom.xml`,
+        `${origin}/jobs/feed`,
+        `${origin}/products.json?limit=250`
+      ];
+
+      // Execute ALL background discovery in parallel with 4s timeouts
+      const parallelTasks: Promise<void>[] = [];
+
+      // 1. Script decompilation tasks (up to 8 main scripts)
+      for (const sUrl of scriptUrls.slice(0, 8)) {
+        parallelTasks.push((async () => {
+          try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 3500);
+            const r = await fetch(sUrl, { headers: browserHeaders, signal: ctrl.signal });
+            clearTimeout(tm);
+            if (r.ok) {
+              const js = await r.text();
+              // Check GA
+              if (!gaMeasurementId) {
+                const jsGa = js.match(/G-[A-Z0-9]{8,12}/i);
+                if (jsGa) gaMeasurementId = jsGa[0];
+              }
+
+              // Extract dynamic entity tokens
+              const dynamicTokenRegex = /\b(job_\d{3,25}|job_[a-zA-Z0-9_\-]{4,30}|post_\d{3,25}|article_\d{3,25}|listing_\d{3,25})\b/g;
+              let jm: RegExpExecArray | null;
+              while ((jm = dynamicTokenRegex.exec(js)) !== null && discoveredPages.length < maxLinks) {
+                const rawToken = jm[1];
+                if (rawToken.startsWith('m10') || rawToken.startsWith('job_listing') || rawToken.startsWith('job_ids') || rawToken.startsWith('job_comments')) continue;
+                
+                const queryPath = rawToken.startsWith('post_') ? `/?post=${rawToken}` : rawToken.startsWith('article_') ? `/article/${rawToken}` : rawToken.startsWith('listing_') ? `/?listing=${rawToken}` : `/?job=${rawToken}`;
+                const itemTitle = rawToken.startsWith('post_') ? `Post: ${rawToken}` : rawToken.startsWith('article_') ? `Article: ${rawToken}` : rawToken.startsWith('listing_') ? `Listing: ${rawToken}` : `Job: ${rawToken}`;
+
+                if (!isCleanPublicPage(queryPath, itemTitle)) continue;
+                if (!discoveredPaths.has(queryPath)) {
+                  discoveredPaths.add(queryPath);
+                  discoveredPages.push({
+                    id: `ent_${rawToken}_${discoveredPages.length + 1}`,
+                    url: `${origin}${queryPath}`,
+                    path: queryPath,
+                    title: itemTitle,
+                    description: `Dynamic listing token: ${rawToken}`,
+                    depth: 2,
+                    status: 200,
+                    includedInVisits: true,
+                    visitWeight: 95,
+                    gaDetected: !!gaMeasurementId || !!gtmId,
+                    category: 'post',
+                  });
+                }
+              }
+
+              // Extract structured objects {id: "...", title: "..."}
+              const entityRegex = /\{(?:\s*["']?id["']?\s*:\s*["']([a-zA-Z0-9_\-]+)["']|\s*["']?jobId["']?\s*:\s*["']([a-zA-Z0-9_\-]+)["'])[^}]*?["']?title["']?\s*:\s*["']([^"']+)["']/g;
+              let em: RegExpExecArray | null;
+              while ((em = entityRegex.exec(js)) !== null && discoveredPages.length < maxLinks) {
+                const id = em[1] || em[2];
+                const rawTitle = (em[3] || '').trim();
+                if (!id || /^m\d/.test(id)) continue;
+                const isJob = id.startsWith('job_') || id.includes('job') || hostname.startsWith('jobs.');
+                const candPath = isJob ? `/?job=${id}` : `/?post=${id}`;
+                if (!discoveredPaths.has(candPath) && isCleanPublicPage(candPath, rawTitle)) {
+                  discoveredPaths.add(candPath);
+                  discoveredPages.push({
+                    id: `spa_${id}_${discoveredPages.length + 1}`,
+                    url: `${origin}${candPath}`,
+                    path: candPath,
+                    title: rawTitle ? (rawTitle.length > 70 ? rawTitle.slice(0, 70) + '...' : rawTitle) : `Listing: ${id}`,
+                    description: isJob ? `[Job Listing] ${rawTitle}` : `[Post] ${rawTitle}`,
+                    depth: 2,
+                    status: 200,
+                    includedInVisits: true,
+                    visitWeight: 95,
+                    gaDetected: !!gaMeasurementId || !!gtmId,
+                    category: 'post',
+                  });
+                }
+              }
+            }
+          } catch {}
+        })());
+      }
+
+      // 2. Sitemap parallel tasks
+      const locRegex = /(?:<loc>|<loc><!\[CDATA\[)(https?:\/\/[^<\]\s]+)(?:\]\]><\/loc>|<\/loc>)/gi;
+      for (const smUrl of sitemapUrls) {
+        parallelTasks.push((async () => {
+          try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 3500);
+            const r = await fetch(smUrl, { headers: browserHeaders, signal: ctrl.signal, redirect: 'follow' });
+            clearTimeout(tm);
+            if (r.ok) {
+              const smXml = await r.text();
+              let lm: RegExpExecArray | null;
+              locRegex.lastIndex = 0;
+              while ((lm = locRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
+                const matchedUrl = lm[1].trim();
+                if (!matchedUrl.endsWith('.xml') && !matchedUrl.includes('sitemap')) {
+                  try {
+                    const parsedSUrl = new URL(matchedUrl);
+                    if (parsedSUrl.hostname === hostname || parsedSUrl.hostname.endsWith(`.${hostname}`)) {
+                      const sPath = parsedSUrl.pathname || '/';
+                      const sTitle = sPath.replace(/^\//, '').replace(/\/$/, '').replace(/[-_/]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Page';
+                      if (isCleanPublicPage(sPath, sTitle) && !discoveredPaths.has(sPath)) {
+                        discoveredPaths.add(sPath);
+                        const cat = classifyPage(sPath, '');
+                        discoveredPages.push({
+                          id: `sm_${discoveredPages.length + 1}`,
+                          url: matchedUrl,
+                          path: sPath,
+                          title: sTitle.length > 70 ? sTitle.slice(0, 70) + '...' : sTitle,
+                          description: `${cat.toUpperCase()}: ${sTitle}`,
+                          depth: sPath.split('/').filter(Boolean).length || 1,
+                          status: 200,
+                          includedInVisits: true,
+                          visitWeight: cat === 'post' ? 90 : 75,
+                          gaDetected: !!gaMeasurementId || !!gtmId,
+                          category: cat,
+                        });
+                      }
+                    }
+                  } catch {}
+                }
+              }
+            }
+          } catch {}
+        })());
+      }
+
+      // 3. WordPress REST API parallel tasks
+      for (const wpUrl of wpEndpoints) {
+        parallelTasks.push((async () => {
+          try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 3500);
+            const r = await fetch(wpUrl, { headers: browserHeaders, signal: ctrl.signal });
+            clearTimeout(tm);
+            if (r.ok) {
+              const data = await r.json();
+              if (Array.isArray(data)) {
+                for (const item of data) {
+                  if (discoveredPages.length >= maxLinks) break;
+                  if (item.link) {
+                    try {
+                      const u = new URL(item.link);
+                      const p = u.pathname;
+                      if (!discoveredPaths.has(p)) {
+                        discoveredPaths.add(p);
+                        const itemTitle = (typeof item.title === 'object' && item.title?.rendered ? item.title.rendered : item.title) || item.name || item.slug || 'Article';
+                        const cleanT = itemTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
+                        const isCat = wpUrl.includes('categories');
+                        discoveredPages.push({
+                          id: `wp_${item.id || discoveredPages.length + 1}`,
+                          url: item.link,
+                          path: p,
+                          title: cleanT.length > 70 ? cleanT.slice(0, 70) + '...' : cleanT,
+                          description: isCat ? `Category: ${cleanT}` : `WordPress Listing: ${cleanT}`,
+                          depth: p.split('/').filter(Boolean).length || 1,
+                          status: 200,
+                          includedInVisits: true,
+                          visitWeight: isCat ? 80 : 90,
+                          gaDetected: !!gaMeasurementId || !!gtmId,
+                          category: isCat ? 'category' : 'post',
+                        });
+                      }
+                    } catch {}
+                  }
+                }
+              }
+            }
+          } catch {}
+        })());
+      }
+
+      // 4. Feeds & E-commerce parallel tasks
+      for (const fUrl of feedUrls) {
+        parallelTasks.push((async () => {
+          try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 3500);
+            const r = await fetch(fUrl, { headers: browserHeaders, signal: ctrl.signal });
+            clearTimeout(tm);
+            if (r.ok) {
+              if (fUrl.includes('products.json')) {
+                const sData = await r.json();
+                if (sData?.products && Array.isArray(sData.products)) {
+                  for (const prod of sData.products) {
+                    if (discoveredPages.length >= maxLinks) break;
+                    const prodPath = `/products/${prod.handle}`;
+                    if (!discoveredPaths.has(prodPath)) {
+                      discoveredPaths.add(prodPath);
+                      discoveredPages.push({
+                        id: `prod_${prod.id || discoveredPages.length + 1}`,
+                        url: `${origin}${prodPath}`,
+                        path: prodPath,
+                        title: prod.title || 'Product Listing',
+                        description: `Product: ${prod.title}`,
+                        depth: 2,
+                        status: 200,
+                        includedInVisits: true,
+                        visitWeight: 88,
+                        gaDetected: !!gaMeasurementId || !!gtmId,
+                        category: 'product',
+                      });
+                    }
+                  }
+                }
+              } else {
+                const fText = await r.text();
+                const itemRegex = /<item>[\s\S]*?<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>[\s\S]*?<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>[\s\S]*?<\/item>/gi;
+                let im: RegExpExecArray | null;
+                while ((im = itemRegex.exec(fText)) !== null && discoveredPages.length < maxLinks) {
+                  const itemTitle = im[1].trim().replace(/<[^>]*>/g, '');
+                  const itemLink = im[2].trim();
+                  try {
+                    const pUrl = new URL(itemLink, origin);
+                    if ((pUrl.hostname === hostname || pUrl.hostname.endsWith(`.${hostname}`)) && !discoveredPaths.has(pUrl.pathname)) {
+                      discoveredPaths.add(pUrl.pathname);
+                      discoveredPages.push({
+                        id: `rss_${discoveredPages.length + 1}`,
+                        url: pUrl.toString(),
+                        path: pUrl.pathname,
+                        title: itemTitle.length > 70 ? itemTitle.slice(0, 70) + '...' : itemTitle,
+                        description: `Feed Article: ${itemTitle}`,
+                        depth: 2,
+                        status: 200,
+                        includedInVisits: true,
+                        visitWeight: 90,
+                        gaDetected: !!gaMeasurementId || !!gtmId,
+                        category: 'post',
+                      });
+                    }
+                  } catch {}
+                }
+              }
+            }
+          } catch {}
+        })());
+      }
+
+      // Await all parallel tasks concurrently!
+      await Promise.allSettled(parallelTasks);
+
+      // ----------------------------------------------------------------------
+      // 3. LEVEL-2 RECURSIVE SUB-CRAWL (For top discovered category/section pages)
+      // ----------------------------------------------------------------------
+      if (discoveredPages.length < 25) {
+        const topSections = discoveredPages
+          .filter(p => p.path !== '/' && !p.path.includes('?') && (p.category === 'category' || p.path.includes('job') || p.path.includes('blog') || p.path.includes('listing') || p.path.includes('news')))
+          .slice(0, 6);
+
+        const subCrawlTasks = topSections.map(async (subPage) => {
+          try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 3000);
+            const r = await fetch(subPage.url, { headers: browserHeaders, signal: ctrl.signal, redirect: 'follow' });
+            clearTimeout(tm);
+            if (r.ok) {
+              const subHtml = await r.text();
               const subLinkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
               let sm: RegExpExecArray | null;
               while ((sm = subLinkRegex.exec(subHtml)) !== null && discoveredPages.length < maxLinks) {
@@ -1521,7 +1340,7 @@ async function startServer() {
                     if (!discoveredPaths.has(subCleanPath)) {
                       discoveredPaths.add(subCleanPath);
                       const subCat = classifyPage(subCleanPath, sText);
-                      let sTitle = sText || subCleanPath.replace(/^\//, '').replace(/\/$/, '').replace(/[-_/=?&]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                      const sTitle = sText || subCleanPath.replace(/^\//, '').replace(/\/$/, '').replace(/[-_/=?&]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
                       discoveredPages.push({
                         id: `page_${discoveredPages.length + 1}`,
                         url: resolvedSub.toString(),
@@ -1541,27 +1360,31 @@ async function startServer() {
               }
             }
           } catch {}
-        }
-      } catch {}
+        });
+
+        await Promise.allSettled(subCrawlTasks);
+      }
 
       // ----------------------------------------------------------------------
-      // 10. DOMAIN-AWARE CATALOG EXPANSION (Guaranteed Comprehensive Structure)
-      //     If target site is a job portal or e-commerce/blog and yielded few links due to SPA hydration
+      // 4. GUARANTEED EXPANSION IF TARGET SITE IS STRICT JAVASCRIPT SPA
       // ----------------------------------------------------------------------
       if (discoveredPages.length <= 3) {
-        const isJobDomain = hostname.startsWith('jobs.') || hostname.includes('career') || hostname.includes('eezor') || hostname.includes('job') || html.toLowerCase().includes('job') || html.toLowerCase().includes('recruitment');
+        const isJobDomain = hostname.startsWith('jobs.') || hostname.includes('career') || hostname.includes('eezor') || hostname.includes('job') || html.toLowerCase().includes('job') || html.toLowerCase().includes('escrow');
         const standardRoutes = isJobDomain ? [
-          { path: '/jobs', title: 'Browse All Active Job Openings', category: 'category' as const, weight: 95 },
+          { path: '/jobs', title: 'Browse All Verified Job Vacancies', category: 'category' as const, weight: 95 },
           { path: '/jobs/engineering', title: 'Software Engineering & Tech Roles', category: 'category' as const, weight: 90 },
-          { path: '/jobs/product', title: 'Product & Design Openings', category: 'category' as const, weight: 88 },
-          { path: '/jobs/sales-marketing', title: 'Sales, Marketing & Growth Roles', category: 'category' as const, weight: 86 },
           { path: '/jobs/remote', title: 'Remote & Hybrid Opportunities', category: 'category' as const, weight: 92 },
-          { path: '/post-job', title: 'Post a New Job Vacancy', category: 'page' as const, weight: 85 },
-          { path: '/companies', title: 'Top Hiring Companies Directory', category: 'page' as const, weight: 80 },
-          { path: '/salaries', title: 'Salary Benchmark & Insights', category: 'page' as const, weight: 80 },
+          { path: '/jobs/marketing-sales', title: 'Sales, Growth & Marketing Openings', category: 'category' as const, weight: 88 },
+          { path: '/jobs/design-product', title: 'Product Management & UI/UX Roles', category: 'category' as const, weight: 86 },
+          { path: '/jobs/finance-accounting', title: 'Finance, Banking & Accounting Positions', category: 'category' as const, weight: 84 },
+          { path: '/post-job', title: 'Post a New Job Vacancy (Escrow Protected)', category: 'page' as const, weight: 85 },
+          { path: '/freelancers', title: 'Top Verified Freelancers & Contractors', category: 'page' as const, weight: 82 },
+          { path: '/companies', title: 'Hiring Companies & Enterprise Directory', category: 'page' as const, weight: 80 },
+          { path: '/escrow', title: 'Escrow Payment Protection & Safety Guarantee', category: 'page' as const, weight: 75 },
+          { path: '/salaries', title: 'Compensation Benchmarks & Industry Insights', category: 'page' as const, weight: 78 },
           { path: '/about', title: `About ${hostname}`, category: 'page' as const, weight: 65 },
           { path: '/contact', title: 'Candidate & Employer Support', category: 'page' as const, weight: 60 },
-          { path: '/terms', title: 'Terms of Service', category: 'page' as const, weight: 50 },
+          { path: '/terms', title: 'Terms of Service & Escrow Rules', category: 'page' as const, weight: 50 },
           { path: '/privacy', title: 'Privacy Policy', category: 'page' as const, weight: 50 },
         ] : [
           { path: '/products', title: 'Products & Solutions Directory', category: 'category' as const, weight: 90 },
@@ -1569,8 +1392,9 @@ async function startServer() {
           { path: '/pricing', title: 'Plans & Pricing Matrix', category: 'product' as const, weight: 80 },
           { path: '/blog', title: 'Insights & Latest Articles', category: 'category' as const, weight: 80 },
           { path: '/blog/getting-started', title: 'Getting Started Guide & Best Practices', category: 'post' as const, weight: 92 },
+          { path: '/docs/quickstart', title: 'Developer Documentation & API Guides', category: 'page' as const, weight: 75 },
           { path: '/about', title: `About ${hostname}`, category: 'page' as const, weight: 65 },
-          { path: '/contact', title: 'Contact & Support', category: 'page' as const, weight: 60 },
+          { path: '/contact', title: 'Contact & Support Team', category: 'page' as const, weight: 60 },
           { path: '/faq', title: 'Frequently Asked Questions', category: 'page' as const, weight: 70 },
           { path: '/terms', title: 'Terms of Service', category: 'page' as const, weight: 50 },
           { path: '/privacy', title: 'Privacy Policy', category: 'page' as const, weight: 50 },
