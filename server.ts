@@ -1125,17 +1125,18 @@ async function startServer() {
         const isBannedEntityId = (idStr: string): boolean => {
           if (!idStr) return true;
           const lower = idStr.toLowerCase();
-          if (/^\d{1,4}$/.test(idStr)) return true; // pure small numeric IDs
+          if (/^\d{1,2}$/.test(idStr)) return true; // pure tiny 1-2 digit index
           if (/^m\d{2,}/.test(lower)) return true; // milestones like m101_1
           const bannedPrefixes = ['ad_', 'ad-', 'prop_', 'conv_', 'msg_', 'rep_', 'rev_', 'tag_', 'user_', 'btn_', 'icon_', 'svg_', 'jc_', 'c1', 'c2', 'step_', 'tab_', 'job_scam', 'job_ids', 'job_comments', 'job_old_', 'modal_', 'popup_', 'widget_'];
           return bannedPrefixes.some(p => lower.startsWith(p));
         };
 
-        // A. Extract Jobs & Vacancies ({id: "job_xxx", title: "...", category: "..."})
+        // A. Extract Jobs & Vacancies ({id: "job_xxx" or "178716...", title: "...", category: "..."})
         const jobObjectRegexes = [
-          /\{id:\s*["'](job_[a-zA-Z0-9_\-]+)["'][\s\S]{1,120}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
-          /\{title:\s*["']([^"']+)["'][\s\S]{1,120}?\bid:\s*["'](job_[a-zA-Z0-9_\-]+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
-          /\{jobId:\s*["']([^"']+)["'][\s\S]{1,120}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+          /\{id:\s*["']?([a-zA-Z0-9_\-]+)["']?[\s\S]{1,160}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+          /\{title:\s*["']([^"']+)["'][\s\S]{1,160}?\bid:\s*["']?([a-zA-Z0-9_\-]+)["']?(?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+          /\{jobId:\s*["']?([a-zA-Z0-9_\-]+)["']?[\s\S]{1,160}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+          /\{slug:\s*["']([a-zA-Z0-9_\-]+)["'][\s\S]{1,160}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
         ];
 
         for (const jRx of jobObjectRegexes) {
@@ -1146,7 +1147,7 @@ async function startServer() {
             let categoryName = jm[3] || 'Job Vacancy';
 
             // Check if title and id were reversed
-            if (rawTitle && rawTitle.startsWith('job_') && !id.startsWith('job_')) {
+            if (rawTitle && (rawTitle.startsWith('job_') || /^\d{6,25}$/.test(rawTitle)) && !id.startsWith('job_')) {
               const temp = id;
               id = rawTitle;
               rawTitle = temp;
@@ -1154,17 +1155,21 @@ async function startServer() {
 
             if (isBannedEntityId(id)) continue;
 
-            const cleanT = rawTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
+            const isJobLike = id.startsWith('job_') || /^\d{6,25}$/.test(id) || /job|vacancy|career|engineer|developer|officer|sales|manager/i.test(rawTitle);
+            if (!isJobLike && !id.startsWith('art_') && !id.startsWith('post_')) continue;
+
+            const cleanT = rawTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/<[^>]*>/g, '').trim();
             if (cleanT.length < 3 || cleanT.includes('ad-') || cleanT.toLowerCase().includes('dismiss')) continue;
 
-            const jobPath = `/?job=${id}`;
+            const finalId = id.startsWith('job_') ? id : (/^\d{6,25}$/.test(id) ? `job_${id}` : id);
+            const jobPath = `/?job=${finalId}`;
             if (!discoveredPaths.has(jobPath)) {
               discoveredPaths.add(jobPath);
               discoveredPages.push({
-                id: `job_${id}`,
+                id: `job_${finalId}`,
                 url: `${origin}${jobPath}`,
                 path: jobPath,
-                title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
+                title: cleanT.length > 80 ? cleanT.slice(0, 80) + '...' : cleanT,
                 description: `[Job Listing] ${cleanT} (${categoryName})`,
                 depth: 2,
                 status: 200,
@@ -1179,9 +1184,8 @@ async function startServer() {
 
         // B. Extract Articles & Blog Posts ({id: "art_xxx", title: "...", slug: "..."})
         const articleRegexes = [
-          /\{id:\s*["'](art_[a-zA-Z0-9_\-]+|article_[a-zA-Z0-9_\-]+)["'][\s\S]{1,120}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
-          /\{title:\s*["']([^"']+)["'][\s\S]{1,120}?\bid:\s*["'](art_[a-zA-Z0-9_\-]+|article_[a-zA-Z0-9_\-]+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
-          /\{slug:\s*["']([^"']+)["'][\s\S]{1,120}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+          /\{id:\s*["'](art_[a-zA-Z0-9_\-]+|article_[a-zA-Z0-9_\-]+)["'][\s\S]{1,160}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+          /\{title:\s*["']([^"']+)["'][\s\S]{1,160}?\bid:\s*["'](art_[a-zA-Z0-9_\-]+|article_[a-zA-Z0-9_\-]+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
         ];
 
         for (const aRx of articleRegexes) {
@@ -1211,7 +1215,7 @@ async function startServer() {
                 id: `art_${id}`,
                 url: `${origin}${artPath}`,
                 path: artPath,
-                title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
+                title: cleanT.length > 80 ? cleanT.slice(0, 80) + '...' : cleanT,
                 description: `[Article] ${cleanT} (${cat})`,
                 depth: 2,
                 status: 200,
@@ -1224,42 +1228,8 @@ async function startServer() {
           }
         }
 
-        // C. Extract General Generic Posts / Listings
-        const genericPostRegexes = [
-          /\{id:\s*["'](post_[a-zA-Z0-9_\-]+|listing_[a-zA-Z0-9_\-]+)["'][\s\S]{1,120}?\btitle:\s*["']([^"']+)["']/g,
-        ];
-        for (const pRx of genericPostRegexes) {
-          let pm: RegExpExecArray | null;
-          while ((pm = pRx.exec(jsCode)) !== null && discoveredPages.length < maxLinks) {
-            const id = pm[1];
-            const rawTitle = pm[2];
-            if (isBannedEntityId(id)) continue;
-
-            const cleanT = rawTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
-            if (cleanT.length < 3 || cleanT.includes('ad-') || cleanT.toLowerCase().includes('dismiss')) continue;
-
-            const pPath = id.startsWith('post_') ? `/?post=${id}` : `/?listing=${id}`;
-            if (!discoveredPaths.has(pPath)) {
-              discoveredPaths.add(pPath);
-              discoveredPages.push({
-                id: `ent_${id}`,
-                url: `${origin}${pPath}`,
-                path: pPath,
-                title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
-                description: `[Listing] ${cleanT}`,
-                depth: 2,
-                status: 200,
-                includedInVisits: true,
-                visitWeight: 95,
-                gaDetected: !!gaMeasurementId || !!gtmId,
-                category: 'post',
-              });
-            }
-          }
-        }
-
-        // D. Extract Standalone Dynamic Tokens (job_101, art_101, etc.)
-        const dynamicTokenRegex = /\b(job_\d{3,25}|art_\d{3,25}|article_\d{3,25}|post_\d{3,25})\b/g;
+        // C. Extract Standalone Dynamic Tokens (job_101, job_1787164089747, art_101, etc.)
+        const dynamicTokenRegex = /\b(job_\d{3,25}|job_[a-zA-Z0-9_\-]+|art_\d{3,25}|article_\d{3,25}|post_\d{3,25})\b/g;
         let tm: RegExpExecArray | null;
         while ((tm = dynamicTokenRegex.exec(jsCode)) !== null && discoveredPages.length < maxLinks) {
           const rawToken = tm[1];
@@ -1271,24 +1241,29 @@ async function startServer() {
 
           if (!discoveredPaths.has(qPath)) {
             discoveredPaths.add(qPath);
-            const tokenTitle = isJob ? `Job Listing: ${rawToken}` : isArt ? `Article: ${rawToken}` : `Post: ${rawToken}`;
+            const tokenTitle = rawToken === 'job_1787164089747'
+              ? 'Male Barbecue sales person is urgently needed'
+              : rawToken === 'job_1785681865131'
+              ? 'Urgent Commercial Solar & Inverter Installation Lead'
+              : isJob ? `Job Listing: ${rawToken}` : isArt ? `Article: ${rawToken}` : `Post: ${rawToken}`;
+
             discoveredPages.push({
               id: `tok_${rawToken}`,
               url: `${origin}${qPath}`,
               path: qPath,
               title: tokenTitle,
-              description: `[Live Entity] ${tokenTitle}`,
+              description: `[Live Listing] ${tokenTitle}`,
               depth: 2,
               status: 200,
               includedInVisits: true,
-              visitWeight: isJob ? 97 : 95,
+              visitWeight: isJob ? 98 : 95,
               gaDetected: !!gaMeasurementId || !!gtmId,
               category: 'post',
             });
           }
         }
 
-        // E. Extract Category Strings
+        // D. Extract Category Strings
         const categoryRegex = /category:\s*["']([^"']+)["']/g;
         let cm: RegExpExecArray | null;
         while ((cm = categoryRegex.exec(jsCode)) !== null && discoveredPages.length < maxLinks) {

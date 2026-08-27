@@ -22,6 +22,8 @@ import {
   X
 } from 'lucide-react';
 import { CrawledPage, SiteCrawlState } from '../types';
+import { parseRawJobText } from '../utils/jobTextParser';
+import { ALL_VERIFIED_NAIJA_JOBS } from '../data/allNaijaJobListings';
 
 interface CrawlerPanelProps {
   crawlState: SiteCrawlState;
@@ -168,24 +170,52 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
   };
 
   const handleBulkImport = () => {
-    const lines = bulkInput.split('\n').map(l => l.trim()).filter(Boolean);
-    if (!lines.length) return;
+    const raw = bulkInput.trim();
+    if (!raw) return;
 
     let count = 0;
-    lines.forEach(line => {
-      const parts = line.split('|');
-      const rawUrlOrId = parts[0].trim();
-      const rawTitle = parts[1]?.trim();
-      if (rawUrlOrId) {
-        const { path, title } = parseListingInput(rawUrlOrId, rawTitle);
-        onAddCustomPage(path, title);
-        count++;
+
+    // Check if input is multi-line formatted job text (e.g. copied from job portal or WhatsApp)
+    if (raw.includes('📍') || raw.includes('₦') || raw.includes('Job Title:') || raw.includes('Urgent Recruitment')) {
+      const parsedPages = parseRawJobText(raw, crawlState.origin);
+      if (parsedPages.length > 0) {
+        parsedPages.forEach(p => {
+          onAddCustomPage(p.path, p.title);
+          count++;
+        });
       }
-    });
+    }
+
+    // Also process line-by-line IDs/URLs
+    if (count === 0) {
+      const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+      lines.forEach(line => {
+        const parts = line.split('|');
+        const rawUrlOrId = parts[0].trim();
+        const rawTitle = parts[1]?.trim();
+        if (rawUrlOrId) {
+          const { path, title } = parseListingInput(rawUrlOrId, rawTitle);
+          onAddCustomPage(path, title);
+          count++;
+        }
+      });
+    }
 
     setFeedbackMessage(`Imported ${count} listings/routes.`);
     setActiveFilter('all');
     setBulkInput('');
+    setShowBulkModal(false);
+    setTimeout(() => setFeedbackMessage(null), 5000);
+  };
+
+  const handleImportAllVerifiedListings = () => {
+    let count = 0;
+    ALL_VERIFIED_NAIJA_JOBS.forEach(job => {
+      onAddCustomPage(job.path, job.title);
+      count++;
+    });
+    setFeedbackMessage(`Loaded all ${count} verified listings into route catalog!`);
+    setActiveFilter('all');
     setShowBulkModal(false);
     setTimeout(() => setFeedbackMessage(null), 5000);
   };
@@ -779,8 +809,33 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
             </div>
 
             <p className="text-xs text-slate-400">
-              Paste one URL, query, or job ID per line. You can also optionally include a title separated with a pipe <code className="text-cyan-300 font-mono">|</code>.
+              Paste one URL, query, or job ID per line (optionally with title separated by <code className="text-cyan-300 font-mono">|</code>), or paste raw copied job broadcasts directly.
             </p>
+
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={handleImportAllVerifiedListings}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 font-medium transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Load All 19+ Verified Listings</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBulkInput(`/?job=job_1787164089747 | Male Barbecue sales person is urgently needed
+/?job=job_1785681865131 | Urgent Commercial Solar & Inverter Installation Lead
+/?job=job_1787164099999 | Senior Flutter & React Native Mobile App Engineer
+/?job=job_105 | Full-Stack Next.js & Stripe/Paystack Engineer
+/?job=job_101 | Mobile App Developer for Dispatch Rider Tracking System
+/?article=art_101 | 10 Proven Tips to Ace High-Paying Job Interviews in Nigeria`);
+                }}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono transition-colors cursor-pointer"
+              >
+                Insert Sample IDs
+              </button>
+            </div>
 
             <textarea
               rows={6}

@@ -114,11 +114,11 @@ function loadInitialCrawlState(): SiteCrawlState {
     const saved = localStorage.getItem(STORAGE_KEYS.CRAWL_STATE);
     if (saved) {
       const parsed = JSON.parse(saved);
-      // Validate that saved state is not old example.com or small sample
+      // Validate that saved state has valid pages and domain
       if (
         parsed && 
         Array.isArray(parsed.pages) && 
-        parsed.pages.length >= 25 &&
+        parsed.pages.length > 0 &&
         parsed.hostname !== 'example.com' &&
         !parsed.pages.some((p: any) => p.id === 'p_root' || p.id === 'p_features')
       ) {
@@ -383,12 +383,13 @@ export default function App() {
 
       if (data.pages && data.pages.length > 0) {
         const newHostname = data.hostname || (urlToCrawl.startsWith('/') ? 'Local Sandbox' : new URL(urlToCrawl).hostname);
-        // Retain user-custom-added pages ONLY if re-scraping the same domain
+        // Retain user-custom-added listings/pages on the same domain
         const isSameDomain = crawlState.hostname === newHostname;
-        const existingCustomPages = isSameDomain ? crawlState.pages.filter(p => p.id.startsWith('custom_') || p.id.startsWith('user_')) : [];
-        const existingCustomPaths = new Set(data.pages.map((p: any) => p.path));
-        const retainedCustom = existingCustomPages.filter(p => !existingCustomPaths.has(p.path));
-        const mergedPages = [...retainedCustom, ...data.pages];
+        const incomingPaths = new Set(data.pages.map((p: any) => p.path));
+        const retainedCustom = isSameDomain
+          ? crawlState.pages.filter(p => !incomingPaths.has(p.path))
+          : [];
+        const mergedPages = [...data.pages, ...retainedCustom];
 
         setCrawlState({
           targetUrl: data.targetUrl || urlToCrawl,
@@ -429,7 +430,14 @@ export default function App() {
       // Live in-browser crawler parsing HTML, sitemaps and dynamic tokens
       try {
         const liveCrawlResult = await crawlWebsiteLiveInBrowser(urlToCrawl);
-        const fallbackPages = liveCrawlResult.pages && liveCrawlResult.pages.length > 0 ? liveCrawlResult.pages : getClientSideCrawledPages(urlToCrawl);
+        const discovered = liveCrawlResult.pages && liveCrawlResult.pages.length > 0 ? liveCrawlResult.pages : getClientSideCrawledPages(urlToCrawl);
+        
+        const isSameDomain = crawlState.hostname === hostname;
+        const incomingPaths = new Set(discovered.map(p => p.path));
+        const retainedCustom = isSameDomain
+          ? crawlState.pages.filter(p => !incomingPaths.has(p.path))
+          : [];
+        const fallbackPages = [...discovered, ...retainedCustom];
 
         setCrawlState({
           targetUrl: urlToCrawl,
@@ -460,19 +468,26 @@ export default function App() {
       } catch (clientErr: any) {
         console.error('Client crawl fallback error:', clientErr);
         const catalogPages = getClientSideCrawledPages(urlToCrawl);
+        const isSameDomain = crawlState.hostname === hostname;
+        const incomingPaths = new Set(catalogPages.map(p => p.path));
+        const retainedCustom = isSameDomain
+          ? crawlState.pages.filter(p => !incomingPaths.has(p.path))
+          : [];
+        const fallbackPages = [...catalogPages, ...retainedCustom];
+
         setCrawlState({
           targetUrl: urlToCrawl,
           hostname,
           title: `${hostname} - Catalog`,
-          pages: catalogPages,
+          pages: fallbackPages,
           isCrawling: false,
           statusCode: 200,
           latencyMs: 40,
-          realLinksCount: catalogPages.length,
+          realLinksCount: fallbackPages.length,
         });
-        setSaveBannerMessage(`Loaded ${catalogPages.length} routes for ${hostname}.`);
+        setSaveBannerMessage(`Loaded ${fallbackPages.length} routes for ${hostname}.`);
         setTimeout(() => setSaveBannerMessage(null), 6000);
-        return catalogPages;
+        return fallbackPages;
       }
     }
   };
