@@ -96,25 +96,27 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
         const qCat = parsed.searchParams.get('category') || parsed.searchParams.get('cat');
 
         if (qJob) {
-          fallbackTitle = qJob === 'job_1787164089747'
-            ? 'Male Barbecue sales person is urgently needed'
-            : `Job Listing: ${qJob}`;
+          const cleanJobId = qJob.replace(/^job_/, '');
+          fallbackTitle = isNaN(Number(cleanJobId))
+            ? `Job: ${cleanJobId.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`
+            : `Job Listing #${cleanJobId}`;
           category = 'post';
         } else if (qPost) {
-          fallbackTitle = `Post: ${qPost}`;
+          const cleanPostId = qPost.replace(/^post_/, '');
+          fallbackTitle = `Post: ${cleanPostId.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`;
           category = 'post';
         } else if (qListing) {
           fallbackTitle = `Listing: ${qListing}`;
           category = 'post';
         } else if (qCat) {
-          fallbackTitle = `Category: ${qCat.replace(/[-_]/g, ' ')}`;
+          fallbackTitle = `Category: ${qCat.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`;
           category = 'category';
         } else if (parsed.pathname.includes('/category/')) {
           category = 'category';
-          fallbackTitle = parsed.pathname.split('/category/')[1]?.replace(/[-_/]/g, ' ') || 'Category';
+          fallbackTitle = parsed.pathname.split('/category/')[1]?.replace(/[-_/]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Category';
         } else if (parsed.pathname.includes('/job/') || parsed.pathname.includes('/post/') || parsed.pathname.includes('/article/')) {
           category = 'post';
-          fallbackTitle = parsed.pathname.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || 'Listing';
+          fallbackTitle = parsed.pathname.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Listing';
         }
       } catch {
         formattedPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
@@ -128,15 +130,17 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
       const qPost = sp.get('post');
       const qCat = sp.get('category') || sp.get('cat');
       if (qJob) {
-        fallbackTitle = qJob === 'job_1787164089747'
-          ? 'Male Barbecue sales person is urgently needed'
-          : `Job Listing: ${qJob}`;
+        const cleanJobId = qJob.replace(/^job_/, '');
+        fallbackTitle = isNaN(Number(cleanJobId))
+          ? `Job: ${cleanJobId.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`
+          : `Job Listing #${cleanJobId}`;
         category = 'post';
       } else if (qPost) {
-        fallbackTitle = `Post: ${qPost}`;
+        const cleanPostId = qPost.replace(/^post_/, '');
+        fallbackTitle = `Post: ${cleanPostId.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`;
         category = 'post';
       } else if (qCat) {
-        fallbackTitle = `Category: ${qCat.replace(/[-_]/g, ' ')}`;
+        fallbackTitle = `Category: ${qCat.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`;
         category = 'category';
       }
     }

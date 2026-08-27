@@ -85,7 +85,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   onClearEvents,
 }) => {
   const [selectedVisitorId, setSelectedVisitorId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'stream' | 'http_hits' | 'browser' | 'ga4'>('stream');
+  const [activeTab, setActiveTab] = useState<'browser' | 'stream' | 'http_hits' | 'ga4'>('browser');
   const [selectedHit, setSelectedHit] = useState<RealHttpTrafficHit | null>(null);
   const [autoFollow, setAutoFollow] = useState(true);
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -602,6 +602,36 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
 
           {/* Main Browser Window Frame */}
           <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+            {/* Multi-Tab Navigation Bar: Shows each visited page in the visitor session */}
+            {selectedVisitor && (
+              <div className="bg-slate-950 px-3 pt-2 flex items-center gap-1 overflow-x-auto border-b border-slate-800/80">
+                {selectedVisitor.visitedPages.map((page, idx) => {
+                  const isCurrent = idx === selectedVisitor.currentPageIndex;
+                  const isCompleted = page.status === 'completed';
+                  return (
+                    <div
+                      key={page.id || idx}
+                      className={`px-3 py-1.5 rounded-t-lg text-xs font-medium flex items-center gap-2 border-t border-x transition-all shrink-0 max-w-[240px] select-none ${
+                        isCurrent
+                          ? 'bg-slate-900 border-slate-700 text-cyan-300 font-semibold shadow-sm'
+                          : isCompleted
+                            ? 'bg-slate-950/60 border-slate-800/60 text-slate-400'
+                            : 'bg-slate-950/30 border-transparent text-slate-600'
+                      }`}
+                    >
+                      <span className="text-[10px] font-mono opacity-70">Tab {idx + 1}</span>
+                      <span className="truncate">{page.title || page.path}</span>
+                      {isCurrent ? (
+                        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
+                      ) : isCompleted ? (
+                        <span className="text-[10px] text-emerald-400 shrink-0">✓</span>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Browser Top Window Chrome / Address Bar */}
             <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
               {/* Window Controls & Reload */}

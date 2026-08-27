@@ -628,11 +628,20 @@ async function startServer() {
 
         let html = await response.text();
 
-        // 1. Inject <base href="..."> into <head> so all assets (CSS, JS, images, fonts) resolve to the original site
+        // 1. Inject frame-busting neutralizer & <base href="..."> into <head> so all assets resolve
+        const headInjection = `
+<script>
+  try {
+    window.top = window;
+    window.parent = window;
+  } catch(e) {}
+</script>
+<base href="${origin}/">
+`;
         if (html.includes('<head>') || html.includes('<head ')) {
-          html = html.replace(/<head\b[^>]*>/i, `$&<base href="${origin}/">`);
+          html = html.replace(/<head\b[^>]*>/i, `$&${headInjection}`);
         } else {
-          html = `<base href="${origin}/">\n` + html;
+          html = `${headInjection}\n` + html;
         }
 
         // 2. Remove restrictive CSP and frame headers if present inside meta tags
@@ -743,6 +752,20 @@ async function startServer() {
       }
     }
   });
+
+  // Intercept in-page navigation clicks smoothly
+  document.addEventListener('click', function(e) {
+    var anchor = e.target.closest && e.target.closest('a');
+    if (anchor && anchor.href) {
+      try {
+        window.parent.postMessage({
+          type: 'TP_LINK_CLICKED',
+          href: anchor.href,
+          text: anchor.innerText || ''
+        }, '*');
+      } catch(err) {}
+    }
+  }, true);
 
   // Notify parent window that page loaded
   try {
@@ -1322,15 +1345,69 @@ async function startServer() {
                 if (jsGa) gaMeasurementId = jsGa[0];
               }
 
-              // Extract dynamic entity tokens
-              const dynamicTokenRegex = /\b(job_\d{3,25}|job_[a-zA-Z0-9_\-]{4,30}|post_\d{3,25}|article_\d{3,25}|listing_\d{3,25})\b/g;
+              // Extract structured objects {id: "...", title: "..."} and {title: "...", id: "..."}
+              const entityRegexes = [
+                /\bid\s*:\s*["']([a-zA-Z0-9_\-]+)["'][\s\S]{1,150}?\btitle\s*:\s*["']([^"']+)["']/g,
+                /\btitle\s*:\s*["']([^"']+)["'][\s\S]{1,150}?\bid\s*:\s*["']([a-zA-Z0-9_\-]+)["']/g,
+                /\b(?:slug|path)\s*:\s*["']([^"']+)["'][\s\S]{1,150}?\btitle\s*:\s*["']([^"']+)["']/g,
+              ];
+
+              for (const rx of entityRegexes) {
+                let em: RegExpExecArray | null;
+                while ((em = rx.exec(js)) !== null && discoveredPages.length < maxLinks) {
+                  const rawFirst = (em[1] || '').trim();
+                  const rawSecond = (em[2] || '').trim();
+                  
+                  // Determine which one is ID/slug and which is title
+                  let id = rawFirst;
+                  let rawTitle = rawSecond;
+                  if (rawFirst.length > 25 && rawSecond.length <= 25 && !rawFirst.startsWith('job_') && !rawFirst.startsWith('art_')) {
+                    rawTitle = rawFirst;
+                    id = rawSecond;
+                  }
+
+                  if (!id || /^m\d/.test(id) || id.startsWith('svg') || id.startsWith('path') || id.startsWith('btn_') || id.startsWith('icon_')) continue;
+                  
+                  const isJob = id.startsWith('job_') || id.includes('job') || hostname.includes('job');
+                  const isArticle = id.startsWith('art_') || id.startsWith('article_') || id.includes('article');
+                  const candPath = isJob ? `/?job=${id}` : isArticle ? `/?article=${id}` : id.startsWith('post_') ? `/?post=${id}` : id.startsWith('/') ? id : `/${id}`;
+                  const cleanT = rawTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
+
+                  const existing = discoveredPages.find(p => p.path === candPath);
+                  if (existing) {
+                    if (cleanT && cleanT.length > 3 && (existing.title.startsWith('Job:') || existing.title.startsWith('Post:') || existing.title.startsWith('Listing:') || existing.title.startsWith('Article:') || existing.title === 'Internal Page')) {
+                      existing.title = cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT;
+                      existing.description = isJob ? `[Job Listing] ${cleanT}` : isArticle ? `[Article] ${cleanT}` : `${existing.category.toUpperCase()}: ${cleanT}`;
+                    }
+                  } else if (!discoveredPaths.has(candPath) && isCleanPublicPage(candPath, rawTitle)) {
+                    discoveredPaths.add(candPath);
+                    const finalCat = isJob ? 'post' : isArticle ? 'post' : classifyPage(candPath, cleanT);
+                    discoveredPages.push({
+                      id: `spa_${id}_${discoveredPages.length + 1}`,
+                      url: `${origin}${candPath}`,
+                      path: candPath,
+                      title: cleanT ? (cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT) : `Listing: ${id}`,
+                      description: isJob ? `[Job Listing] ${cleanT}` : isArticle ? `[Article] ${cleanT}` : `${finalCat.toUpperCase()}: ${cleanT}`,
+                      depth: 2,
+                      status: 200,
+                      includedInVisits: true,
+                      visitWeight: 96,
+                      gaDetected: !!gaMeasurementId || !!gtmId,
+                      category: finalCat,
+                    });
+                  }
+                }
+              }
+
+              // Extract standalone dynamic entity tokens as fallback
+              const dynamicTokenRegex = /\b(job_\d{3,25}|job_[a-zA-Z0-9_\-]{4,30}|art_\d{3,25}|article_\d{3,25}|post_\d{3,25}|listing_\d{3,25})\b/g;
               let jm: RegExpExecArray | null;
               while ((jm = dynamicTokenRegex.exec(js)) !== null && discoveredPages.length < maxLinks) {
                 const rawToken = jm[1];
-                if (rawToken.startsWith('m10') || rawToken.startsWith('job_listing') || rawToken.startsWith('job_ids') || rawToken.startsWith('job_comments')) continue;
+                if (rawToken.startsWith('m10') || rawToken.startsWith('job_listing') || rawToken.startsWith('job_ids') || rawToken.startsWith('job_comments') || rawToken.startsWith('job_old_')) continue;
                 
-                const queryPath = rawToken.startsWith('post_') ? `/?post=${rawToken}` : rawToken.startsWith('article_') ? `/article/${rawToken}` : rawToken.startsWith('listing_') ? `/?listing=${rawToken}` : `/?job=${rawToken}`;
-                const itemTitle = rawToken.startsWith('post_') ? `Post: ${rawToken}` : rawToken.startsWith('article_') ? `Article: ${rawToken}` : rawToken.startsWith('listing_') ? `Listing: ${rawToken}` : `Job: ${rawToken}`;
+                const queryPath = rawToken.startsWith('post_') ? `/?post=${rawToken}` : rawToken.startsWith('art_') || rawToken.startsWith('article_') ? `/?article=${rawToken}` : rawToken.startsWith('listing_') ? `/?listing=${rawToken}` : `/?job=${rawToken}`;
+                const itemTitle = rawToken.startsWith('post_') ? `Post: ${rawToken}` : rawToken.startsWith('art_') || rawToken.startsWith('article_') ? `Article: ${rawToken}` : rawToken.startsWith('listing_') ? `Listing: ${rawToken}` : `Job: ${rawToken}`;
 
                 if (!isCleanPublicPage(queryPath, itemTitle)) continue;
                 if (!discoveredPaths.has(queryPath)) {
@@ -1344,34 +1421,7 @@ async function startServer() {
                     depth: 2,
                     status: 200,
                     includedInVisits: true,
-                    visitWeight: 95,
-                    gaDetected: !!gaMeasurementId || !!gtmId,
-                    category: 'post',
-                  });
-                }
-              }
-
-              // Extract structured objects {id: "...", title: "..."}
-              const entityRegex = /\{(?:\s*["']?id["']?\s*:\s*["']([a-zA-Z0-9_\-]+)["']|\s*["']?jobId["']?\s*:\s*["']([a-zA-Z0-9_\-]+)["'])[^}]*?["']?title["']?\s*:\s*["']([^"']+)["']/g;
-              let em: RegExpExecArray | null;
-              while ((em = entityRegex.exec(js)) !== null && discoveredPages.length < maxLinks) {
-                const id = em[1] || em[2];
-                const rawTitle = (em[3] || '').trim();
-                if (!id || /^m\d/.test(id)) continue;
-                const isJob = id.startsWith('job_') || id.includes('job') || hostname.startsWith('jobs.');
-                const candPath = isJob ? `/?job=${id}` : `/?post=${id}`;
-                if (!discoveredPaths.has(candPath) && isCleanPublicPage(candPath, rawTitle)) {
-                  discoveredPaths.add(candPath);
-                  discoveredPages.push({
-                    id: `spa_${id}_${discoveredPages.length + 1}`,
-                    url: `${origin}${candPath}`,
-                    path: candPath,
-                    title: rawTitle ? (rawTitle.length > 70 ? rawTitle.slice(0, 70) + '...' : rawTitle) : `Listing: ${id}`,
-                    description: isJob ? `[Job Listing] ${rawTitle}` : `[Post] ${rawTitle}`,
-                    depth: 2,
-                    status: 200,
-                    includedInVisits: true,
-                    visitWeight: 95,
+                    visitWeight: 94,
                     gaDetected: !!gaMeasurementId || !!gtmId,
                     category: 'post',
                   });

@@ -179,28 +179,41 @@ export class OrganicTrafficEngine {
     if (activeProxies.length === 0) return null;
 
     // Filter by selected regions if specified
-    const regionFiltered = (proxyEngine.selectedRegions && proxyEngine.selectedRegions.length > 0)
-      ? activeProxies.filter(p => !p.region || proxyEngine.selectedRegions!.includes(p.region))
-      : activeProxies;
+    const selectedRegs = (proxyEngine.selectedRegions && proxyEngine.selectedRegions.length > 0 && !proxyEngine.selectedRegions.includes('all'))
+      ? proxyEngine.selectedRegions
+      : [];
 
-    const candidatePool = regionFiltered.length > 0 ? regionFiltered : activeProxies;
-
-    // If country match preferred or strict geo matching
-    if (proxyEngine.mode === 'country_match' || proxyEngine.strictGeoMatching) {
-      const matchingCountry = candidatePool.filter(p => p.countryCode.toUpperCase() === country.code.toUpperCase());
-      if (matchingCountry.length > 0) {
-        return matchingCountry[Math.floor(Math.random() * matchingCountry.length)];
-      }
-      // Fallback to region matching proxy
-      if (country.region) {
-        const matchingRegion = candidatePool.filter(p => p.region && p.region.toLowerCase() === country.region?.toLowerCase());
-        if (matchingRegion.length > 0) {
-          return matchingRegion[Math.floor(Math.random() * matchingRegion.length)];
-        }
+    let candidatePool = activeProxies;
+    if (selectedRegs.length > 0) {
+      const regionFiltered = activeProxies.filter(p => {
+        if (!p.region) return false;
+        return selectedRegs.some(r => 
+          p.region.toLowerCase() === r.toLowerCase() ||
+          (r === 'Middle East & Africa' && (p.region === 'Middle East' || p.region === 'Africa')) ||
+          (r === 'Americas' && (p.region === 'North America' || p.region === 'South America')) ||
+          (r === 'Asia-Pacific' && (p.region === 'Asia' || p.region === 'Oceania'))
+        );
+      });
+      if (regionFiltered.length > 0) {
+        candidatePool = regionFiltered;
       }
     }
 
-    // Auto rotate randomly across active residential proxy nodes in candidate pool
+    // 1. Strict country match within candidate pool
+    const matchingCountry = candidatePool.filter(p => p.countryCode.toUpperCase() === country.code.toUpperCase());
+    if (matchingCountry.length > 0) {
+      return matchingCountry[Math.floor(Math.random() * matchingCountry.length)];
+    }
+
+    // 2. Region matching proxy within candidate pool
+    if (country.region) {
+      const matchingRegion = candidatePool.filter(p => p.region && p.region.toLowerCase() === country.region?.toLowerCase());
+      if (matchingRegion.length > 0) {
+        return matchingRegion[Math.floor(Math.random() * matchingRegion.length)];
+      }
+    }
+
+    // 3. Fallback to any active node in the user's selected candidate pool
     return candidatePool[Math.floor(Math.random() * candidatePool.length)];
   }
 
@@ -223,8 +236,18 @@ export class OrganicTrafficEngine {
       }
 
       // Increment dwell time spent
+      const prevDwell = currentPage.dwellSecondsSpent;
       currentPage.dwellSecondsSpent += tickDeltaSeconds;
       visitor.totalSessionDwellSeconds += tickDeltaSeconds;
+
+      // Periodic 5-second GA4 user_engagement heartbeat to keep Realtime active user metrics alive
+      if (
+        this.config.ga4.sendEngagementEvents &&
+        Math.floor(currentPage.dwellSecondsSpent / 5) > Math.floor(prevDwell / 5) &&
+        currentPage.dwellSecondsSpent >= 5
+      ) {
+        this.dispatchGa4Beacon(visitor, 'user_engagement', currentPage.path, currentPage.title, 5000);
+      }
 
       // Calculate progress on current page (0 - 100%)
       const pageProgress = Math.min(100, (currentPage.dwellSecondsSpent / Math.max(1, currentPage.dwellPlannedSeconds)) * 100);
@@ -721,15 +744,63 @@ export class OrganicTrafficEngine {
     const visitorId = `vis_${visitorNumber}_${Math.random().toString(36).substr(2, 6)}`;
 
     // =========================================================================
-    // 1. DYNAMIC GEO SELECTION: Random Visit from Different Region & Country
+    // 1. DYNAMIC GEO SELECTION: Strictly respects user's selected region & country
     // =========================================================================
     const allConfigured = this.config.fingerprint.countries && this.config.fingerprint.countries.length > 0
       ? this.config.fingerprint.countries
       : GLOBAL_COUNTRIES;
 
-    const enabledCountries = allConfigured.filter(c => c.enabled !== false && (c.weight ?? 1) > 0);
-    const pool = enabledCountries.length > 0 ? enabledCountries : allConfigured;
+    let enabledCountries = allConfigured.filter(c => c.enabled !== false && (c.weight ?? 1) > 0);
+    if (enabledCountries.length === 0) enabledCountries = allConfigured;
 
+    // Check if Proxy Engine has specific region or proxy filters
+    const proxyEngine = this.config.fingerprint.proxyEngine;
+    if (proxyEngine?.enabled) {
+      const activeProxies = (proxyEngine.proxies || []).filter(p => p.enabled !== false && p.status !== 'failed');
+      const selectedRegs = (proxyEngine.selectedRegions && proxyEngine.selectedRegions.length > 0 && !proxyEngine.selectedRegions.includes('all'))
+        ? proxyEngine.selectedRegions
+        : [];
+
+      if (selectedRegs.length > 0) {
+        const regionMatched = enabledCountries.filter(c => {
+          if (!c.region) return false;
+          return selectedRegs.some(r => 
+            c.region?.toLowerCase() === r.toLowerCase() ||
+            (r === 'Middle East & Africa' && (c.region === 'Middle East' || c.region === 'Africa')) ||
+            (r === 'Americas' && (c.region === 'North America' || c.region === 'South America')) ||
+            (r === 'Asia-Pacific' && (c.region === 'Asia' || c.region === 'Oceania'))
+          );
+        });
+
+        if (regionMatched.length > 0) {
+          enabledCountries = regionMatched;
+        } else {
+          // If no enabled countries matched, look across global countries in those regions
+          const globalRegionMatched = GLOBAL_COUNTRIES.filter(c => 
+            selectedRegs.some(r => 
+              c.region?.toLowerCase() === r.toLowerCase() ||
+              (r === 'Middle East & Africa' && (c.region === 'Middle East' || c.region === 'Africa')) ||
+              (r === 'Americas' && (c.region === 'North America' || c.region === 'South America')) ||
+              (r === 'Asia-Pacific' && (c.region === 'Asia' || c.region === 'Oceania'))
+            )
+          );
+          if (globalRegionMatched.length > 0) {
+            enabledCountries = globalRegionMatched;
+          }
+        }
+      }
+
+      // If strict geo matching with enabled proxy list is active
+      if (activeProxies.length > 0 && (proxyEngine.strictGeoMatching || proxyEngine.mode === 'country_match')) {
+        const proxyCodes = new Set(activeProxies.map(p => p.countryCode.toUpperCase()));
+        const codeMatched = enabledCountries.filter(c => proxyCodes.has(c.code.toUpperCase()));
+        if (codeMatched.length > 0) {
+          enabledCountries = codeMatched;
+        }
+      }
+    }
+
+    const pool = enabledCountries;
     const geoMode = this.config.fingerprint.geoMode || 'random_worldwide';
     const countryRepetitionMode = this.config.fingerprint.countryRepetitionMode || 'round_robin_distinct';
 
@@ -740,7 +811,7 @@ export class OrganicTrafficEngine {
       this.countryRotationIndex = (this.countryRotationIndex + 1) % pool.length;
       selectedCountry = pool[this.countryRotationIndex];
     } else if (geoMode === 'random_worldwide' || geoMode === 'random_regions') {
-      // Group enabled countries by region (Americas, Europe, Asia-Pacific, Middle East & Africa)
+      // Group enabled countries by region
       const regionMap = new Map<string, GeoCountry[]>();
       for (const c of pool) {
         const reg = c.region || 'Americas';
@@ -749,7 +820,7 @@ export class OrganicTrafficEngine {
       }
       const regionKeys = Array.from(regionMap.keys());
 
-      // Pick a random region first, ensuring wide multi-continental spread
+      // Pick a random region first, ensuring wide spread
       const randomRegion = regionKeys[Math.floor(Math.random() * regionKeys.length)];
       const countriesInRegion = regionMap.get(randomRegion) || pool;
 
@@ -1068,12 +1139,15 @@ export class OrganicTrafficEngine {
 
     // Select proxy node if enabled
     const selectedProxy = this.selectProxyForSession(selectedCountry, false);
+    const finalCountry = (selectedProxy && (proxyEngine?.strictGeoMatching || proxyEngine?.mode === 'country_match'))
+      ? (pool.find(c => c.code.toUpperCase() === selectedProxy.countryCode.toUpperCase()) || GLOBAL_COUNTRIES.find(c => c.code.toUpperCase() === selectedProxy.countryCode.toUpperCase()) || selectedCountry)
+      : selectedCountry;
 
     const session: ActiveVisitorSession = {
       visitorId,
       visitorNumber,
-      country: selectedCountry,
-      ipAddress: selectedProxy?.exitIp || fingerprint.ipAddress,
+      country: finalCountry,
+      ipAddress: selectedProxy?.exitIp || selectedProxy?.host || fingerprint.ipAddress,
       proxyUsed: selectedProxy,
       deviceType: fingerprint.deviceType,
       userAgent: fingerprint.userAgent,

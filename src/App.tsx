@@ -663,7 +663,17 @@ export default function App() {
       countryCount: {},
     });
 
-    const engine = new OrganicTrafficEngine(organicConfig, pagesToUse, {
+    const effectiveOrganicConfig: OrganicVisitorConfig = {
+      ...organicConfig,
+      targetUrl,
+      ga4: {
+        ...organicConfig.ga4,
+        measurementId: (organicConfig.ga4?.measurementId || crawlState.gaMeasurementId || '').trim(),
+        autoSendMeasurementProtocol: true,
+      }
+    };
+
+    const engine = new OrganicTrafficEngine(effectiveOrganicConfig, pagesToUse, {
       onActiveVisitorsUpdate: (visitors) => {
         setActiveVisitors([...visitors]);
       },
