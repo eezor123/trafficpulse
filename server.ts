@@ -1080,17 +1080,258 @@ async function startServer() {
       }
 
       // ----------------------------------------------------------------------
-      // 2. PROBE DYNAMIC REST APIS & JOBS ENDPOINTS
+      // 2. PARALLEL HIGH-SPEED SCRAPER & ASSET DECOMPILER ENGINE
+      //    Runs Script Bundle analysis, Next.js / Nuxt state, Sitemaps, WP REST APIs,
+      //    RSS feeds, dynamic JSON endpoints, and HTML links simultaneously!
       // ----------------------------------------------------------------------
+
+      // Collect scripts from HTML (both inline and external)
+      const scriptUrls: string[] = [];
+      const scriptRegex = /<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+      let scriptMatch: RegExpExecArray | null;
+      while ((scriptMatch = scriptRegex.exec(html)) !== null) {
+        const src = scriptMatch[1].trim();
+        if (!src.includes('googletagmanager.com') && !src.includes('google-analytics.com') && !src.includes('clarity.ms') && !src.includes('facebook.net') && !src.includes('cloudflare.com')) {
+          try {
+            const fullScriptUrl = src.startsWith('http://') || src.startsWith('https://') 
+              ? src 
+              : new URL(src, origin).toString();
+            scriptUrls.push(fullScriptUrl);
+          } catch {}
+        }
+      }
+
+      // Also extract inline scripts
+      const inlineScripts: string[] = [];
+      const inlineScriptRegex = /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+      let inlineMatch: RegExpExecArray | null;
+      while ((inlineMatch = inlineScriptRegex.exec(html)) !== null) {
+        const content = inlineMatch[1].trim();
+        if (content.length > 30 && !content.includes('gtag(') && !content.includes('dataLayer.push')) {
+          inlineScripts.push(content);
+        }
+      }
+
+      // Helper function to extract structured entities from any JavaScript code string
+      const extractEntitiesFromJs = (jsCode: string) => {
+        if (!jsCode || jsCode.length < 20) return;
+
+        // Check GA4 measurement ID in code
+        if (!gaMeasurementId) {
+          const jsGa = jsCode.match(/G-[A-Z0-9]{8,14}/i);
+          if (jsGa) gaMeasurementId = jsGa[0];
+        }
+
+        const isBannedEntityId = (idStr: string): boolean => {
+          if (!idStr) return true;
+          const lower = idStr.toLowerCase();
+          if (/^\d{1,4}$/.test(idStr)) return true; // pure small numeric IDs
+          if (/^m\d{2,}/.test(lower)) return true; // milestones like m101_1
+          const bannedPrefixes = ['ad_', 'ad-', 'prop_', 'conv_', 'msg_', 'rep_', 'rev_', 'tag_', 'user_', 'btn_', 'icon_', 'svg_', 'jc_', 'c1', 'c2', 'step_', 'tab_', 'job_scam', 'job_ids', 'job_comments', 'job_old_', 'modal_', 'popup_', 'widget_'];
+          return bannedPrefixes.some(p => lower.startsWith(p));
+        };
+
+        // A. Extract Jobs & Vacancies ({id: "job_xxx", title: "...", category: "..."})
+        const jobObjectRegexes = [
+          /\{id:\s*["'](job_[a-zA-Z0-9_\-]+)["'][\s\S]{1,120}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+          /\{title:\s*["']([^"']+)["'][\s\S]{1,120}?\bid:\s*["'](job_[a-zA-Z0-9_\-]+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+          /\{jobId:\s*["']([^"']+)["'][\s\S]{1,120}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+        ];
+
+        for (const jRx of jobObjectRegexes) {
+          let jm: RegExpExecArray | null;
+          while ((jm = jRx.exec(jsCode)) !== null && discoveredPages.length < maxLinks) {
+            let id = jm[1];
+            let rawTitle = jm[2];
+            let categoryName = jm[3] || 'Job Vacancy';
+
+            // Check if title and id were reversed
+            if (rawTitle && rawTitle.startsWith('job_') && !id.startsWith('job_')) {
+              const temp = id;
+              id = rawTitle;
+              rawTitle = temp;
+            }
+
+            if (isBannedEntityId(id)) continue;
+
+            const cleanT = rawTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
+            if (cleanT.length < 3 || cleanT.includes('ad-') || cleanT.toLowerCase().includes('dismiss')) continue;
+
+            const jobPath = `/?job=${id}`;
+            if (!discoveredPaths.has(jobPath)) {
+              discoveredPaths.add(jobPath);
+              discoveredPages.push({
+                id: `job_${id}`,
+                url: `${origin}${jobPath}`,
+                path: jobPath,
+                title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
+                description: `[Job Listing] ${cleanT} (${categoryName})`,
+                depth: 2,
+                status: 200,
+                includedInVisits: true,
+                visitWeight: 98,
+                gaDetected: !!gaMeasurementId || !!gtmId,
+                category: 'post',
+              });
+            }
+          }
+        }
+
+        // B. Extract Articles & Blog Posts ({id: "art_xxx", title: "...", slug: "..."})
+        const articleRegexes = [
+          /\{id:\s*["'](art_[a-zA-Z0-9_\-]+|article_[a-zA-Z0-9_\-]+)["'][\s\S]{1,120}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+          /\{title:\s*["']([^"']+)["'][\s\S]{1,120}?\bid:\s*["'](art_[a-zA-Z0-9_\-]+|article_[a-zA-Z0-9_\-]+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+          /\{slug:\s*["']([^"']+)["'][\s\S]{1,120}?\btitle:\s*["']([^"']+)["'](?:[\s\S]{1,250}?\bcategory:\s*["']([^"']+)["'])?/g,
+        ];
+
+        for (const aRx of articleRegexes) {
+          let am: RegExpExecArray | null;
+          while ((am = aRx.exec(jsCode)) !== null && discoveredPages.length < maxLinks) {
+            let id = am[1];
+            let rawTitle = am[2];
+            let cat = am[3] || 'Article';
+
+            if (rawTitle && (rawTitle.startsWith('art_') || rawTitle.startsWith('article_'))) {
+              const tmp = id;
+              id = rawTitle;
+              rawTitle = tmp;
+            }
+
+            if (isBannedEntityId(id)) continue;
+
+            const cleanT = rawTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
+            if (cleanT.length < 3 || cleanT.includes('ad-') || cleanT.toLowerCase().includes('dismiss')) continue;
+
+            const isArticleId = id.startsWith('art_') || id.startsWith('article_');
+            const artPath = isArticleId ? `/?article=${id}` : id.startsWith('/') ? id : `/article/${id}`;
+
+            if (!discoveredPaths.has(artPath) && isCleanPublicPage(artPath, cleanT)) {
+              discoveredPaths.add(artPath);
+              discoveredPages.push({
+                id: `art_${id}`,
+                url: `${origin}${artPath}`,
+                path: artPath,
+                title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
+                description: `[Article] ${cleanT} (${cat})`,
+                depth: 2,
+                status: 200,
+                includedInVisits: true,
+                visitWeight: 96,
+                gaDetected: !!gaMeasurementId || !!gtmId,
+                category: 'post',
+              });
+            }
+          }
+        }
+
+        // C. Extract General Generic Posts / Listings
+        const genericPostRegexes = [
+          /\{id:\s*["'](post_[a-zA-Z0-9_\-]+|listing_[a-zA-Z0-9_\-]+)["'][\s\S]{1,120}?\btitle:\s*["']([^"']+)["']/g,
+        ];
+        for (const pRx of genericPostRegexes) {
+          let pm: RegExpExecArray | null;
+          while ((pm = pRx.exec(jsCode)) !== null && discoveredPages.length < maxLinks) {
+            const id = pm[1];
+            const rawTitle = pm[2];
+            if (isBannedEntityId(id)) continue;
+
+            const cleanT = rawTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
+            if (cleanT.length < 3 || cleanT.includes('ad-') || cleanT.toLowerCase().includes('dismiss')) continue;
+
+            const pPath = id.startsWith('post_') ? `/?post=${id}` : `/?listing=${id}`;
+            if (!discoveredPaths.has(pPath)) {
+              discoveredPaths.add(pPath);
+              discoveredPages.push({
+                id: `ent_${id}`,
+                url: `${origin}${pPath}`,
+                path: pPath,
+                title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
+                description: `[Listing] ${cleanT}`,
+                depth: 2,
+                status: 200,
+                includedInVisits: true,
+                visitWeight: 95,
+                gaDetected: !!gaMeasurementId || !!gtmId,
+                category: 'post',
+              });
+            }
+          }
+        }
+
+        // D. Extract Standalone Dynamic Tokens (job_101, art_101, etc.)
+        const dynamicTokenRegex = /\b(job_\d{3,25}|art_\d{3,25}|article_\d{3,25}|post_\d{3,25})\b/g;
+        let tm: RegExpExecArray | null;
+        while ((tm = dynamicTokenRegex.exec(jsCode)) !== null && discoveredPages.length < maxLinks) {
+          const rawToken = tm[1];
+          if (isBannedEntityId(rawToken)) continue;
+
+          const isJob = rawToken.startsWith('job_');
+          const isArt = rawToken.startsWith('art_') || rawToken.startsWith('article_');
+          const qPath = isJob ? `/?job=${rawToken}` : isArt ? `/?article=${rawToken}` : `/?post=${rawToken}`;
+
+          if (!discoveredPaths.has(qPath)) {
+            discoveredPaths.add(qPath);
+            const tokenTitle = isJob ? `Job Listing: ${rawToken}` : isArt ? `Article: ${rawToken}` : `Post: ${rawToken}`;
+            discoveredPages.push({
+              id: `tok_${rawToken}`,
+              url: `${origin}${qPath}`,
+              path: qPath,
+              title: tokenTitle,
+              description: `[Live Entity] ${tokenTitle}`,
+              depth: 2,
+              status: 200,
+              includedInVisits: true,
+              visitWeight: isJob ? 97 : 95,
+              gaDetected: !!gaMeasurementId || !!gtmId,
+              category: 'post',
+            });
+          }
+        }
+
+        // E. Extract Category Strings
+        const categoryRegex = /category:\s*["']([^"']+)["']/g;
+        let cm: RegExpExecArray | null;
+        while ((cm = categoryRegex.exec(jsCode)) !== null && discoveredPages.length < maxLinks) {
+          const rawCat = cm[1].trim();
+          if (rawCat.length > 2 && rawCat.length < 50 && !['analytics', 'marketing', 'chat', 'custom', 'default', 'none', 'all', 'other'].includes(rawCat.toLowerCase())) {
+            const catQueryPath = `/?category=${encodeURIComponent(rawCat)}`;
+            if (!discoveredPaths.has(catQueryPath)) {
+              discoveredPaths.add(catQueryPath);
+              discoveredPages.push({
+                id: `cat_${encodeURIComponent(rawCat)}`,
+                url: `${origin}${catQueryPath}`,
+                path: catQueryPath,
+                title: `Category: ${rawCat}`,
+                description: `Category Archive: ${rawCat}`,
+                depth: 1,
+                status: 200,
+                includedInVisits: true,
+                visitWeight: 88,
+                gaDetected: !!gaMeasurementId || !!gtmId,
+                category: 'category',
+              });
+            }
+          }
+        }
+      };
+
+      // Process all inline scripts immediately
+      for (const inScript of inlineScripts) {
+        extractEntitiesFromJs(inScript);
+      }
+
+      // Dynamic REST APIs & JSON endpoints
       const dynamicApiEndpoints = [
         `${origin}/api/jobs`,
         `${origin}/api/all-jobs`,
         `${origin}/api/listings`,
         `${origin}/api/posts`,
+        `${origin}/api/articles`,
         `${origin}/api/vacancies`,
         `${origin}/jobs.json`,
         `${origin}/data/jobs.json`,
         `${origin}/listings.json`,
+        `${origin}/articles.json`,
       ];
 
       for (const apiEp of dynamicApiEndpoints) {
@@ -1101,19 +1342,20 @@ async function startServer() {
           clearTimeout(tm);
           if (r.ok) {
             const data = await r.json();
-            const jobItems = Array.isArray(data) ? data : data.jobs || data.data || data.listings || data.posts || [];
+            const jobItems = Array.isArray(data) ? data : data.jobs || data.data || data.listings || data.posts || data.articles || [];
             if (Array.isArray(jobItems)) {
               for (const jItem of jobItems) {
                 if (discoveredPages.length >= maxLinks) break;
                 const jId = jItem.id || jItem.jobId || jItem.slug || jItem._id;
-                const jTitle = jItem.title || jItem.jobTitle || jItem.name || `Job ${jId}`;
-                const jCat = jItem.category || 'post';
+                const jTitle = jItem.title || jItem.jobTitle || jItem.name || `Listing ${jId}`;
+                const jCat = jItem.category || jItem.categoryName || 'Job Vacancy';
                 if (jId) {
-                  const jPath = `/?job=${jId}`;
+                  const isArt = String(jId).startsWith('art_') || String(jId).startsWith('article_');
+                  const jPath = isArt ? `/?article=${jId}` : `/?job=${jId}`;
                   if (!discoveredPaths.has(jPath) && isCleanPublicPage(jPath, jTitle)) {
                     discoveredPaths.add(jPath);
                     discoveredPages.push({
-                      id: `api_job_${jId}`,
+                      id: `api_${jId}`,
                       url: `${origin}${jPath}`,
                       path: jPath,
                       title: String(jTitle).slice(0, 80),
@@ -1121,7 +1363,7 @@ async function startServer() {
                       depth: 2,
                       status: 200,
                       includedInVisits: true,
-                      visitWeight: 95,
+                      visitWeight: 98,
                       gaDetected: !!gaMeasurementId || !!gtmId,
                       category: 'post',
                     });
@@ -1133,13 +1375,7 @@ async function startServer() {
         } catch {}
       }
 
-      // ----------------------------------------------------------------------
-      // 2. PARALLEL HIGH-SPEED SCRAPER ENGINE
-      //    Runs Script Bundle analysis, Next.js __NEXT_DATA__, Sitemaps, WP REST APIs,
-      //    RSS feeds and HTML links simultaneously in parallel!
-      // ----------------------------------------------------------------------
-
-      // A. Extract Embedded JSON / Next.js / Nuxt state directly from HTML
+      // Next.js __NEXT_DATA__
       try {
         const nextDataMatch = html.match(/<script\b[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
         if (nextDataMatch) {
@@ -1150,8 +1386,9 @@ async function startServer() {
               if (obj.id && typeof obj.id === 'string' && (obj.title || obj.name)) {
                 const id = obj.id;
                 const entTitle = obj.title || obj.name || id;
-                const isJob = id.startsWith('job_') || id.includes('job') || hostname.startsWith('jobs.');
-                const candPath = isJob ? `/?job=${id}` : id.startsWith('post_') ? `/?post=${id}` : `/${id}`;
+                const isJob = id.startsWith('job_') || id.includes('job');
+                const isArt = id.startsWith('art_') || id.startsWith('article_');
+                const candPath = isJob ? `/?job=${id}` : isArt ? `/?article=${id}` : id.startsWith('post_') ? `/?post=${id}` : `/${id}`;
                 if (!discoveredPaths.has(candPath) && isCleanPublicPage(candPath, entTitle)) {
                   discoveredPaths.add(candPath);
                   discoveredPages.push({
@@ -1159,13 +1396,13 @@ async function startServer() {
                     url: `${origin}${candPath}`,
                     path: candPath,
                     title: String(entTitle).slice(0, 80),
-                    description: `Next.js Entity: ${entTitle}`,
+                    description: `[Next.js Entity] ${entTitle}`,
                     depth: 2,
                     status: 200,
                     includedInVisits: true,
-                    visitWeight: isJob ? 95 : 85,
+                    visitWeight: isJob || isArt ? 98 : 85,
                     gaDetected: !!gaMeasurementId || !!gtmId,
-                    category: isJob ? 'post' : 'page',
+                    category: isJob || isArt ? 'post' : 'page',
                   });
                 }
               }
@@ -1182,7 +1419,7 @@ async function startServer() {
         }
       } catch {}
 
-      // B. Extract JSON-LD Schemas
+      // Extract JSON-LD Schemas
       try {
         const jsonLdRegex = /<script\b[^>]*\btype=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
         let ldMatch: RegExpExecArray | null;
@@ -1214,7 +1451,7 @@ async function startServer() {
                       depth: 2,
                       status: 200,
                       includedInVisits: true,
-                      visitWeight: isJob ? 95 : isArticle ? 90 : isProduct ? 85 : 75,
+                      visitWeight: isJob ? 98 : isArticle ? 95 : isProduct ? 88 : 75,
                       gaDetected: !!gaMeasurementId || !!gtmId,
                       category: isJob || isArticle ? 'post' : isProduct ? 'product' : 'page',
                     });
@@ -1226,7 +1463,7 @@ async function startServer() {
         }
       } catch {}
 
-      // C. Extract All HTML Anchor Links
+      // Extract HTML Anchor Links
       const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
       let match: RegExpExecArray | null;
       let rawLinksFound = 0;
@@ -1256,6 +1493,9 @@ async function startServer() {
                 if (pagePath.includes('job=')) {
                   const qJob = resolvedUrl.searchParams.get('job') || 'Job';
                   cleanTitle = `Job: ${qJob}`;
+                } else if (pagePath.includes('article=')) {
+                  const qArt = resolvedUrl.searchParams.get('article') || 'Article';
+                  cleanTitle = `Article: ${qArt}`;
                 } else if (pagePath.includes('post=')) {
                   const qPost = resolvedUrl.searchParams.get('post') || 'Post';
                   cleanTitle = `Post: ${qPost}`;
@@ -1264,7 +1504,7 @@ async function startServer() {
                 }
               }
 
-              const isJob = cat === 'post' || pagePath.includes('job') || pagePath.includes('listing');
+              const isJob = cat === 'post' || pagePath.includes('job') || pagePath.includes('listing') || pagePath.includes('article');
               const finalCat = isJob ? 'post' : cat;
               discoveredPages.push({
                 id: `page_${discoveredPages.length + 1}`,
@@ -1275,7 +1515,7 @@ async function startServer() {
                 depth: pagePath.split('/').filter(Boolean).length || 1,
                 status: 200,
                 includedInVisits: true,
-                visitWeight: isJob ? 95 : finalCat === 'category' ? 80 : finalCat === 'product' ? 85 : 70,
+                visitWeight: isJob ? 97 : finalCat === 'category' ? 88 : finalCat === 'product' ? 85 : 75,
                 gaDetected: !!gaMeasurementId || !!gtmId,
                 category: finalCat,
               });
@@ -1284,22 +1524,7 @@ async function startServer() {
         } catch {}
       }
 
-      // D. Collect Scripts, Feeds, Sitemaps & APIs to fetch in PARALLEL
-      const scriptUrls: string[] = [];
-      const scriptRegex = /<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
-      let scriptMatch: RegExpExecArray | null;
-      while ((scriptMatch = scriptRegex.exec(html)) !== null) {
-        const src = scriptMatch[1].trim();
-        if (!src.includes('googletagmanager.com') && !src.includes('google-analytics.com') && !src.includes('clarity.ms') && !src.includes('facebook.net') && !src.includes('cloudflare.com')) {
-          try {
-            const fullScriptUrl = src.startsWith('http://') || src.startsWith('https://') 
-              ? src 
-              : new URL(src, origin).toString();
-            scriptUrls.push(fullScriptUrl);
-          } catch {}
-        }
-      }
-
+      // D. Collect Feeds, Sitemaps & APIs to fetch in PARALLEL
       const sitemapUrls = [
         `${origin}/sitemap.xml`,
         `${origin}/wp-sitemap.xml`,
@@ -1329,104 +1554,17 @@ async function startServer() {
       // Execute ALL background discovery in parallel with 4s timeouts
       const parallelTasks: Promise<void>[] = [];
 
-      // 1. Script decompilation tasks (up to 8 main scripts)
-      for (const sUrl of scriptUrls.slice(0, 8)) {
+      // 1. Script decompilation tasks (up to 12 main scripts/chunks)
+      for (const sUrl of scriptUrls.slice(0, 12)) {
         parallelTasks.push((async () => {
           try {
             const ctrl = new AbortController();
-            const tm = setTimeout(() => ctrl.abort(), 3500);
+            const tm = setTimeout(() => ctrl.abort(), 4000);
             const r = await fetch(sUrl, { headers: browserHeaders, signal: ctrl.signal });
             clearTimeout(tm);
             if (r.ok) {
               const js = await r.text();
-              // Check GA
-              if (!gaMeasurementId) {
-                const jsGa = js.match(/G-[A-Z0-9]{8,12}/i);
-                if (jsGa) gaMeasurementId = jsGa[0];
-              }
-
-              // Extract structured objects {id: "...", title: "..."} and {title: "...", id: "..."}
-              const entityRegexes = [
-                /\bid\s*:\s*["']([a-zA-Z0-9_\-]+)["'][\s\S]{1,150}?\btitle\s*:\s*["']([^"']+)["']/g,
-                /\btitle\s*:\s*["']([^"']+)["'][\s\S]{1,150}?\bid\s*:\s*["']([a-zA-Z0-9_\-]+)["']/g,
-                /\b(?:slug|path)\s*:\s*["']([^"']+)["'][\s\S]{1,150}?\btitle\s*:\s*["']([^"']+)["']/g,
-              ];
-
-              for (const rx of entityRegexes) {
-                let em: RegExpExecArray | null;
-                while ((em = rx.exec(js)) !== null && discoveredPages.length < maxLinks) {
-                  const rawFirst = (em[1] || '').trim();
-                  const rawSecond = (em[2] || '').trim();
-                  
-                  // Determine which one is ID/slug and which is title
-                  let id = rawFirst;
-                  let rawTitle = rawSecond;
-                  if (rawFirst.length > 25 && rawSecond.length <= 25 && !rawFirst.startsWith('job_') && !rawFirst.startsWith('art_')) {
-                    rawTitle = rawFirst;
-                    id = rawSecond;
-                  }
-
-                  if (!id || /^m\d/.test(id) || id.startsWith('svg') || id.startsWith('path') || id.startsWith('btn_') || id.startsWith('icon_')) continue;
-                  
-                  const isJob = id.startsWith('job_') || id.includes('job') || hostname.includes('job');
-                  const isArticle = id.startsWith('art_') || id.startsWith('article_') || id.includes('article');
-                  const candPath = isJob ? `/?job=${id}` : isArticle ? `/?article=${id}` : id.startsWith('post_') ? `/?post=${id}` : id.startsWith('/') ? id : `/${id}`;
-                  const cleanT = rawTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
-
-                  const existing = discoveredPages.find(p => p.path === candPath);
-                  if (existing) {
-                    if (cleanT && cleanT.length > 3 && (existing.title.startsWith('Job:') || existing.title.startsWith('Post:') || existing.title.startsWith('Listing:') || existing.title.startsWith('Article:') || existing.title === 'Internal Page')) {
-                      existing.title = cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT;
-                      existing.description = isJob ? `[Job Listing] ${cleanT}` : isArticle ? `[Article] ${cleanT}` : `${existing.category.toUpperCase()}: ${cleanT}`;
-                    }
-                  } else if (!discoveredPaths.has(candPath) && isCleanPublicPage(candPath, rawTitle)) {
-                    discoveredPaths.add(candPath);
-                    const finalCat = isJob ? 'post' : isArticle ? 'post' : classifyPage(candPath, cleanT);
-                    discoveredPages.push({
-                      id: `spa_${id}_${discoveredPages.length + 1}`,
-                      url: `${origin}${candPath}`,
-                      path: candPath,
-                      title: cleanT ? (cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT) : `Listing: ${id}`,
-                      description: isJob ? `[Job Listing] ${cleanT}` : isArticle ? `[Article] ${cleanT}` : `${finalCat.toUpperCase()}: ${cleanT}`,
-                      depth: 2,
-                      status: 200,
-                      includedInVisits: true,
-                      visitWeight: 96,
-                      gaDetected: !!gaMeasurementId || !!gtmId,
-                      category: finalCat,
-                    });
-                  }
-                }
-              }
-
-              // Extract standalone dynamic entity tokens as fallback
-              const dynamicTokenRegex = /\b(job_\d{3,25}|job_[a-zA-Z0-9_\-]{4,30}|art_\d{3,25}|article_\d{3,25}|post_\d{3,25}|listing_\d{3,25})\b/g;
-              let jm: RegExpExecArray | null;
-              while ((jm = dynamicTokenRegex.exec(js)) !== null && discoveredPages.length < maxLinks) {
-                const rawToken = jm[1];
-                if (rawToken.startsWith('m10') || rawToken.startsWith('job_listing') || rawToken.startsWith('job_ids') || rawToken.startsWith('job_comments') || rawToken.startsWith('job_old_')) continue;
-                
-                const queryPath = rawToken.startsWith('post_') ? `/?post=${rawToken}` : rawToken.startsWith('art_') || rawToken.startsWith('article_') ? `/?article=${rawToken}` : rawToken.startsWith('listing_') ? `/?listing=${rawToken}` : `/?job=${rawToken}`;
-                const itemTitle = rawToken.startsWith('post_') ? `Post: ${rawToken}` : rawToken.startsWith('art_') || rawToken.startsWith('article_') ? `Article: ${rawToken}` : rawToken.startsWith('listing_') ? `Listing: ${rawToken}` : `Job: ${rawToken}`;
-
-                if (!isCleanPublicPage(queryPath, itemTitle)) continue;
-                if (!discoveredPaths.has(queryPath)) {
-                  discoveredPaths.add(queryPath);
-                  discoveredPages.push({
-                    id: `ent_${rawToken}_${discoveredPages.length + 1}`,
-                    url: `${origin}${queryPath}`,
-                    path: queryPath,
-                    title: itemTitle,
-                    description: `Dynamic listing token: ${rawToken}`,
-                    depth: 2,
-                    status: 200,
-                    includedInVisits: true,
-                    visitWeight: 94,
-                    gaDetected: !!gaMeasurementId || !!gtmId,
-                    category: 'post',
-                  });
-                }
-              }
+              extractEntitiesFromJs(js);
             }
           } catch {}
         })());
