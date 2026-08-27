@@ -89,9 +89,12 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const [selectedHit, setSelectedHit] = useState<RealHttpTrafficHit | null>(null);
   const [autoFollow, setAutoFollow] = useState(true);
   const [copiedUrl, setCopiedUrl] = useState(false);
-  const [viewportMode, setViewportMode] = useState<'dom' | 'iframe'>('dom');
+  const [viewportMode, setViewportMode] = useState<'live_webview' | 'direct_iframe' | 'dom'>('live_webview');
+  const [browserHeight, setBrowserHeight] = useState<'standard' | 'expanded'>('expanded');
+  const [zoomScale, setZoomScale] = useState<number>(100);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const liveIframeRef = useRef<HTMLIFrameElement>(null);
 
   // Auto-follow active visitor if enabled
   useEffect(() => {
@@ -117,6 +120,32 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
 
   const currentPath = selectedVisitor?.visitedPages[selectedVisitor.currentPageIndex]?.path || '/';
   const fullLiveUrl = computeFullUrl(currentPath);
+
+  // Proxy webview URL for full live rendering
+  const liveWebviewSrc = `/api/browser/live-page?url=${encodeURIComponent(fullLiveUrl)}&visitorNumber=${selectedVisitor?.visitorNumber || 1}&country=${selectedVisitor?.country?.code || 'US'}&scroll=${selectedVisitor?.currentScrollDepthPct || 0}`;
+
+  // Synchronize active visitor status, scroll percentage, and cursor coordinates to the live iframe
+  useEffect(() => {
+    if (liveIframeRef.current && liveIframeRef.current.contentWindow && selectedVisitor) {
+      try {
+        liveIframeRef.current.contentWindow.postMessage({
+          type: 'TP_UPDATE_VISITOR',
+          scrollPct: selectedVisitor.currentScrollDepthPct,
+          cursorX: selectedVisitor.cursorX,
+          cursorY: selectedVisitor.cursorY,
+          status: selectedVisitor.status,
+          visitorNumber: selectedVisitor.visitorNumber,
+          country: selectedVisitor.country?.code || 'US',
+        }, '*');
+      } catch {}
+    }
+  }, [
+    selectedVisitor?.currentScrollDepthPct, 
+    selectedVisitor?.cursorX, 
+    selectedVisitor?.cursorY, 
+    selectedVisitor?.status,
+    selectedVisitor?.visitorNumber
+  ]);
 
   // Smooth real scrolling inside the virtual browser DOM container
   useEffect(() => {
@@ -503,7 +532,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
             </div>
 
             {/* Auto Follow & Viewport Mode Switcher */}
-            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center flex-wrap justify-end">
               <button
                 type="button"
                 onClick={() => setAutoFollow(!autoFollow)}
@@ -518,27 +547,56 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                 <span>Auto-Follow Live</span>
               </button>
 
+              {/* Viewport Render Mode */}
               <div className="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-800 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setViewportMode('live_webview')}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                    viewportMode === 'live_webview' ? 'bg-cyan-600 text-white font-semibold shadow' : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Live proxied webview with CSP stripping, full dynamic assets, and companion cursor sync"
+                >
+                  <Eye className="w-3.5 h-3.5 text-cyan-200" />
+                  <span>Live Webview</span>
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-400/40">PRO</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewportMode('direct_iframe')}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                    viewportMode === 'direct_iframe' ? 'bg-indigo-600 text-white font-semibold shadow' : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Direct iframe embed of the live target domain"
+                >
+                  <span>Direct URL</span>
+                  <ExternalLink className="w-3 h-3" />
+                </button>
                 <button
                   type="button"
                   onClick={() => setViewportMode('dom')}
                   className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
-                    viewportMode === 'dom' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-white'
+                    viewportMode === 'dom' ? 'bg-indigo-600 text-white font-semibold shadow' : 'text-slate-400 hover:text-white'
                   }`}
+                  title="High-speed interactive React canvas simulator"
                 >
-                  Interactive DOM
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewportMode('iframe')}
-                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
-                    viewportMode === 'iframe' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <span>Live Iframe</span>
-                  <ExternalLink className="w-3 h-3" />
+                  DOM Sim
                 </button>
               </div>
+
+              {/* Height & Viewport Expand Toggle */}
+              <button
+                type="button"
+                onClick={() => setBrowserHeight(browserHeight === 'expanded' ? 'standard' : 'expanded')}
+                className={`p-1.5 rounded-lg border text-xs cursor-pointer transition-all ${
+                  browserHeight === 'expanded' 
+                    ? 'bg-indigo-950 border-indigo-500/50 text-indigo-300' 
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+                title={browserHeight === 'expanded' ? 'Standard Height (620px)' : 'Expand Fuller Window (840px)'}
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 
@@ -565,7 +623,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                 <div className="flex items-center gap-2 truncate flex-1 min-w-0">
                   <div className="flex items-center gap-1 text-emerald-400 shrink-0">
                     <ShieldCheck className="w-4 h-4" />
-                    <span className="text-[10px] font-bold uppercase hidden sm:inline">HTTPS</span>
+                    <span className="text-[10px] font-bold uppercase hidden sm:inline">LIVE PROXY</span>
                   </div>
                   <span className="text-slate-100 font-bold truncate selection:bg-indigo-500 selection:text-white">
                     {fullLiveUrl}
@@ -598,7 +656,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                     className="p-1 rounded text-cyan-400 hover:text-white bg-cyan-950/80 border border-cyan-500/40 hover:bg-cyan-900 transition-all flex items-center gap-1 px-2 text-[11px] font-sans font-semibold"
                     title="Open this exact listing page in a new browser tab"
                   >
-                    <span>Visit Page</span>
+                    <span>Visit Live</span>
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
@@ -616,60 +674,74 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
               )}
             </div>
 
+            {/* Dwell Progress Bar Across Browser Top */}
+            {selectedVisitor && (
+              <div className="w-full bg-slate-900/90 h-1.5 relative overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-400 transition-all duration-300"
+                  style={{
+                    width: `${Math.min(100, ((selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.dwellSecondsSpent || 0) / Math.max(1, selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.dwellPlannedSeconds || 1)) * 100)}%`
+                  }}
+                />
+              </div>
+            )}
+
             {/* Interactive Browser Viewport Stage */}
             {!selectedVisitor ? (
               <div className="p-16 text-center text-slate-500 text-sm">
                 No active visitor session selected. Start the simulation to watch human behavior in real-time.
               </div>
             ) : (
-              <div className="relative h-[620px] bg-slate-950 overflow-hidden flex flex-col">
+              <div className={`relative ${browserHeight === 'expanded' ? 'h-[820px]' : 'h-[620px]'} bg-slate-950 overflow-hidden flex flex-col transition-all duration-300`}>
                 
-                {/* 1. Moving Human Mouse Cursor Layer */}
-                <div
-                  className="absolute pointer-events-none transition-all duration-300 z-50 flex flex-col items-start"
-                  style={{
-                    left: `${Math.min(92, Math.max(5, selectedVisitor.cursorX))}%`,
-                    top: `${Math.min(88, Math.max(8, selectedVisitor.cursorY))}%`,
-                  }}
-                >
-                  <div className="relative">
-                    <MousePointer className="w-6 h-6 text-cyan-400 fill-cyan-400/50 drop-shadow-[0_2px_10px_rgba(6,182,212,0.9)] -rotate-12" />
-                    
-                    {/* Animated Click Ripple Ring */}
-                    {(selectedVisitor.status === 'clicking_ad' || selectedVisitor.status === 'clicking_link' || selectedVisitor.status === 'handling_popup') && (
-                      <span className="absolute -top-3 -left-3 w-12 h-12 rounded-full border-2 border-cyan-400 bg-cyan-400/20 animate-ping pointer-events-none" />
-                    )}
-                  </div>
+                {/* 1. Moving Human Mouse Cursor Layer (For DOM & Direct views) */}
+                {viewportMode !== 'live_webview' && (
+                  <div
+                    className="absolute pointer-events-none transition-all duration-300 z-50 flex flex-col items-start"
+                    style={{
+                      left: `${Math.min(92, Math.max(5, selectedVisitor.cursorX))}%`,
+                      top: `${Math.min(88, Math.max(8, selectedVisitor.cursorY))}%`,
+                    }}
+                  >
+                    <div className="relative">
+                      <MousePointer className="w-6 h-6 text-cyan-400 fill-cyan-400/50 drop-shadow-[0_2px_10px_rgba(6,182,212,0.9)] -rotate-12" />
+                      
+                      {/* Animated Click Ripple Ring */}
+                      {(selectedVisitor.status === 'clicking_ad' || selectedVisitor.status === 'clicking_link' || selectedVisitor.status === 'handling_popup') && (
+                        <span className="absolute -top-3 -left-3 w-12 h-12 rounded-full border-2 border-cyan-400 bg-cyan-400/20 animate-ping pointer-events-none" />
+                      )}
+                    </div>
 
-                  {/* Floating Action Tooltip HUD following the cursor */}
-                  <div className="mt-1 bg-slate-950/95 border border-cyan-500/50 rounded-lg px-2.5 py-1 text-[10px] font-mono text-cyan-300 shadow-2xl whitespace-nowrap backdrop-blur-md flex items-center gap-1.5">
-                    {selectedVisitor.status === 'clicking_ad' ? (
-                      <span className="text-amber-300 font-bold flex items-center gap-1">
-                        <Megaphone className="w-3 h-3 animate-bounce" />
-                        <span>🎯 Clicking AdSense Banner</span>
-                      </span>
-                    ) : selectedVisitor.status === 'clicking_link' ? (
-                      <span className="text-blue-300 font-bold flex items-center gap-1">
-                        <Link2 className="w-3 h-3 animate-bounce" />
-                        <span>👆 Clicking Deep Resource Link</span>
-                      </span>
-                    ) : selectedVisitor.status === 'handling_popup' ? (
-                      <span className="text-purple-300 font-bold flex items-center gap-1">
-                        <Sparkles className="w-3 h-3 animate-bounce" />
-                        <span>✨ Interacting with Newsletter Popup</span>
-                      </span>
-                    ) : selectedVisitor.currentScrollDepthPct >= 95 ? (
-                      <span className="text-teal-300 font-bold flex items-center gap-1">
-                        <Check className="w-3 h-3" />
-                        <span>📜 Reached 100% Footer & Comments</span>
-                      </span>
-                    ) : (
-                      <span>
-                        👁️ Reading ({selectedVisitor.currentScrollDepthPct}%) • {selectedVisitor.lastEventLog.slice(0, 32)}...
-                      </span>
-                    )}
+                    {/* Floating Action Tooltip HUD following the cursor */}
+                    <div className="mt-1 bg-slate-950/95 border border-cyan-500/50 rounded-lg px-2.5 py-1 text-[10px] font-mono text-cyan-300 shadow-2xl whitespace-nowrap backdrop-blur-md flex items-center gap-1.5">
+                      {selectedVisitor.status === 'clicking_ad' ? (
+                        <span className="text-amber-300 font-bold flex items-center gap-1">
+                          <Megaphone className="w-3 h-3 animate-bounce" />
+                          <span>🎯 Clicking AdSense Banner</span>
+                        </span>
+                      ) : selectedVisitor.status === 'clicking_link' ? (
+                        <span className="text-blue-300 font-bold flex items-center gap-1">
+                          <Link2 className="w-3 h-3 animate-bounce" />
+                          <span>👆 Clicking Deep Resource Link</span>
+                        </span>
+                      ) : selectedVisitor.status === 'handling_popup' ? (
+                        <span className="text-purple-300 font-bold flex items-center gap-1">
+                          <Sparkles className="w-3 h-3 animate-bounce" />
+                          <span>✨ Interacting with Newsletter Popup</span>
+                        </span>
+                      ) : selectedVisitor.currentScrollDepthPct >= 95 ? (
+                        <span className="text-teal-300 font-bold flex items-center gap-1">
+                          <Check className="w-3 h-3" />
+                          <span>📜 Reached 100% Footer & Comments</span>
+                        </span>
+                      ) : (
+                        <span>
+                          👁️ Reading ({selectedVisitor.currentScrollDepthPct}%) • {selectedVisitor.lastEventLog.slice(0, 32)}...
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* 2. Top-Right Real-time Scroll & Behavior Telemetry Badges */}
                 <div className="absolute top-3 right-3 z-30 flex items-center gap-2 flex-wrap justify-end pointer-events-none">
@@ -690,8 +762,23 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                   </div>
                 </div>
 
-                {/* 3. Real Scrollable DOM Webpage Container */}
-                {viewportMode === 'iframe' ? (
+                {/* 3. Real Scrollable Webpage Container */}
+                {viewportMode === 'live_webview' ? (
+                  <div className="w-full h-full relative bg-slate-950">
+                    <iframe
+                      ref={liveIframeRef}
+                      key={`${fullLiveUrl}-${selectedVisitor?.visitorNumber}`}
+                      src={liveWebviewSrc}
+                      title="Live Target URL Proxied Webview"
+                      className="w-full h-full border-none bg-slate-950"
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                    />
+                    <div className="absolute bottom-2 left-2 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>Live Proxied Webview Active • Real Page Rendered Full-Window</span>
+                    </div>
+                  </div>
+                ) : viewportMode === 'direct_iframe' ? (
                   <div className="w-full h-full relative">
                     <iframe
                       src={fullLiveUrl}
@@ -700,7 +787,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                       sandbox="allow-scripts allow-same-origin allow-forms"
                     />
                     <div className="absolute bottom-2 left-2 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-400">
-                      Viewing live webview iframe • Cursor HUD active
+                      Direct Iframe Embed • Cursor HUD active
                     </div>
                   </div>
                 ) : (

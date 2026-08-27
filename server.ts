@@ -584,7 +584,206 @@ async function startServer() {
   });
 
   // ----------------------------------------------------
-  // 4. AUTONOMOUS WEB CRAWLER & SCRAPER ENDPOINT
+  // 4. LIVE INTERACTIVE VIRTUAL BROWSER PROXY WEBVIEW
+  // ----------------------------------------------------
+  app.get('/api/browser/live-page', async (req: Request, res: Response) => {
+    try {
+      const rawUrl = (req.query.url as string) || '';
+      const visitorNumber = req.query.visitorNumber || '1';
+      const country = (req.query.country as string) || 'US';
+      const scrollPct = parseFloat((req.query.scroll as string) || '0');
+
+      if (!rawUrl) {
+        return res.status(400).send('<h1>Missing target URL</h1>');
+      }
+
+      let parsed: URL;
+      try {
+        parsed = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
+      } catch {
+        return res.status(400).send('<h1>Invalid target URL format</h1>');
+      }
+
+      const targetUrl = parsed.toString();
+      const origin = parsed.origin;
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9000);
+
+      try {
+        const response = await fetch(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 TrafficPulse-VirtualBrowser/2.5',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Upgrade-Insecure-Requests': '1',
+          },
+          signal: controller.signal,
+          redirect: 'follow',
+        });
+        clearTimeout(timer);
+
+        let html = await response.text();
+
+        // 1. Inject <base href="..."> into <head> so all assets (CSS, JS, images, fonts) resolve to the original site
+        if (html.includes('<head>') || html.includes('<head ')) {
+          html = html.replace(/<head\b[^>]*>/i, `$&<base href="${origin}/">`);
+        } else {
+          html = `<base href="${origin}/">\n` + html;
+        }
+
+        // 2. Remove restrictive CSP and frame headers if present inside meta tags
+        html = html.replace(/<meta\b[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/gi, '');
+        html = html.replace(/<meta\b[^>]*http-equiv=["']X-Frame-Options["'][^>]*>/gi, '');
+
+        // 3. Inject TrafficPulse Virtual Browser Companion Script
+        const companionScript = `
+<style id="trafficpulse-live-styles">
+  #tp-live-cursor-root {
+    position: fixed;
+    top: 15%;
+    left: 15%;
+    pointer-events: none;
+    z-index: 2147483647;
+    transition: left 0.35s cubic-bezier(0.25, 1, 0.5, 1), top 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+    transform: translate(-3px, -3px);
+  }
+  #tp-live-cursor-pointer {
+    filter: drop-shadow(0 2px 8px rgba(6, 182, 212, 0.8));
+    animation: tpCursorPulse 2.5s infinite alternate;
+  }
+  @keyframes tpCursorPulse {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.08); }
+  }
+  #tp-live-badge {
+    position: absolute;
+    top: 24px;
+    left: 12px;
+    background: rgba(15, 23, 42, 0.95);
+    color: #38bdf8;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-weight: 600;
+    white-space: nowrap;
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  }
+  #tp-live-telemetry-hud {
+    position: fixed;
+    bottom: 12px;
+    right: 12px;
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    color: #e2e8f0;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-family: monospace;
+    z-index: 2147483646;
+    pointer-events: none;
+    backdrop-filter: blur(6px);
+  }
+</style>
+<div id="tp-live-cursor-root">
+  <svg id="tp-live-cursor-pointer" width="26" height="26" viewBox="0 0 24 24" fill="#06b6d4" stroke="#083344" stroke-width="1.5">
+    <path d="M3 3l7 18 3-7 7-3L3 3z"/>
+  </svg>
+  <div id="tp-live-badge">Visitor #${visitorNumber} (${country})</div>
+</div>
+<div id="tp-live-telemetry-hud">
+  LIVE VIRTUAL BROWSER • SCROLL: <span id="tp-hud-scroll">${Math.round(scrollPct)}</span>%
+</div>
+<script id="trafficpulse-live-script">
+(function() {
+  var cursor = document.getElementById('tp-live-cursor-root');
+  var badge = document.getElementById('tp-live-badge');
+  var hudScroll = document.getElementById('tp-hud-scroll');
+
+  // Handle smooth scroll and cursor position updates from parent window
+  window.addEventListener('message', function(event) {
+    if (!event.data || event.data.type !== 'TP_UPDATE_VISITOR') return;
+    
+    var pct = typeof event.data.scrollPct === 'number' ? event.data.scrollPct : 0;
+    var maxScroll = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) - window.innerHeight;
+    if (maxScroll > 0) {
+      var targetY = (pct / 100) * maxScroll;
+      window.scrollTo({ top: targetY, behavior: 'smooth' });
+    }
+
+    if (hudScroll) hudScroll.textContent = Math.round(pct);
+
+    if (cursor && typeof event.data.cursorX === 'number' && typeof event.data.cursorY === 'number') {
+      cursor.style.left = Math.min(95, Math.max(3, event.data.cursorX)) + '%';
+      cursor.style.top = Math.min(92, Math.max(5, event.data.cursorY)) + '%';
+    }
+
+    if (badge && event.data.status) {
+      if (event.data.status === 'clicking_ad') {
+        badge.textContent = '🎯 Clicking Sponsored Banner';
+        badge.style.color = '#f59e0b';
+        badge.style.borderColor = '#f59e0b';
+      } else if (event.data.status === 'clicking_link') {
+        badge.textContent = '👆 Navigating Deep Link';
+        badge.style.color = '#38bdf8';
+        badge.style.borderColor = '#38bdf8';
+      } else if (event.data.status === 'handling_popup') {
+        badge.textContent = '✨ Interacting with Newsletter';
+        badge.style.color = '#c084fc';
+        badge.style.borderColor = '#c084fc';
+      } else {
+        badge.textContent = '👁️ Reading (' + Math.round(pct) + '%)';
+        badge.style.color = '#38bdf8';
+        badge.style.borderColor = 'rgba(56, 189, 248, 0.5)';
+      }
+    }
+  });
+
+  // Notify parent window that page loaded
+  try {
+    window.parent.postMessage({
+      type: 'TP_PAGE_LOADED',
+      url: window.location.href,
+      title: document.title || 'Loaded Page'
+    }, '*');
+  } catch(e) {}
+})();
+</script>
+`;
+
+        if (html.includes('</body>')) {
+          html = html.replace('</body>', `${companionScript}</body>`);
+        } else {
+          html += companionScript;
+        }
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('X-Frame-Options', 'ALLOWALL');
+        res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;");
+        res.send(html);
+      } catch (fetchErr: any) {
+        clearTimeout(timer);
+        res.status(502).send(`
+          <div style="padding:40px;font-family:sans-serif;background:#090d16;color:#f87171;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
+            <h2 style="color:#ef4444;margin-bottom:8px;">Live Page Webview Notice</h2>
+            <p style="color:#94a3b8;max-width:500px;margin-bottom:20px;">Could not connect to <strong>${targetUrl}</strong> (${fetchErr.message}). The live visitor stream will continue dispatching HTTP traffic in the background.</p>
+            <a href="${targetUrl}" target="_blank" style="padding:10px 20px;background:#38bdf8;color:#0f172a;text-decoration:none;border-radius:8px;font-weight:bold;">Open in New Window &rarr;</a>
+          </div>
+        `);
+      }
+    } catch (err: any) {
+      res.status(500).send(`<h1>Proxy Error: ${err.message}</h1>`);
+    }
+  });
+
+  // ----------------------------------------------------
+  // 5. AUTONOMOUS WEB CRAWLER & SCRAPER ENDPOINT
   // ----------------------------------------------------
   app.post('/api/crawler/scrape', async (req: Request, res: Response) => {
     try {
@@ -669,7 +868,6 @@ async function startServer() {
             isRealScrape = true;
           }
         } catch {
-          // If still failing, provide base structure and proceed to check sitemaps & APIs
           html = `<html><head><title>${hostname}</title></head><body><h1>${hostname}</h1></body></html>`;
         }
       }
@@ -710,7 +908,6 @@ async function startServer() {
       }
 
       // Filter helper to strictly whitelist legitimate human-facing public pages, posts/articles, and categories
-      // Drops technical artifacts (.html file chunks, .js, .json, .xml, .css, feeds, API, telemetry endpoints)
       const isCleanPublicPage = (testPath: string, testTitle: string): boolean => {
         const lowerPath = testPath.toLowerCase();
         const lowerTitle = (testTitle || '').toLowerCase();
@@ -720,12 +917,12 @@ async function startServer() {
           return false;
         }
 
-        // Drop HTML file extensions if they are technical sub-bundles (e.g. index.html, template.html, partial.html, iframe.html)
+        // Drop HTML file extensions if they are technical sub-bundles
         if (/\/(iframe|partial|template|chunk|embed|widget|bundle|sw|service-worker|manifest)\.html?/i.test(lowerPath)) {
           return false;
         }
 
-        // Drop API routes, telemetry, auth endpoints, admin/dashboard internals, and webhooks
+        // Drop API routes, telemetry, auth endpoints, admin/dashboard internals
         const bannedPrefixes = [
           '/api/', '/api', '/_next/data/', '/__next', '/_nuxt/', '/static/', '/assets/', '/node_modules/',
           '/cdn-cgi/', '/wp-admin/', '/wp-includes/', '/xmlrpc.php', '/autodiscover/',
@@ -760,7 +957,6 @@ async function startServer() {
       // Discovered structures
       const normalizePathWithQuery = (u: URL): string => {
         const cleanSearch = new URLSearchParams(u.search);
-        // Strip non-functional tracking parameters only
         const trackingKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', '_ga', '_gl', 'ref', 'source'];
         trackingKeys.forEach(k => cleanSearch.delete(k));
         const queryStr = cleanSearch.toString() ? `?${cleanSearch.toString()}` : '';
@@ -813,7 +1009,7 @@ async function startServer() {
         return 'page';
       };
 
-      // Check if root input is a specific post/listing query (e.g. ?job=job_1787164089747)
+      // Check if root input is a specific post/listing query
       const isRootPost = classifyPage(rootPathIdent, title) === 'post' || rootPathIdent.includes('job=') || rootPathIdent.includes('post=') || rootPathIdent.includes('listing=');
 
       let rootTitle = title || 'Home Page';
@@ -860,20 +1056,58 @@ async function startServer() {
         });
       }
 
-      // Preset verified dynamic listings for 9jajobs domain
-      if (hostname === '9jajobs.vercel.app') {
-        const verifiedNaijaJobs = buildCrawledPagesFromListings(origin);
-        for (const vj of verifiedNaijaJobs) {
-          if (discoveredPages.length >= maxLinks) break;
-          if (!discoveredPaths.has(vj.path)) {
-            discoveredPaths.add(vj.path);
-            discoveredPages.push({
-              ...vj,
-              url: `${origin}${vj.path}`,
-              gaDetected: !!gaMeasurementId || !!gtmId,
-            });
+      // ----------------------------------------------------------------------
+      // 2. PROBE DYNAMIC REST APIS & JOBS ENDPOINTS
+      // ----------------------------------------------------------------------
+      const dynamicApiEndpoints = [
+        `${origin}/api/jobs`,
+        `${origin}/api/all-jobs`,
+        `${origin}/api/listings`,
+        `${origin}/api/posts`,
+        `${origin}/api/vacancies`,
+        `${origin}/jobs.json`,
+        `${origin}/data/jobs.json`,
+        `${origin}/listings.json`,
+      ];
+
+      for (const apiEp of dynamicApiEndpoints) {
+        try {
+          const ctrl = new AbortController();
+          const tm = setTimeout(() => ctrl.abort(), 2500);
+          const r = await fetch(apiEp, { headers: browserHeaders, signal: ctrl.signal });
+          clearTimeout(tm);
+          if (r.ok) {
+            const data = await r.json();
+            const jobItems = Array.isArray(data) ? data : data.jobs || data.data || data.listings || data.posts || [];
+            if (Array.isArray(jobItems)) {
+              for (const jItem of jobItems) {
+                if (discoveredPages.length >= maxLinks) break;
+                const jId = jItem.id || jItem.jobId || jItem.slug || jItem._id;
+                const jTitle = jItem.title || jItem.jobTitle || jItem.name || `Job ${jId}`;
+                const jCat = jItem.category || 'post';
+                if (jId) {
+                  const jPath = `/?job=${jId}`;
+                  if (!discoveredPaths.has(jPath) && isCleanPublicPage(jPath, jTitle)) {
+                    discoveredPaths.add(jPath);
+                    discoveredPages.push({
+                      id: `api_job_${jId}`,
+                      url: `${origin}${jPath}`,
+                      path: jPath,
+                      title: String(jTitle).slice(0, 80),
+                      description: `[Live API] ${jTitle} (${jCat})`,
+                      depth: 2,
+                      status: 200,
+                      includedInVisits: true,
+                      visitWeight: 95,
+                      gaDetected: !!gaMeasurementId || !!gtmId,
+                      category: 'post',
+                    });
+                  }
+                }
+              }
+            }
           }
-        }
+        } catch {}
       }
 
       // ----------------------------------------------------------------------
@@ -1595,31 +1829,47 @@ async function startServer() {
         }
       }
 
-      // B. Standard GA4 Collect endpoint format with Geo and IP overrides
+      // B. Standard GA4 Collect endpoint format with Geo, IP, and Session Engagement parameters
+      const validEngagementMs = Math.max(1200, Number(engagementTimeMs) || 2000);
       const params = new URLSearchParams({
         v: '2',
         tid: measurementId,
         cid: clientId || `GA1.1.${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`,
         sid: sessionId || `${Math.floor(Date.now() / 1000)}`,
-        en: eventName,
+        en: eventName || 'page_view',
         dl: pageLocation || `https://example.com${pagePath || '/'}`,
         dt: pageTitle || 'Page Title',
         dr: referrer || '',
         _s: '1',
         _p: `${Math.floor(Math.random() * 1000000)}`,
-        uip: userIp || '198.51.100.42',
-        _uip: userIp || '198.51.100.42',
+        seg: '1',
+        sct: '1',
+        _ee: '1',
+        _et: `${validEngagementMs}`,
+        'epn.engagement_time_msec': `${validEngagementMs}`,
+        'ep.page_location': pageLocation || `https://example.com${pagePath || '/'}`,
+        'ep.page_title': pageTitle || 'Page Title',
+        'ep.page_referrer': referrer || '',
         'ep.country_code': countryCode || 'US',
         'ep.visitor_country': countryCode || 'US',
         'up.geo_country': countryCode || 'US',
+        uip: userIp || '198.51.100.42',
+        _uip: userIp || '198.51.100.42',
+        ul: 'en-us',
+        sr: '1920x1080',
       });
 
-      if (campaignSource) params.append('cs', campaignSource);
-      if (campaignMedium) params.append('cm', campaignMedium);
-      if (campaignName) params.append('cn', campaignName);
-
-      if (engagementTimeMs > 0) {
-        params.append('_et', `${engagementTimeMs}`);
+      if (campaignSource) {
+        params.append('cs', campaignSource);
+        params.append('ep.source', campaignSource);
+      }
+      if (campaignMedium) {
+        params.append('cm', campaignMedium);
+        params.append('ep.medium', campaignMedium);
+      }
+      if (campaignName) {
+        params.append('cn', campaignName);
+        params.append('ep.campaign', campaignName);
       }
 
       const collectUrl = `https://www.google-analytics.com/g/collect?${params.toString()}`;
@@ -1637,6 +1887,20 @@ async function startServer() {
           // @ts-ignore
           agent,
         });
+
+        // Also trigger lightweight GET ping fallback if POST returned non-200
+        if (!gaRes.ok) {
+          try {
+            await fetch(collectUrl, {
+              method: 'GET',
+              headers: {
+                'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+              },
+              // @ts-ignore
+              agent,
+            });
+          } catch {}
+        }
 
         res.json({
           success: true,
