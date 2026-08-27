@@ -114,8 +114,28 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
   };
 
   const handleCountryToggle = (code: string) => {
+    const updated = countries.map(c => {
+      if (c.code === code) {
+        const nextEnabled = c.enabled === false ? true : false;
+        return {
+          ...c,
+          enabled: nextEnabled,
+          weight: nextEnabled ? Math.max(c.weight || 30, 20) : 0,
+        };
+      }
+      return c;
+    });
+    onChange({
+      ...fingerprintConfig,
+      countries: updated,
+    });
+  };
+
+  const handleIsolateCountry = (code: string) => {
     const updated = countries.map(c => 
-      c.code === code ? { ...c, enabled: c.enabled === false ? true : false } : c
+      c.code === code 
+        ? { ...c, enabled: true, weight: 100 } 
+        : { ...c, enabled: false, weight: 0 }
     );
     onChange({
       ...fingerprintConfig,
@@ -691,11 +711,21 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
                     </div>
                   </div>
 
-                  {/* Weight Slider */}
+                  {/* Weight Slider & Quick Actions */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-[10px] text-slate-500">
                       <span>Traffic Allocation</span>
-                      <span>{country.weight > 0 ? `${country.weight} wt` : 'Disabled'}</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleIsolateCountry(country.code)}
+                          title={`Send 100% of traffic exclusively from ${country.name}`}
+                          className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/40 cursor-pointer font-semibold transition-colors"
+                        >
+                          Only {country.code}
+                        </button>
+                        <span className="font-mono text-slate-400">{country.weight > 0 ? `${country.weight} wt` : 'Off'}</span>
+                      </div>
                     </div>
                     <input
                       type="range"

@@ -354,7 +354,7 @@ export default function App() {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 9000);
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
       const res = await fetch('/api/crawler/scrape', {
         method: 'POST',
