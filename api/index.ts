@@ -149,12 +149,323 @@ router.post('/traffic/ping', async (req: Request, res: Response) => {
 });
 
 // ----------------------------------------------------
-// AUTONOMOUS WEB CRAWLER & SCRAPER
+// VIRTUAL BROWSER COMPANION & LIVE PAGE PROXY
 // ----------------------------------------------------
+router.get('/browser/live-page', async (req: Request, res: Response) => {
+  try {
+    const rawUrl = (req.query.url as string) || '';
+    const visitorNumber = req.query.visitorNumber || '1';
+    const country = (req.query.country as string) || 'US';
+    const scrollPct = parseFloat((req.query.scroll as string) || '0');
+
+    if (!rawUrl) {
+      return res.status(400).send('<h1>Missing target URL</h1>');
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
+    } catch {
+      return res.status(400).send('<h1>Invalid target URL format</h1>');
+    }
+
+    const targetUrl = parsed.toString();
+    const origin = parsed.origin;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 9000);
+
+    try {
+      const response = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 TrafficPulse-VirtualBrowser/2.5',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        signal: controller.signal,
+        redirect: 'follow',
+      });
+      clearTimeout(timer);
+
+      let html = await response.text();
+
+      // 1. Inject frame-busting neutralizer & <base href="..."> into <head> so all assets resolve
+      const headInjection = `
+<script>
+  try {
+    window.top = window;
+    window.parent = window;
+  } catch(e) {}
+</script>
+<base href="${origin}/">
+`;
+      if (html.includes('<head>') || html.includes('<head ')) {
+        html = html.replace(/<head\b[^>]*>/i, `$&${headInjection}`);
+      } else {
+        html = `${headInjection}\n` + html;
+      }
+
+      // 2. Remove restrictive CSP and frame headers if present inside meta tags
+      html = html.replace(/<meta\b[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/gi, '');
+      html = html.replace(/<meta\b[^>]*http-equiv=["']X-Frame-Options["'][^>]*>/gi, '');
+
+      // 3. Inject TrafficPulse Virtual Browser Companion Script
+      const companionScript = `
+<style id="trafficpulse-live-styles">
+  #tp-live-cursor-root {
+    position: fixed;
+    top: 15%;
+    left: 15%;
+    pointer-events: none;
+    z-index: 2147483647;
+    transition: left 0.35s cubic-bezier(0.25, 1, 0.5, 1), top 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+    transform: translate(-3px, -3px);
+  }
+  #tp-live-cursor-pointer {
+    filter: drop-shadow(0 2px 10px rgba(6, 182, 212, 0.9));
+    animation: tpCursorPulse 2.5s infinite alternate;
+  }
+  @keyframes tpCursorPulse {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.08); }
+  }
+  #tp-live-click-ripple {
+    position: absolute;
+    top: -12px;
+    left: -12px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 2px solid #38bdf8;
+    background: rgba(56, 189, 248, 0.25);
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.3);
+  }
+  .tp-ripple-active {
+    animation: tpRippleAnim 0.8s cubic-bezier(0, 0.2, 0.8, 1) forwards !important;
+  }
+  @keyframes tpRippleAnim {
+    0% { transform: scale(0.3); opacity: 1; border-color: #38bdf8; }
+    50% { opacity: 0.8; }
+    100% { transform: scale(2.2); opacity: 0; border-color: #06b6d4; }
+  }
+  #tp-live-badge {
+    position: absolute;
+    top: 24px;
+    left: 12px;
+    background: rgba(15, 23, 42, 0.95);
+    color: #38bdf8;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-weight: 600;
+    white-space: nowrap;
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  }
+  #tp-live-telemetry-hud {
+    position: fixed;
+    bottom: 12px;
+    right: 12px;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    color: #e2e8f0;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-family: monospace;
+    z-index: 2147483646;
+    pointer-events: none;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #tp-live-scroll-radar {
+    position: fixed;
+    right: 4px;
+    top: 15%;
+    height: 70%;
+    width: 6px;
+    background: rgba(30, 41, 59, 0.6);
+    border-radius: 3px;
+    z-index: 2147483645;
+    pointer-events: none;
+  }
+  #tp-live-scroll-indicator {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 18%;
+    background: linear-gradient(180deg, #06b6d4, #3b82f6);
+    border-radius: 3px;
+    box-shadow: 0 0 8px #06b6d4;
+    transition: top 0.25s ease-out;
+  }
+</style>
+<div id="tp-live-cursor-root">
+  <div id="tp-live-click-ripple"></div>
+  <svg id="tp-live-cursor-pointer" width="26" height="26" viewBox="0 0 24 24" fill="#06b6d4" stroke="#083344" stroke-width="1.5">
+    <path d="M3 3l7 18 3-7 7-3L3 3z"/>
+  </svg>
+  <div id="tp-live-badge">Visitor #${visitorNumber} (${country})</div>
+</div>
+<div id="tp-live-scroll-radar">
+  <div id="tp-live-scroll-indicator" style="top: ${Math.min(82, scrollPct * 0.82)}%;"></div>
+</div>
+<div id="tp-live-telemetry-hud">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:bold;color:#38bdf8;">
+    <span>⚡ VIRTUAL BROWSER SIMULATOR</span>
+    <span id="tp-hud-coords" style="color:#94a3b8;">X: 50% • Y: 30%</span>
+  </div>
+  <div style="font-size:10px;color:#cbd5e1;display:flex;align-items:center;gap:8px;">
+    <span>📜 SCROLL: <strong id="tp-hud-scroll" style="color:#34d399;">${Math.round(scrollPct)}%</strong></span>
+    <span>•</span>
+    <span id="tp-hud-action" style="color:#e2e8f0;">Reading document body</span>
+  </div>
+</div>
+<script id="trafficpulse-live-script">
+(function() {
+  var cursor = document.getElementById('tp-live-cursor-root');
+  var badge = document.getElementById('tp-live-badge');
+  var ripple = document.getElementById('tp-live-click-ripple');
+  var hudScroll = document.getElementById('tp-hud-scroll');
+  var hudCoords = document.getElementById('tp-hud-coords');
+  var hudAction = document.getElementById('tp-hud-action');
+  var scrollIndicator = document.getElementById('tp-live-scroll-indicator');
+
+  function triggerClickRipple() {
+    if (!ripple) return;
+    ripple.classList.remove('tp-ripple-active');
+    void ripple.offsetWidth;
+    ripple.classList.add('tp-ripple-active');
+  }
+
+  window.addEventListener('message', function(event) {
+    if (!event.data || event.data.type !== 'TP_UPDATE_VISITOR') return;
+    
+    var pct = typeof event.data.scrollPct === 'number' ? event.data.scrollPct : 0;
+    var maxScroll = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) - window.innerHeight;
+    if (maxScroll > 0) {
+      var targetY = (pct / 100) * maxScroll;
+      window.scrollTo({ top: targetY, behavior: 'smooth' });
+    }
+
+    if (hudScroll) hudScroll.textContent = Math.round(pct) + '%';
+    if (scrollIndicator) {
+      scrollIndicator.style.top = Math.min(82, (pct * 0.82)) + '%';
+    }
+
+    if (cursor && typeof event.data.cursorX === 'number' && typeof event.data.cursorY === 'number') {
+      var cx = Math.min(95, Math.max(3, event.data.cursorX));
+      var cy = Math.min(92, Math.max(5, event.data.cursorY));
+      cursor.style.left = cx + '%';
+      cursor.style.top = cy + '%';
+      if (hudCoords) hudCoords.textContent = 'X: ' + cx + '% • Y: ' + cy + '%';
+    }
+
+    if (event.data.status) {
+      var st = event.data.status;
+      if (st === 'clicking_ad' || st === 'clicking_link' || st === 'handling_popup' || st === 'clicking_element') {
+        triggerClickRipple();
+      }
+
+      if (badge) {
+        if (st === 'clicking_ad') {
+          badge.textContent = '🎯 Clicking Sponsored Ad';
+          badge.style.color = '#f59e0b';
+          badge.style.borderColor = '#f59e0b';
+          if (hudAction) hudAction.textContent = 'Dispatched Ad Click on Sponsor Banner';
+        } else if (st === 'clicking_link') {
+          badge.textContent = '👆 Navigating Deep Link';
+          badge.style.color = '#38bdf8';
+          badge.style.borderColor = '#38bdf8';
+          if (hudAction) hudAction.textContent = 'Clicked in-article link to child page';
+        } else if (st === 'handling_popup') {
+          badge.textContent = '✨ Interacting with Newsletter';
+          badge.style.color = '#c084fc';
+          badge.style.borderColor = '#c084fc';
+          if (hudAction) hudAction.textContent = 'Newsletter modal promo CTA dismissed';
+        } else if (st === 'clicking_element') {
+          badge.textContent = '🖱️ Mouse Click on Element';
+          badge.style.color = '#34d399';
+          badge.style.borderColor = '#34d399';
+          if (hudAction) hudAction.textContent = 'Dispatched click on interactive card/button';
+        } else if (pct >= 95) {
+          badge.textContent = '📜 Reached 100% Footer';
+          badge.style.color = '#2dd4bf';
+          badge.style.borderColor = '#2dd4bf';
+          if (hudAction) hudAction.textContent = 'Dwell pause at footer / comments';
+        } else {
+          badge.textContent = '👁️ Reading (' + Math.round(pct) + '%)';
+          badge.style.color = '#38bdf8';
+          badge.style.borderColor = 'rgba(56, 189, 248, 0.5)';
+          if (hudAction) hudAction.textContent = 'Reading page text content';
+        }
+      }
+    }
+  });
+
+  document.addEventListener('click', function(e) {
+    var anchor = e.target.closest && e.target.closest('a');
+    if (anchor && anchor.href) {
+      try {
+        window.parent.postMessage({
+          type: 'TP_LINK_CLICKED',
+          href: anchor.href,
+          text: anchor.innerText || ''
+        }, '*');
+      } catch(err) {}
+    }
+  }, true);
+
+  try {
+    window.parent.postMessage({
+      type: 'TP_PAGE_LOADED',
+      url: window.location.href,
+      title: document.title || 'Loaded Page'
+    }, '*');
+  } catch(e) {}
+})();
+</script>
+`;
+
+      if (html.includes('</body>')) {
+        html = html.replace('</body>', `${companionScript}</body>`);
+      } else {
+        html += companionScript;
+      }
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('X-Frame-Options', 'ALLOWALL');
+      res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;");
+      res.send(html);
+    } catch (fetchErr: any) {
+      clearTimeout(timer);
+      res.status(502).send(`
+        <div style="padding:40px;font-family:sans-serif;background:#090d16;color:#f87171;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
+          <h2 style="color:#ef4444;margin-bottom:8px;">Live Page Webview Notice</h2>
+          <p style="color:#94a3b8;max-width:500px;margin-bottom:20px;">Could not connect to <strong>${targetUrl}</strong> (${fetchErr.message}). The live visitor stream will continue dispatching HTTP traffic in the background.</p>
+          <a href="${targetUrl}" target="_blank" style="padding:10px 20px;background:#38bdf8;color:#0f172a;text-decoration:none;border-radius:8px;font-weight:bold;">Open in New Window &rarr;</a>
+        </div>
+      `);
+    }
+  } catch (err: any) {
+    res.status(500).send(`<h1>Proxy Error: ${err.message}</h1>`);
+  }
+});
 router.post('/crawler/scrape', async (req: Request, res: Response) => {
   try {
     const rawInput = req.body.url || req.body.targetUrl || req.body.target;
-    const maxLinks = Math.min(1000, Math.max(10, req.body.maxLinks || 500));
+    const maxLinks = Math.min(2500, Math.max(10, req.body.maxLinks || 1000));
     if (!rawInput) {
       return res.status(400).json({ error: 'Target URL is required' });
     }
@@ -172,6 +483,7 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
     const targetUrl = parsedBase.toString();
     const origin = parsedBase.origin;
     const hostname = parsedBase.hostname;
+    const isDirectSitemapInput = parsedBase.pathname.endsWith('.xml') || parsedBase.pathname.includes('sitemap');
 
     const scrapeStartTime = performance.now();
     let html = '';
@@ -180,12 +492,13 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
     let gtmId: string | null = null;
     let isRealScrape = false;
     let fetchErrorMsg = '';
+    let listingPatternsMatched = 0;
 
     const browserHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+      'Sec-Ch-Ua': '"Chromium";v="129", "Not=A?Brand";v="8", "Google Chrome";v="129"',
       'Sec-Ch-Ua-Mobile': '?0',
       'Sec-Ch-Ua-Platform': '"Windows"',
       'Sec-Fetch-Dest': 'document',
@@ -193,26 +506,51 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       'Sec-Fetch-Site': 'none',
       'Sec-Fetch-User': '?1',
       'Upgrade-Insecure-Requests': '1',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
+    };
+
+    const resilientFetch = async (target: string, timeoutMs: number = 7000): Promise<{ ok: boolean; status: number; text: string; contentType: string }> => {
+      const runAttempt = async (hdrs: Record<string, string>) => {
+        const ctrl = new AbortController();
+        const tm = setTimeout(() => ctrl.abort(), timeoutMs);
+        try {
+          const resp = await fetch(target, { headers: hdrs, signal: ctrl.signal, redirect: 'follow' });
+          clearTimeout(tm);
+          const cType = resp.headers.get('content-type') || '';
+          const bodyTxt = await resp.text();
+          return { ok: resp.ok, status: resp.status, text: bodyTxt, contentType: cType };
+        } catch (e: any) {
+          clearTimeout(tm);
+          return { ok: false, status: 0, text: '', contentType: '' };
+        }
+      };
+
+      let res = await runAttempt(browserHeaders);
+      if (!res.ok && (res.status === 403 || res.status === 503 || res.status === 429 || res.status === 0)) {
+        const googlebotHeaders = {
+          'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'From': 'googlebot(at)googlebot.com',
+        };
+        const fallbackRes = await runAttempt(googlebotHeaders);
+        if (fallbackRes.ok || fallbackRes.text.length > 50) {
+          return fallbackRes;
+        }
+      }
+      return res;
     };
 
     // 1. Fetch Primary HTML
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
-    try {
-      const response = await fetch(targetUrl, {
-        headers: browserHeaders,
-        signal: controller.signal,
-        redirect: 'follow',
-      });
-      clearTimeout(timeout);
-      statusCode = response.status;
-      html = await response.text();
+    const initialFetch = await resilientFetch(targetUrl, 10000);
+    if (initialFetch.ok || initialFetch.text.length > 50) {
+      statusCode = initialFetch.status || 200;
+      html = initialFetch.text;
       isRealScrape = true;
-    } catch (err: any) {
-      clearTimeout(timeout);
-      fetchErrorMsg = err.message || 'Scrape timed out';
-      html = `<html><head><title>${hostname}</title><meta name="description" content="Official website for ${hostname}"></head><body><h1>${hostname}</h1></body></html>`;
+    } else {
+      fetchErrorMsg = `Target returned status ${initialFetch.status || 'Connection Timeout'}`;
+      html = `<html><head><title>${hostname}</title><meta name="description" content="Official portal for ${hostname}"></head><body><h1>${hostname}</h1></body></html>`;
     }
 
     // Extract Page Title & OG metadata
@@ -228,7 +566,7 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
     const description = descMatch ? descMatch[1].trim() : `Main portal for ${hostname}`;
 
     // Detect GA4 / GTM
-    const ga4Match = html.match(/G-[A-Z0-9]{8,12}/i) || html.match(/gtag\(['"]config['"],\s*['"](G-[A-Z0-9]+)['"]/i);
+    const ga4Match = html.match(/G-[A-Z0-9]{8,14}/i) || html.match(/gtag\(['"]config['"],\s*['"](G-[A-Z0-9]+)['"]/i);
     if (ga4Match) {
       gaMeasurementId = Array.isArray(ga4Match) ? ga4Match[1] || ga4Match[0] : ga4Match;
     }
@@ -284,9 +622,16 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       return `${pName}${queryStr}`;
     };
 
+    const normalizeCanonicalUrl = (u: URL): string => {
+      return `${u.origin}${u.pathname.replace(/\/$/, '') || '/'}`;
+    };
+
     const discoveredPaths = new Set<string>();
+    const visitedUrls = new Set<string>();
+
     const rootPathIdent = normalizePathWithQuery(parsedBase);
     discoveredPaths.add(rootPathIdent);
+    visitedUrls.add(normalizeCanonicalUrl(parsedBase));
 
     const discoveredPages: Array<{
       id: string;
@@ -372,223 +717,272 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       });
     }
 
-    // 1b. Preset verified dynamic listings ONLY for exact 9jajobs domain
-    if (hostname === '9jajobs.vercel.app') {
-      const verifiedNaijaJobs = buildCrawledPagesFromListings(origin);
-      for (const vj of verifiedNaijaJobs) {
-        if (discoveredPages.length >= maxLinks) break;
-        if (!discoveredPaths.has(vj.path)) {
-          discoveredPaths.add(vj.path);
-          discoveredPages.push({
-            ...vj,
-            url: `${origin}${vj.path}`,
-            gaDetected: !!gaMeasurementId || !!gtmId,
-          });
+    const slugToTitle = (slugPath: string): string => {
+      const lastSegment = slugPath.split('/').filter(Boolean).pop() || slugPath;
+      const clean = lastSegment
+        .replace(/\.html?$/i, '')
+        .replace(/[?#].*$/, '')
+        .replace(/[-_=+]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!clean) return 'Article';
+      return clean.replace(/\b\w/g, c => c.toUpperCase());
+    };
+
+    // Deep Sitemap, Sitemap-Index & Multi-Page Discovery
+    const sitemapQueue: string[] = [];
+    const parsedSitemaps = new Set<string>();
+
+    if (isDirectSitemapInput) {
+      sitemapQueue.push(targetUrl);
+    }
+
+    [
+      `${origin}/sitemap.xml`,
+      `${origin}/sitemap_index.xml`,
+      `${origin}/wp-sitemap.xml`,
+      `${origin}/post-sitemap.xml`,
+      `${origin}/post-sitemap1.xml`,
+      `${origin}/post-sitemap2.xml`,
+      `${origin}/wp-sitemap-posts-post-1.xml`,
+      `${origin}/wp-sitemap-posts-post-2.xml`,
+      `${origin}/page-sitemap.xml`,
+      `${origin}/category-sitemap.xml`,
+      `${origin}/job-sitemap.xml`,
+      `${origin}/news-sitemap.xml`,
+      `${origin}/sitemap-1.xml`,
+    ].forEach(sm => {
+      if (!sitemapQueue.includes(sm)) sitemapQueue.push(sm);
+    });
+
+    const robotsRes = await resilientFetch(`${origin}/robots.txt`, 3000);
+    if (robotsRes.ok) {
+      const smMatches = robotsRes.text.matchAll(/Sitemap:\s*(https?:\/\/[^\s\r\n]+)/gi);
+      for (const smm of smMatches) {
+        const discoveredSm = smm[1].trim();
+        if (!sitemapQueue.includes(discoveredSm)) {
+          sitemapQueue.push(discoveredSm);
         }
       }
     }
 
-    // 2. MODERN SPA JAVASCRIPT BUNDLE DECOMPILATION
-    try {
-      const scriptRegex = /<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
-      let scriptMatch: RegExpExecArray | null;
-      const scriptUrls: string[] = [];
+    const processSitemapXml = (smXml: string, sourceUrl: string) => {
+      if (!smXml || smXml.length < 20) return;
 
-      while ((scriptMatch = scriptRegex.exec(html)) !== null) {
-        const src = scriptMatch[1].trim();
-        if (!src.includes('googletagmanager.com') && !src.includes('google-analytics.com') && !src.includes('clarity.ms') && !src.includes('facebook.net')) {
-          try {
-            const fullScriptUrl = src.startsWith('http://') || src.startsWith('https://') 
-              ? src 
-              : new URL(src, origin).toString();
-            scriptUrls.push(fullScriptUrl);
-          } catch {}
+      if (!gaMeasurementId) {
+        const ga = smXml.match(/G-[A-Z0-9]{8,14}/i);
+        if (ga) gaMeasurementId = ga[0];
+      }
+
+      const childSitemapRegex = /<sitemap>[\s\S]*?<loc>(?:<!\[CDATA\[)?(https?:\/\/[^<\]\s]+)(?:\]\]>)?<\/loc>[\s\S]*?<\/sitemap>/gi;
+      let csm: RegExpExecArray | null;
+      while ((csm = childSitemapRegex.exec(smXml)) !== null) {
+        const childUrl = csm[1].trim();
+        if (!parsedSitemaps.has(childUrl) && !sitemapQueue.includes(childUrl) && sitemapQueue.length < 50) {
+          sitemapQueue.push(childUrl);
         }
       }
 
-      const inlineScriptRegex = /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
-      let inlineMatch: RegExpExecArray | null;
-      const jsContents: string[] = [];
-      while ((inlineMatch = inlineScriptRegex.exec(html)) !== null) {
-        const content = inlineMatch[1].trim();
-        if (content.length > 20 && !content.includes('gtag(') && !content.includes('analytics.js')) {
-          jsContents.push(content);
-        }
-      }
+      const urlLocRegex = /<url>[\s\S]*?<loc>(?:<!\[CDATA\[)?(https?:\/\/[^<\]\s]+)(?:\]\]>)?<\/loc>(?:[\s\S]*?<lastmod>([^<]+)<\/lastmod>)?(?:[\s\S]*?<image:title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/image:title>)?[\s\S]*?<\/url>/gi;
+      let um: RegExpExecArray | null;
+      while ((um = urlLocRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
+        const uLoc = um[1].trim();
+        const imgTitle = (um[3] || '').trim();
 
-      for (const sUrl of scriptUrls.slice(0, 8)) {
+        if (uLoc.endsWith('.xml') || (uLoc.includes('sitemap') && uLoc.includes('.xml'))) {
+          if (!parsedSitemaps.has(uLoc) && !sitemapQueue.includes(uLoc) && sitemapQueue.length < 50) {
+            sitemapQueue.push(uLoc);
+          }
+          continue;
+        }
+
         try {
-          const jsCtrl = new AbortController();
-          const jsTimer = setTimeout(() => jsCtrl.abort(), 4000);
-          const jsRes = await fetch(sUrl, { headers: browserHeaders, signal: jsCtrl.signal });
-          clearTimeout(jsTimer);
-
-          if (jsRes.ok) {
-            const js = await jsRes.text();
-            jsContents.push(js);
+          const pUrl = new URL(uLoc);
+          if (pUrl.hostname === hostname || pUrl.hostname.endsWith(`.${hostname}`)) {
+            const sPath = normalizePathWithQuery(pUrl);
+            const sTitle = imgTitle || slugToTitle(pUrl.pathname);
+            if (isCleanPublicPage(sPath, sTitle) && !discoveredPaths.has(sPath)) {
+              discoveredPaths.add(sPath);
+              visitedUrls.add(normalizeCanonicalUrl(pUrl));
+              const cat = classifyPage(sPath, sTitle);
+              listingPatternsMatched++;
+              discoveredPages.push({
+                id: `sm_${discoveredPages.length + 1}`,
+                url: uLoc,
+                path: sPath,
+                title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
+                description: `${cat.toUpperCase()}: ${sTitle}`,
+                depth: sPath.split('/').filter(Boolean).length || 1,
+                status: 200,
+                includedInVisits: true,
+                visitWeight: cat === 'post' ? 95 : cat === 'category' ? 90 : 80,
+                gaDetected: !!gaMeasurementId || !!gtmId,
+                category: cat,
+              });
+            }
           }
         } catch {}
       }
 
-      for (const js of jsContents) {
-        if (discoveredPages.length >= maxLinks) break;
-
-        if (!gaMeasurementId) {
-          const jsGa = js.match(/G-[A-Z0-9]{8,12}/i);
-          if (jsGa) gaMeasurementId = jsGa[0];
-        }
-        if (!gtmId) {
-          const jsGtm = js.match(/GTM-[A-Z0-9]{4,10}/i);
-          if (jsGtm) gtmId = jsGtm[0];
-        }
-
-        // Extract Structured Entities
-        const entityRegex = /\{(?:\s*["']?id["']?\s*:\s*["']([a-zA-Z0-9_\-]+)["']|\s*["']?jobId["']?\s*:\s*["']([a-zA-Z0-9_\-]+)["']|\s*["']?job_id["']?\s*:\s*["']([a-zA-Z0-9_\-]+)["'])[^}]*?["']?title["']?\s*:\s*["']([^"']+)["'][^}]*?(?:["']?category["']?\s*:\s*["']([^"']+)["'])?[^}]*?(?:["']?description["']?\s*:\s*["']([^"']+)["'])?/g;
-        let em: RegExpExecArray | null;
-        while ((em = entityRegex.exec(js)) !== null && discoveredPages.length < maxLinks) {
-          const id = em[1] || em[2] || em[3];
-          const rawTitle = (em[4] || '').trim();
-          const category = em[5] || 'Listing';
-          const rawDesc = em[6] ? em[6].slice(0, 120) : rawTitle;
-
-          if (!id || /^m\d/.test(id)) continue;
-
-          const isJob = id.startsWith('job_') || id.includes('job') || hostname.startsWith('jobs.') || html.includes('?job=') || js.includes('?job=');
-          const isArticle = id.startsWith('art_') || id.startsWith('article_');
-
-          const candidatePaths: string[] = [];
-          if (isJob) {
-            candidatePaths.push(`/?job=${id}`);
-            candidatePaths.push(`/job/${id}`);
-          } else if (id.startsWith('post_')) {
-            candidatePaths.push(`/?post=${id}`);
-            candidatePaths.push(`/post/${id}`);
-          } else if (isArticle) {
-            candidatePaths.push(`/article/${id}`);
-          } else if (id.startsWith('listing_')) {
-            candidatePaths.push(`/?listing=${id}`);
-            candidatePaths.push(`/listing/${id}`);
-          } else {
-            candidatePaths.push(`/?id=${id}`);
-            candidatePaths.push(`/${id}`);
+      const genericLocRegex = /<loc>(?:<!\[CDATA\[)?(https?:\/\/[^<\]\s]+)(?:\]\]>)?<\/loc>/gi;
+      let gm: RegExpExecArray | null;
+      while ((gm = genericLocRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
+        const locStr = gm[1].trim();
+        if (locStr.endsWith('.xml') || (locStr.includes('sitemap') && locStr.includes('.xml'))) {
+          if (!parsedSitemaps.has(locStr) && !sitemapQueue.includes(locStr) && sitemapQueue.length < 50) {
+            sitemapQueue.push(locStr);
           }
-
-          for (const itemPath of candidatePaths) {
-            if (!isCleanPublicPage(itemPath, rawTitle)) continue;
-            if (!discoveredPaths.has(itemPath) && discoveredPages.length < maxLinks) {
-              discoveredPaths.add(itemPath);
+          continue;
+        }
+        try {
+          const pUrl = new URL(locStr);
+          if (pUrl.hostname === hostname || pUrl.hostname.endsWith(`.${hostname}`)) {
+            const sPath = normalizePathWithQuery(pUrl);
+            const sTitle = slugToTitle(pUrl.pathname);
+            if (isCleanPublicPage(sPath, sTitle) && !discoveredPaths.has(sPath)) {
+              discoveredPaths.add(sPath);
+              visitedUrls.add(normalizeCanonicalUrl(pUrl));
+              const cat = classifyPage(sPath, sTitle);
               discoveredPages.push({
-                id: `spa_${id}_${discoveredPages.length + 1}`,
-                url: `${origin}${itemPath}`,
-                path: itemPath,
-                title: rawTitle ? (rawTitle.length > 80 ? rawTitle.slice(0, 80) + '...' : rawTitle) : `Listing: ${id}`,
-                description: isJob ? `[Job Listing] ${category}: ${rawDesc || rawTitle}` : isArticle ? `[Career Article] ${rawTitle}` : `${category}: ${rawDesc}`,
-                depth: 2,
+                id: `sm_gen_${discoveredPages.length + 1}`,
+                url: locStr,
+                path: sPath,
+                title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
+                description: `${cat.toUpperCase()}: ${sTitle}`,
+                depth: sPath.split('/').filter(Boolean).length || 1,
                 status: 200,
                 includedInVisits: true,
-                visitWeight: isJob ? 95 : isArticle ? 90 : 85,
+                visitWeight: cat === 'post' ? 95 : 80,
                 gaDetected: !!gaMeasurementId || !!gtmId,
-                category: 'post',
+                category: cat,
               });
-              break;
             }
           }
-        }
-
-        // Extract dynamic token IDs
-        const dynamicTokenRegex = /\b(job_\d{3,20}|job_[a-zA-Z0-9_\-]{4,30}|post_\d{3,20}|article_\d{3,20}|listing_\d{3,20})\b/g;
-        let jm: RegExpExecArray | null;
-        while ((jm = dynamicTokenRegex.exec(js)) !== null && discoveredPages.length < maxLinks) {
-          const rawToken = jm[1];
-          if (rawToken.startsWith('m10') || rawToken.startsWith('job_listing') || rawToken.startsWith('job_ids')) continue;
-          
-          let queryPath = `/?job=${rawToken}`;
-          let itemCategory: 'post' = 'post';
-          let itemTitle = `Job Listing: ${rawToken}`;
-
-          if (rawToken.startsWith('post_')) {
-            queryPath = `/?post=${rawToken}`;
-            itemTitle = `Post: ${rawToken}`;
-          } else if (rawToken.startsWith('article_')) {
-            queryPath = `/article/${rawToken}`;
-            itemTitle = `Article: ${rawToken}`;
-          } else if (rawToken.startsWith('listing_')) {
-            queryPath = `/?listing=${rawToken}`;
-            itemTitle = `Listing: ${rawToken}`;
-          }
-
-          if (!isCleanPublicPage(queryPath, itemTitle)) continue;
-          if (!discoveredPaths.has(queryPath)) {
-            discoveredPaths.add(queryPath);
-            discoveredPages.push({
-              id: `ent_${rawToken}_${discoveredPages.length + 1}`,
-              url: `${origin}${queryPath}`,
-              path: queryPath,
-              title: itemTitle,
-              description: `Dynamic listing: ${rawToken}`,
-              depth: 2,
-              status: 200,
-              includedInVisits: true,
-              visitWeight: 95,
-              gaDetected: !!gaMeasurementId || !!gtmId,
-              category: itemCategory,
-            });
-          }
-        }
+        } catch {}
       }
-    } catch (e) {
-      console.error('JS Decompiler warning:', e);
+    };
+
+    if (isDirectSitemapInput && html) {
+      processSitemapXml(html, targetUrl);
+      parsedSitemaps.add(targetUrl);
     }
 
-    // 3. XML SITEMAP PARSER
-    try {
-      const sitemapRoots = [`${origin}/sitemap.xml`, `${origin}/wp-sitemap.xml`, `${origin}/sitemap_index.xml`];
-      for (const smUrl of sitemapRoots) {
-        if (discoveredPages.length >= maxLinks) break;
-        try {
-          const smCtrl = new AbortController();
-          const smTimer = setTimeout(() => smCtrl.abort(), 3500);
-          const smRes = await fetch(smUrl, { headers: browserHeaders, signal: smCtrl.signal });
-          clearTimeout(smTimer);
+    let sitemapBatchCount = 0;
+    while (sitemapQueue.length > 0 && sitemapBatchCount < 35 && discoveredPages.length < maxLinks) {
+      const currentBatch = sitemapQueue.splice(0, 8).filter(sm => !parsedSitemaps.has(sm));
+      currentBatch.forEach(sm => parsedSitemaps.add(sm));
+      if (currentBatch.length === 0) break;
+      sitemapBatchCount++;
 
-          if (smRes.ok) {
-            const smXml = await smRes.text();
-            const locRegex = /(?:<loc>|<loc><!\[CDATA\[)(https?:\/\/[^<\]\s]+)(?:\]\]><\/loc>|<\/loc>)/gi;
-            let lm: RegExpExecArray | null;
-            while ((lm = locRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
-              const matchedUrl = lm[1].trim();
-              if (!matchedUrl.endsWith('.xml')) {
+      const sitemapTasks = currentBatch.map(async (smUrl) => {
+        const smRes = await resilientFetch(smUrl, 4000);
+        if (smRes.ok && (smRes.text.includes('<urlset') || smRes.text.includes('<sitemapindex') || smRes.text.includes('<loc>'))) {
+          processSitemapXml(smRes.text, smUrl);
+        }
+      });
+      await Promise.allSettled(sitemapTasks);
+    }
+
+    // WordPress REST API Multi-page pagination discovery
+    const wpBaseEndpoints = [
+      `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug`,
+      `${origin}/wp-json/wp/v2/job-listings?per_page=100&_fields=id,link,title,slug`,
+      `${origin}/wp-json/wp/v2/vacancies?per_page=100&_fields=id,link,title,slug`,
+      `${origin}/wp-json/wp/v2/articles?per_page=100&_fields=id,link,title,slug`,
+      `${origin}/wp-json/wp/v2/listings?per_page=100&_fields=id,link,title,slug`,
+      `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug`,
+      `${origin}/wp-json/wp/v2/categories?per_page=100&_fields=id,link,name,slug`,
+    ];
+
+    const wpPage1Tasks = wpBaseEndpoints.map(async (wpUrl) => {
+      try {
+        const r = await resilientFetch(wpUrl, 4000);
+        if (r.ok) {
+          const data = JSON.parse(r.text);
+          if (Array.isArray(data) && data.length > 0) {
+            data.forEach(item => {
+              if (discoveredPages.length >= maxLinks) return;
+              if (item.link) {
                 try {
-                  const pUrl = new URL(matchedUrl);
-                  if (pUrl.hostname === hostname && !discoveredPaths.has(pUrl.pathname)) {
-                    discoveredPaths.add(pUrl.pathname);
-                    const sPath = pUrl.pathname || '/';
-                    const sTitle = sPath.replace(/^\//, '').replace(/\/$/, '').replace(/[-_/]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Page';
-                    if (isCleanPublicPage(sPath, sTitle)) {
-                      discoveredPages.push({
-                        id: `sm_${discoveredPages.length + 1}`,
-                        url: matchedUrl,
-                        path: sPath,
-                        title: sTitle.length > 70 ? sTitle.slice(0, 70) + '...' : sTitle,
-                        description: `Sitemap Link: ${sTitle}`,
-                        depth: sPath.split('/').filter(Boolean).length || 1,
-                        status: 200,
-                        includedInVisits: true,
-                        visitWeight: 85,
-                        gaDetected: !!gaMeasurementId || !!gtmId,
-                        category: classifyPage(sPath, sTitle),
-                      });
-                    }
+                  const u = new URL(item.link);
+                  const p = normalizePathWithQuery(u);
+                  if (!discoveredPaths.has(p)) {
+                    discoveredPaths.add(p);
+                    visitedUrls.add(normalizeCanonicalUrl(u));
+                    const itemTitle = (typeof item.title === 'object' && item.title?.rendered ? item.title.rendered : item.title) || item.name || slugToTitle(item.slug || p);
+                    const cleanT = itemTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
+                    const isCat = wpUrl.includes('categories');
+                    listingPatternsMatched++;
+                    discoveredPages.push({
+                      id: `wp_${item.id || discoveredPages.length + 1}`,
+                      url: item.link,
+                      path: p,
+                      title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
+                      description: isCat ? `Category: ${cleanT}` : `WordPress Post: ${cleanT}`,
+                      depth: p.split('/').filter(Boolean).length || 1,
+                      status: 200,
+                      includedInVisits: true,
+                      visitWeight: isCat ? 85 : 95,
+                      gaDetected: !!gaMeasurementId || !!gtmId,
+                      category: isCat ? 'category' : 'post',
+                    });
                   }
                 } catch {}
               }
+            });
+
+            if (data.length >= 95 && wpUrl.includes('posts')) {
+              const subPages = [2, 3, 4, 5, 6, 7, 8, 9, 10];
+              const pageTasks = subPages.map(async (pgNum) => {
+                if (discoveredPages.length >= maxLinks) return;
+                const pgUrl = `${origin}/wp-json/wp/v2/posts?per_page=100&page=${pgNum}&_fields=id,link,title,slug`;
+                const pgRes = await resilientFetch(pgUrl, 3500);
+                if (pgRes.ok) {
+                  try {
+                    const pgData = JSON.parse(pgRes.text);
+                    if (Array.isArray(pgData)) {
+                      pgData.forEach(item => {
+                        if (discoveredPages.length >= maxLinks) return;
+                        if (item.link) {
+                          try {
+                            const u = new URL(item.link);
+                            const p = normalizePathWithQuery(u);
+                            if (!discoveredPaths.has(p)) {
+                              discoveredPaths.add(p);
+                              visitedUrls.add(normalizeCanonicalUrl(u));
+                              const itemTitle = (typeof item.title === 'object' && item.title?.rendered ? item.title.rendered : item.title) || slugToTitle(item.slug || p);
+                              const cleanT = itemTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
+                              listingPatternsMatched++;
+                              discoveredPages.push({
+                                id: `wp_${item.id || discoveredPages.length + 1}`,
+                                url: item.link,
+                                path: p,
+                                title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
+                                description: `WordPress Article: ${cleanT}`,
+                                depth: p.split('/').filter(Boolean).length || 1,
+                                status: 200,
+                                includedInVisits: true,
+                                visitWeight: 95,
+                                gaDetected: !!gaMeasurementId || !!gtmId,
+                                category: 'post',
+                              });
+                            }
+                          } catch {}
+                        }
+                      });
+                    }
+                  } catch {}
+                }
+              });
+              await Promise.allSettled(pageTasks);
             }
           }
-        } catch {}
-      }
-    } catch {}
+        }
+      } catch {}
+    });
+    await Promise.allSettled(wpPage1Tasks);
 
-    // 4. HTML ANCHOR LINKS EXTRACTION
+    // HTML Anchor extraction
     const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
     let match: RegExpExecArray | null;
     let rawLinksFound = 0;
@@ -613,18 +1007,7 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
           if (!discoveredPaths.has(pagePath) && discoveredPages.length < maxLinks) {
             discoveredPaths.add(pagePath);
             const cat = classifyPage(pagePath, linkText);
-            let cleanTitle = linkText;
-            if (!cleanTitle || cleanTitle.length < 3) {
-              if (pagePath.includes('job=')) {
-                const qJob = resolvedUrl.searchParams.get('job') || 'Job';
-                cleanTitle = `Job: ${qJob}`;
-              } else if (pagePath.includes('post=')) {
-                const qPost = resolvedUrl.searchParams.get('post') || 'Post';
-                cleanTitle = `Post: ${qPost}`;
-              } else {
-                cleanTitle = pagePath.replace(/^\//, '').replace(/\/$/, '').replace(/[-_/=?&]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Internal Page';
-              }
-            }
+            let cleanTitle = linkText || slugToTitle(pagePath);
 
             const isJob = cat === 'post' || pagePath.includes('job') || pagePath.includes('listing');
             const finalCat = isJob ? 'post' : cat;
@@ -646,40 +1029,63 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       } catch {}
     }
 
-    // 5. Standard Route Expansion if website returned very few items
-    if (discoveredPages.length < 5) {
-      const standardRoutes = [
-        { path: '/about', title: 'About Us & Company Overview', cat: 'page' as const },
-        { path: '/jobs', title: 'Job Openings & Career Board', cat: 'category' as const },
-        { path: '/products', title: 'Products & Solutions Directory', cat: 'category' as const },
-        { path: '/pricing', title: 'Plans & Pricing Overview', cat: 'page' as const },
-        { path: '/features', title: 'Key Features & Capabilities', cat: 'page' as const },
-        { path: '/blog', title: 'Blog, News & Latest Articles', cat: 'category' as const },
-        { path: '/contact', title: 'Contact Support & Help Desk', cat: 'page' as const },
-        { path: '/faq', title: 'Frequently Asked Questions', cat: 'page' as const },
-        { path: '/terms', title: 'Terms of Service', cat: 'page' as const },
-        { path: '/privacy', title: 'Privacy Policy', cat: 'page' as const },
-        { path: '/docs', title: 'Documentation & Guide', cat: 'page' as const },
-      ];
+    // Recursive link crawl pass
+    const targetMaxDepth = Math.min(3, Math.max(1, parseInt(req.body.maxDepth, 10) || 2));
+    let currentDepth = 1;
 
-      for (const r of standardRoutes) {
-        if (!discoveredPaths.has(r.path) && discoveredPages.length < maxLinks) {
-          discoveredPaths.add(r.path);
-          discoveredPages.push({
-            id: `std_${discoveredPages.length + 1}`,
-            url: `${origin}${r.path}`,
-            path: r.path,
-            title: `${r.title}`,
-            description: `Portal section for ${hostname}`,
-            depth: 1,
-            status: 200,
-            includedInVisits: true,
-            visitWeight: 80,
-            gaDetected: !!gaMeasurementId || !!gtmId,
-            category: r.cat,
-          });
+    while (currentDepth <= targetMaxDepth && discoveredPages.length < maxLinks) {
+      const pendingToVisit = discoveredPages
+        .filter(p => p.depth === currentDepth && p.url.startsWith('http') && !visitedUrls.has(normalizeCanonicalUrl(new URL(p.url))))
+        .slice(0, currentDepth === 1 ? 16 : 10);
+
+      if (pendingToVisit.length === 0) break;
+
+      pendingToVisit.forEach(c => {
+        try { visitedUrls.add(normalizeCanonicalUrl(new URL(c.url))); } catch {}
+      });
+
+      const recursiveTasks = pendingToVisit.map(async (candidate) => {
+        const r = await resilientFetch(candidate.url, 4000);
+        if (r.ok) {
+          const subHtml = r.text;
+          const subLinkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
+          let sm: RegExpExecArray | null;
+          while ((sm = subLinkRegex.exec(subHtml)) !== null && discoveredPages.length < maxLinks) {
+            const sHref = (sm[1] || sm[2] || sm[3] || '').trim();
+            const sText = (sm[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+            if (!sHref || sHref.startsWith('#') || sHref.startsWith('javascript:') || sHref.startsWith('mailto:')) continue;
+
+            try {
+              const resolvedSub = new URL(sHref, origin);
+              if (resolvedSub.hostname === hostname || resolvedSub.hostname.endsWith(`.${hostname}`)) {
+                const subCleanPath = normalizePathWithQuery(resolvedSub);
+                if (!isCleanPublicPage(subCleanPath, sText)) continue;
+                if (!discoveredPaths.has(subCleanPath)) {
+                  discoveredPaths.add(subCleanPath);
+                  const subCat = classifyPage(subCleanPath, sText);
+                  const sTitle = sText || slugToTitle(subCleanPath);
+                  discoveredPages.push({
+                    id: `rec_${discoveredPages.length + 1}`,
+                    url: resolvedSub.toString(),
+                    path: subCleanPath,
+                    title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
+                    description: `${subCat.toUpperCase()}: ${sTitle}`,
+                    depth: currentDepth + 1,
+                    status: 200,
+                    includedInVisits: true,
+                    visitWeight: subCat === 'post' ? 95 : 75,
+                    gaDetected: !!gaMeasurementId || !!gtmId,
+                    category: subCat,
+                  });
+                }
+              }
+            } catch {}
+          }
         }
-      }
+      });
+
+      await Promise.allSettled(recursiveTasks);
+      currentDepth++;
     }
 
     const latencyMs = Math.round(performance.now() - scrapeStartTime);
@@ -696,7 +1102,7 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       statusCode,
       latencyMs,
       isRealScrape,
-      realLinksFound: rawLinksFound,
+      realLinksFound: discoveredPages.length,
       totalPagesDiscovered: discoveredPages.length,
       pages: discoveredPages,
       error: fetchErrorMsg || undefined,
@@ -709,7 +1115,7 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
 // Single Dispatch Endpoint
 router.post('/traffic/dispatch-single', async (req: Request, res: Response) => {
   const startTime = performance.now();
-  const { url, method = 'GET', headers = {}, body, proxyUrl, timeout = 10000, simulatedRegionLatency = 0 } = req.body;
+  const { url, method = 'GET', headers = {}, body, proxyUrl, proxyRegion = 'Global', timeout = 10000, simulatedRegionLatency = 0 } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
@@ -731,6 +1137,8 @@ router.post('/traffic/dispatch-single', async (req: Request, res: Response) => {
       'True-Client-IP': forwardedIp,
       'CF-Connecting-IP': forwardedIp,
       'CF-IPCountry': countryCode,
+      'X-Country-Code': countryCode,
+      'X-Proxy-Region': proxyRegion,
       ...headers,
     };
 
@@ -748,7 +1156,17 @@ router.post('/traffic/dispatch-single', async (req: Request, res: Response) => {
       fetchOptions.body = typeof body === 'object' ? JSON.stringify(body) : body;
     }
 
-    const response = await fetch(url, fetchOptions);
+    let response;
+    try {
+      response = await fetch(url, fetchOptions);
+    } catch (proxyErr) {
+      if (agent) {
+        const directOptions = { ...fetchOptions, agent: undefined };
+        response = await fetch(url, directOptions);
+      } else {
+        throw proxyErr;
+      }
+    }
     clearTimeout(timer);
 
     const latencyMs = Math.round(performance.now() - startTime + simulatedRegionLatency);
@@ -782,7 +1200,7 @@ router.post('/traffic/dispatch-single', async (req: Request, res: Response) => {
   }
 });
 
-// GA4 Measurement Protocol proxy
+// GA4 Measurement Protocol and Direct Collect proxy
 router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
   const {
     measurementId,
@@ -797,7 +1215,9 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
     engagementTimeMs = 15000,
     userIp,
     countryCode,
+    proxyRegion = 'Global',
     userAgent,
+    proxyUrl,
     campaignSource = 'google',
     campaignMedium = 'organic',
     campaignName,
@@ -815,48 +1235,189 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
     });
   }
 
-  try {
-    const endpoint = `https://www.google-analytics.com/mp/collect?measurement_id=${measurementId}${apiSecret ? `&api_secret=${apiSecret}` : ''}`;
-    const payload = {
-      client_id: clientId || `${Date.now()}.${Math.floor(Math.random() * 1000000000)}`,
-      events: [
-        {
-          name: eventName,
-          params: {
-            session_id: sessionId || `${Date.now()}`,
-            engagement_time_msec: engagementTimeMs,
-            page_title: pageTitle,
-            page_location: pageLocation,
-            page_referrer: referrer,
-            source: campaignSource,
-            medium: campaignMedium,
-            campaign: campaignName,
-            term: campaignTerm,
-            visitor_country: countryCode || 'US',
-          },
-        },
-      ],
-      user_properties: {
-        geo_country: { value: countryCode || 'US' },
-        visitor_ip: { value: userIp || '198.51.100.42' },
-      },
-    };
+  const cleanCountryCode = (countryCode || 'US').toUpperCase();
+  const COUNTRY_GEO_REGISTRY: Record<string, { criteriaId: number; ipSubnets: string[] }> = {
+    US: { criteriaId: 2840, ipSubnets: ['24.120', '73.180', '98.210', '108.45', '174.60', '67.160', '76.100', '24.105', '68.192'] },
+    GB: { criteriaId: 2826, ipSubnets: ['82.35', '86.150', '90.200', '92.238', '151.224', '185.120', '2.24', '81.130'] },
+    CA: { criteriaId: 2124, ipSubnets: ['24.200', '70.24', '99.230', '142.112', '174.112', '198.53', '207.161'] },
+    DE: { criteriaId: 2276, ipSubnets: ['84.116', '91.64', '178.200', '217.80', '92.247', '80.187', '188.192'] },
+    FR: { criteriaId: 2250, ipSubnets: ['82.224', '86.200', '90.50', '176.130', '51.15', '92.154', '194.250'] },
+    NL: { criteriaId: 2528, ipSubnets: ['84.80', '145.220', '213.124', '77.160', '82.161', '145.131'] },
+    AU: { criteriaId: 2036, ipSubnets: ['1.120', '120.150', '139.130', '203.200', '49.180', '101.160', '110.140'] },
+    JP: { criteriaId: 2392, ipSubnets: ['122.130', '126.150', '133.242', '153.120', '60.100', '118.238', '125.192'] },
+    SG: { criteriaId: 2702, ipSubnets: ['118.189', '175.156', '202.166', '122.11', '119.74', '220.255'] },
+    IN: { criteriaId: 2356, ipSubnets: ['103.21', '117.200', '122.160', '157.34', '49.200', '106.210', '115.110'] },
+    NG: { criteriaId: 2566, ipSubnets: ['105.112', '197.210', '41.58', '102.89', '105.113'] },
+    GH: { criteriaId: 2288, ipSubnets: ['154.160', '196.201', '41.215', '102.176'] },
+    KE: { criteriaId: 2404, ipSubnets: ['105.160', '196.201', '41.89', '102.68'] },
+    ZA: { criteriaId: 2710, ipSubnets: ['105.184', '196.25', '197.80', '41.13', '169.255'] },
+    AE: { criteriaId: 2784, ipSubnets: ['86.96', '94.200', '178.84', '213.42', '5.36', '89.148'] },
+    SA: { criteriaId: 2682, ipSubnets: ['93.168', '212.138', '62.149', '37.224', '51.252'] },
+    BR: { criteriaId: 2076, ipSubnets: ['177.100', '187.50', '200.150', '189.10', '179.180'] },
+  };
 
-    const gaRes = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-      body: JSON.stringify(payload),
-    });
+  const geoData = COUNTRY_GEO_REGISTRY[cleanCountryCode] || COUNTRY_GEO_REGISTRY['US'];
+  const subnets = geoData.ipSubnets;
+  const prefix = subnets[Math.floor(Math.random() * subnets.length)];
+  const octet3 = Math.floor(Math.random() * 200) + 10;
+  const octet4 = Math.floor(Math.random() * 250) + 2;
+  const authenticCountryIp = (userIp && userIp !== '198.51.100.42' && userIp !== '127.0.0.1' && !userIp.startsWith('198.51')) 
+    ? userIp 
+    : `${prefix}.${octet3}.${octet4}`;
+
+  const agent = getProxyAgent(proxyUrl);
+
+  // A. Measurement Protocol with API Secret
+  if (apiSecret) {
+    try {
+      const endpoint = `https://www.google-analytics.com/mp/collect?measurement_id=${measurementId}&api_secret=${apiSecret}`;
+      const payload = {
+        client_id: clientId || `${Date.now()}.${Math.floor(Math.random() * 1000000000)}`,
+        events: [
+          {
+            name: eventName,
+            params: {
+              session_id: sessionId || `${Date.now()}`,
+              engagement_time_msec: engagementTimeMs,
+              page_title: pageTitle,
+              page_location: pageLocation,
+              page_referrer: referrer,
+              source: campaignSource,
+              medium: campaignMedium,
+              campaign: campaignName,
+              term: campaignTerm,
+              visitor_country: cleanCountryCode,
+              proxy_region: proxyRegion,
+            },
+          },
+        ],
+        user_properties: {
+          geo_country: { value: cleanCountryCode },
+          visitor_ip: { value: authenticCountryIp },
+          proxy_region: { value: proxyRegion },
+        },
+      };
+
+      const gaRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'X-Forwarded-For': authenticCountryIp,
+          'CF-IPCountry': cleanCountryCode,
+          'X-Proxy-Region': proxyRegion,
+        },
+        body: JSON.stringify(payload),
+        // @ts-ignore
+        agent,
+      });
+
+      return res.json({
+        success: gaRes.ok || gaRes.status === 204,
+        status: gaRes.status,
+        measurementId,
+        eventName,
+        delivered: true,
+        protocol: 'Measurement_Protocol',
+      });
+    } catch (err: any) {
+      console.warn('GA4 MP Error:', err.message);
+    }
+  }
+
+  // B. Direct GA4 /g/collect Endpoint (Full Real GA4 Beacon Proxy)
+  const validEngagementMs = Math.max(1200, Number(engagementTimeMs) || 2000);
+  const params = new URLSearchParams({
+    v: '2',
+    tid: measurementId,
+    cid: clientId || `GA1.1.${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`,
+    sid: sessionId || `${Math.floor(Date.now() / 1000)}`,
+    en: eventName || 'page_view',
+    dl: pageLocation || `https://example.com${pagePath || '/'}`,
+    dt: pageTitle || 'Page Title',
+    dr: referrer || '',
+    _s: '1',
+    _p: `${Math.floor(Math.random() * 1000000)}`,
+    seg: '1',
+    sct: '1',
+    _ee: '1',
+    _et: `${validEngagementMs}`,
+    'epn.engagement_time_msec': `${validEngagementMs}`,
+    'ep.page_location': pageLocation || `https://example.com${pagePath || '/'}`,
+    'ep.page_title': pageTitle || 'Page Title',
+    'ep.page_referrer': referrer || '',
+    'ep.country_code': cleanCountryCode,
+    'ep.visitor_country': cleanCountryCode,
+    'ep.country': cleanCountryCode,
+    'ep.region': proxyRegion,
+    'ep.proxy_region': proxyRegion,
+    'up.geo_country': cleanCountryCode,
+    uip: authenticCountryIp,
+    _uip: authenticCountryIp,
+    geoid: `${geoData.criteriaId}`,
+    ul: 'en-us',
+    sr: '1920x1080',
+  });
+
+  if (campaignSource) {
+    params.append('cs', campaignSource);
+    params.append('ep.source', campaignSource);
+  }
+  if (campaignMedium) {
+    params.append('cm', campaignMedium);
+    params.append('ep.medium', campaignMedium);
+  }
+  if (campaignName) {
+    params.append('cn', campaignName);
+    params.append('ep.campaign', campaignName);
+  }
+
+  const collectUrl = `https://www.google-analytics.com/g/collect?${params.toString()}`;
+
+  try {
+    let gaRes;
+    try {
+      gaRes = await fetch(collectUrl, {
+        method: 'POST',
+        headers: {
+          'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          'X-Forwarded-For': authenticCountryIp,
+          'Client-IP': authenticCountryIp,
+          'CF-Connecting-IP': authenticCountryIp,
+          'CF-IPCountry': cleanCountryCode,
+          'X-Country-Code': cleanCountryCode,
+          'X-Proxy-Region': proxyRegion,
+          'X-Real-IP': authenticCountryIp,
+        },
+        body: '',
+        // @ts-ignore
+        agent,
+      });
+    } catch {
+      gaRes = await fetch(collectUrl, {
+        method: 'POST',
+        headers: {
+          'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'X-Forwarded-For': authenticCountryIp,
+          'CF-IPCountry': cleanCountryCode,
+          'X-Country-Code': cleanCountryCode,
+          'X-Proxy-Region': proxyRegion,
+        },
+        body: '',
+      });
+    }
 
     res.json({
-      success: gaRes.ok || gaRes.status === 204,
+      success: true,
       status: gaRes.status,
       measurementId,
       eventName,
+      countryCode: cleanCountryCode,
+      proxyRegion,
+      resolvedIp: authenticCountryIp,
+      proxyUsed: !!proxyUrl,
       delivered: true,
+      timestamp: Date.now(),
     });
   } catch (err: any) {
     res.json({

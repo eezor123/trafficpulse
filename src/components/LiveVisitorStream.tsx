@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Users, 
   Globe, 
@@ -134,8 +134,10 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const currentPath = selectedVisitor?.visitedPages[selectedVisitor.currentPageIndex]?.path || '/';
   const fullLiveUrl = computeFullUrl(currentPath);
 
-  // Proxy webview URL for full live rendering
-  const liveWebviewSrc = `/api/browser/live-page?url=${encodeURIComponent(fullLiveUrl)}&visitorNumber=${selectedVisitor?.visitorNumber || 1}&country=${selectedVisitor?.country?.code || 'US'}&scroll=${selectedVisitor?.currentScrollDepthPct || 0}`;
+  // Proxy webview URL for full live rendering (stabilized so iframe does not reload continuously on scroll updates)
+  const liveWebviewSrc = useMemo(() => {
+    return `/api/browser/live-page?url=${encodeURIComponent(fullLiveUrl)}&visitorNumber=${selectedVisitor?.visitorNumber || 1}&country=${selectedVisitor?.country?.code || 'US'}`;
+  }, [fullLiveUrl, selectedVisitor?.visitorNumber, selectedVisitor?.country?.code]);
 
   // Synchronize active visitor status, scroll percentage, and cursor coordinates to the live iframe
   useEffect(() => {

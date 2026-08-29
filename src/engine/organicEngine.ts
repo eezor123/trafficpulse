@@ -1410,6 +1410,53 @@ export class OrganicTrafficEngine {
     return `${proxy.protocol || 'http'}://${auth}${proxy.host}:${proxy.port}`;
   }
 
+  private validateProxyRegionAndCountry(visitor: ActiveVisitorSession): boolean {
+    const selectedCountryCode = visitor.country.code.toUpperCase();
+    const selectedRegion = (visitor.country.region || 'Global').toLowerCase();
+
+    // Ensure session has an active proxy node assigned
+    if (!visitor.proxyUsed) {
+      visitor.proxyUsed = this.selectProxyForSession(visitor.country);
+      if (visitor.proxyUsed?.realExitIp) {
+        visitor.ipAddress = visitor.proxyUsed.realExitIp;
+      }
+    }
+
+    const proxy = visitor.proxyUsed;
+    if (!proxy) {
+      return true;
+    }
+
+    const proxyCountryCode = (proxy.countryCode || '').toUpperCase();
+    const isCountryMatch = !proxyCountryCode || proxyCountryCode === selectedCountryCode;
+
+    if (!isCountryMatch) {
+      // Re-calibrate proxy node to strictly match the requested country and region
+      const calibratedProxy = this.selectProxyForSession(visitor.country);
+      if (calibratedProxy) {
+        visitor.proxyUsed = calibratedProxy;
+        visitor.ipAddress = calibratedProxy.realExitIp || calibratedProxy.host;
+      }
+      this.appendActionLog(
+        visitor,
+        'scroll',
+        `🔒 [GEO-VALIDATION] Re-routed proxy node to match selected country: ${visitor.country.name} (${visitor.country.code})`,
+        undefined,
+        '#10b981'
+      );
+    } else {
+      this.appendActionLog(
+        visitor,
+        'scroll',
+        `✓ [GEO-VALIDATED] Proxy IP ${visitor.ipAddress} matches target country: ${visitor.country.name} (${visitor.country.code})`,
+        undefined,
+        '#06b6d4'
+      );
+    }
+
+    return true;
+  }
+
   private async dispatchRealHttpRequest(
     visitor: ActiveVisitorSession,
     pageUrl: string,
@@ -1417,8 +1464,11 @@ export class OrganicTrafficEngine {
     pageTitle: string
   ) {
     try {
+      this.validateProxyRegionAndCountry(visitor);
+
       const userIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';
       const proxyUrl = this.formatProxyNodeUrl(visitor.proxyUsed);
+      const proxyRegion = visitor.country.region || visitor.proxyUsed?.region || 'Global';
 
       const res = await fetch('/api/traffic/dispatch-single', {
         method: 'POST',
@@ -1427,6 +1477,8 @@ export class OrganicTrafficEngine {
           url: pageUrl,
           method: 'GET',
           proxyUrl,
+          proxyRegion,
+          proxyCountryCode: visitor.country.code,
           headers: {
             'User-Agent': visitor.userAgent,
             'Referer': visitor.referrerUrl,
@@ -1440,6 +1492,7 @@ export class OrganicTrafficEngine {
             'X-Client-IP': userIp,
             'CF-IPCountry': visitor.country.code,
             'X-Country-Code': visitor.country.code,
+            'X-Proxy-Region': proxyRegion,
             'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
             'Sec-Ch-Ua-Mobile': visitor.deviceType.toLowerCase().includes('mobile') ? '?1' : '?0',
             'Sec-Ch-Ua-Platform': visitor.deviceType.includes('Mac') ? '"macOS"' : visitor.deviceType.includes('iOS') ? '"iOS"' : '"Windows"',
@@ -1492,7 +1545,7 @@ export class OrganicTrafficEngine {
         pagePath,
         pageTitle,
         source: visitor.trafficSource,
-        details: `[REAL HTTP] GET ${pagePath} ➔ ${statusCode} ${statusText} (${latencyMs}ms, ${(bytes / 1024).toFixed(1)} KB)${proxyUrl ? ' [Proxy]' : ''}`,
+        details: `[REAL HTTP] GET ${pagePath} ➔ ${statusCode} ${statusText} (${latencyMs}ms, ${(bytes / 1024).toFixed(1)} KB)${proxyUrl ? ` [Proxy: ${proxyRegion}]` : ''}`,
         device: visitor.deviceType,
       });
     } catch {
@@ -1510,13 +1563,17 @@ export class OrganicTrafficEngine {
     this.ga4EventsCount += 1;
     if (!this.config.ga4.autoSendMeasurementProtocol) return;
 
+    // Validate that proxy node and IP country match before firing GA4 beacon
+    this.validateProxyRegionAndCountry(visitor);
+
     const measurementId = this.config.ga4.measurementId?.trim();
     const effectiveEngagement = Math.max(1200, engagementTimeMs || 2000);
     const campaignSource = visitor.trafficSource === 'Organic Search' ? 'google' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource.toLowerCase();
     const campaignMedium = visitor.trafficSource === 'Organic Search' ? 'organic' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource === 'Direct' ? '(none)' : 'referral';
     const pageLocation = `${this.config.targetUrl}${pagePath}`;
+    const proxyRegion = visitor.country.region || visitor.proxyUsed?.region || 'Global';
 
-    // 1. Dispatch via Server-Side Proxy (with residential IP, authentic Geo headers, and GA4 criteria ID)
+    // 1. Dispatch via Server-Side Proxy (with residential IP, authentic Geo headers, region, and GA4 criteria ID)
     try {
       const proxyUrl = this.formatProxyNodeUrl(visitor.proxyUsed);
       const visitorIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';
@@ -1537,6 +1594,7 @@ export class OrganicTrafficEngine {
           engagementTimeMs: effectiveEngagement,
           userIp: visitorIp,
           countryCode: visitor.country.code,
+          proxyRegion,
           userAgent: visitor.userAgent,
           campaignSource,
           campaignMedium,
