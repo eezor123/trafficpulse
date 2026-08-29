@@ -30,15 +30,25 @@ function getProxyAgent(proxyUrl?: string) {
   }
 }
 
-// Initialize server-side Gemini client with telemetry header
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
-});
+// Lazy initialization for server-side Gemini client with telemetry header
+let aiClient: GoogleGenAI | null = null;
+function getGeminiClient(): GoogleGenAI {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY environment variable is not configured');
+    }
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+  return aiClient;
+}
 
 async function startServer() {
   const app = express();
@@ -1936,6 +1946,49 @@ async function startServer() {
         });
       }
 
+      const cleanCountryCode = (countryCode || 'US').toUpperCase();
+      const COUNTRY_GEO_REGISTRY: Record<string, { criteriaId: number; ipSubnets: string[] }> = {
+        US: { criteriaId: 2840, ipSubnets: ['24.120', '73.180', '98.210', '108.45', '174.60', '67.160', '76.100'] },
+        GB: { criteriaId: 2826, ipSubnets: ['82.35', '86.150', '90.200', '92.238', '151.224', '185.120'] },
+        CA: { criteriaId: 2124, ipSubnets: ['24.200', '70.24', '99.230', '142.112', '174.112'] },
+        DE: { criteriaId: 2276, ipSubnets: ['84.116', '91.64', '178.200', '217.80', '92.247'] },
+        FR: { criteriaId: 2250, ipSubnets: ['82.224', '86.200', '90.50', '176.130', '51.15'] },
+        NL: { criteriaId: 2528, ipSubnets: ['84.80', '145.220', '213.124', '77.160'] },
+        AU: { criteriaId: 2036, ipSubnets: ['1.120', '120.150', '139.130', '203.200', '49.180'] },
+        JP: { criteriaId: 2392, ipSubnets: ['122.130', '126.150', '133.242', '153.120', '60.100'] },
+        SG: { criteriaId: 2702, ipSubnets: ['118.189', '175.156', '202.166', '122.11'] },
+        IN: { criteriaId: 2356, ipSubnets: ['103.21', '117.200', '122.160', '157.34', '49.200'] },
+        AE: { criteriaId: 2784, ipSubnets: ['86.96', '94.200', '178.84', '213.42'] },
+        SA: { criteriaId: 2682, ipSubnets: ['93.168', '212.138', '62.149'] },
+        ZA: { criteriaId: 2710, ipSubnets: ['105.184', '196.25', '197.80', '41.13'] },
+        NG: { criteriaId: 2566, ipSubnets: ['105.112', '197.210', '41.58', '102.89'] },
+        GH: { criteriaId: 2288, ipSubnets: ['154.160', '196.201', '41.215'] },
+        KE: { criteriaId: 2404, ipSubnets: ['105.160', '196.201', '41.89'] },
+        BR: { criteriaId: 2076, ipSubnets: ['177.100', '187.50', '200.150', '189.10'] },
+        MX: { criteriaId: 2484, ipSubnets: ['132.248', '187.188', '201.140', '189.200'] },
+        IT: { criteriaId: 2380, ipSubnets: ['79.16', '87.10', '93.34', '151.15'] },
+        ES: { criteriaId: 2724, ipSubnets: ['83.32', '88.1', '95.16', '213.97'] },
+        CH: { criteriaId: 2756, ipSubnets: ['130.59', '178.197', '194.230'] },
+        SE: { criteriaId: 2752, ipSubnets: ['193.10', '213.112', '81.224'] },
+        NO: { criteriaId: 2578, ipSubnets: ['84.208', '193.212', '88.88'] },
+        DK: { criteriaId: 2208, ipSubnets: ['80.62', '87.54', '188.176'] },
+        FI: { criteriaId: 2246, ipSubnets: ['80.220', '88.112', '193.64'] },
+        IE: { criteriaId: 2372, ipSubnets: ['80.233', '86.40', '89.100'] },
+        PL: { criteriaId: 2616, ipSubnets: ['83.4', '89.64', '178.42'] },
+        TR: { criteriaId: 2792, ipSubnets: ['194.27', '88.224', '78.160'] },
+        KR: { criteriaId: 2410, ipSubnets: ['147.46', '121.130', '211.200'] },
+        NZ: { criteriaId: 2554, ipSubnets: ['118.148', '122.56', '202.180'] },
+      };
+
+      const geoData = COUNTRY_GEO_REGISTRY[cleanCountryCode] || COUNTRY_GEO_REGISTRY['US'];
+      const subnets = geoData.ipSubnets;
+      const prefix = subnets[Math.floor(Math.random() * subnets.length)];
+      const octet3 = Math.floor(Math.random() * 200) + 10;
+      const octet4 = Math.floor(Math.random() * 250) + 2;
+      const authenticCountryIp = (userIp && userIp !== '198.51.100.42' && userIp !== '127.0.0.1' && !userIp.startsWith('198.51')) 
+        ? userIp 
+        : `${prefix}.${octet3}.${octet4}`;
+
       const agent = getProxyAgent(proxyUrl);
 
       // A. If API Secret is provided, dispatch to official GA4 Measurement Protocol
@@ -1956,13 +2009,15 @@ async function startServer() {
                   source: campaignSource || 'organic',
                   medium: campaignMedium || 'search',
                   campaign: campaignName || 'organic_boost',
-                  visitor_country: countryCode || 'US',
+                  visitor_country: cleanCountryCode,
+                  country: cleanCountryCode,
+                  geoid: geoData.criteriaId,
                 },
               },
             ],
             user_properties: {
-              geo_country: { value: countryCode || 'US' },
-              visitor_ip: { value: userIp || '198.51.100.42' },
+              geo_country: { value: cleanCountryCode },
+              visitor_ip: { value: authenticCountryIp },
             },
           };
 
@@ -1971,6 +2026,11 @@ async function startServer() {
             headers: {
               'Content-Type': 'application/json',
               'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+              'X-Forwarded-For': authenticCountryIp,
+              'Client-IP': authenticCountryIp,
+              'CF-IPCountry': cleanCountryCode,
+              'X-Country-Code': cleanCountryCode,
+              'X-Real-IP': authenticCountryIp,
             },
             body: JSON.stringify(mpBody),
             // @ts-ignore
@@ -1984,6 +2044,8 @@ async function startServer() {
             measurementId,
             clientId,
             eventName,
+            countryCode: cleanCountryCode,
+            resolvedIp: authenticCountryIp,
             proxyUsed: !!proxyUrl,
             timestamp: Date.now(),
           });
@@ -1992,7 +2054,7 @@ async function startServer() {
         }
       }
 
-      // B. Standard GA4 Collect endpoint format with Geo, IP, and Session Engagement parameters
+      // B. Standard GA4 Collect endpoint format with authentic Geo, IP, and Session Engagement parameters
       const validEngagementMs = Math.max(1200, Number(engagementTimeMs) || 2000);
       const params = new URLSearchParams({
         v: '2',
@@ -2013,11 +2075,13 @@ async function startServer() {
         'ep.page_location': pageLocation || `https://example.com${pagePath || '/'}`,
         'ep.page_title': pageTitle || 'Page Title',
         'ep.page_referrer': referrer || '',
-        'ep.country_code': countryCode || 'US',
-        'ep.visitor_country': countryCode || 'US',
-        'up.geo_country': countryCode || 'US',
-        uip: userIp || '198.51.100.42',
-        _uip: userIp || '198.51.100.42',
+        'ep.country_code': cleanCountryCode,
+        'ep.visitor_country': cleanCountryCode,
+        'ep.country': cleanCountryCode,
+        'up.geo_country': cleanCountryCode,
+        uip: authenticCountryIp,
+        _uip: authenticCountryIp,
+        geoid: `${geoData.criteriaId}`,
         ul: 'en-us',
         sr: '1920x1080',
       });
@@ -2042,9 +2106,12 @@ async function startServer() {
           method: 'POST',
           headers: {
             'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-            'X-Forwarded-For': userIp || '198.51.100.42',
-            'CF-IPCountry': countryCode || 'US',
-            'X-Real-IP': userIp || '198.51.100.42',
+            'X-Forwarded-For': authenticCountryIp,
+            'Client-IP': authenticCountryIp,
+            'CF-Connecting-IP': authenticCountryIp,
+            'CF-IPCountry': cleanCountryCode,
+            'X-Country-Code': cleanCountryCode,
+            'X-Real-IP': authenticCountryIp,
           },
           body: '',
           // @ts-ignore
@@ -2058,6 +2125,9 @@ async function startServer() {
               method: 'GET',
               headers: {
                 'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'X-Forwarded-For': authenticCountryIp,
+                'CF-IPCountry': cleanCountryCode,
+                'X-Country-Code': cleanCountryCode,
               },
               // @ts-ignore
               agent,
@@ -2072,6 +2142,8 @@ async function startServer() {
           measurementId,
           clientId,
           sessionId,
+          countryCode: cleanCountryCode,
+          resolvedIp: authenticCountryIp,
           proxyUsed: !!proxyUrl,
           timestamp: Date.now(),
         });
@@ -2257,7 +2329,8 @@ async function startServer() {
       const { prompt } = req.body;
       if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
-      const response = await ai.models.generateContent({
+      const gemini = getGeminiClient();
+      const response = await gemini.models.generateContent({
         model: 'gemini-3.7-flash',
         contents: `You are an expert Performance & Site Reliability Engineer. Convert the following natural language load test requirement into a complete, structured JSON TrafficConfig object.
 
@@ -2329,7 +2402,8 @@ Respond with ONLY valid JSON (no markdown formatting, no backticks, just raw JSO
       const { summary } = req.body;
       if (!summary) return res.status(400).json({ error: 'Summary is required' });
 
-      const response = await ai.models.generateContent({
+      const gemini = getGeminiClient();
+      const response = await gemini.models.generateContent({
         model: 'gemini-3.7-flash',
         contents: `You are an elite Site Reliability & Performance Architect. Analyze the following benchmark run metrics and provide a high-value, actionable diagnostic report.
 
@@ -2358,7 +2432,8 @@ Format your answer with clear markdown sections:
   app.post('/api/ai/generate-fuzz-payloads', async (req: Request, res: Response) => {
     try {
       const { sampleBody, targetPurpose } = req.body;
-      const response = await ai.models.generateContent({
+      const gemini = getGeminiClient();
+      const response = await gemini.models.generateContent({
         model: 'gemini-3.7-flash',
         contents: `Generate 5 realistic and adversarial JSON fuzzing payloads for stress testing this API endpoint.
 Target Purpose: ${targetPurpose || 'API Stress Testing'}
@@ -2384,7 +2459,8 @@ Return ONLY a JSON array of 5 objects, where each object has:
   app.post('/api/ai/generate-organic-campaign', async (req: Request, res: Response) => {
     try {
       const { targetUrl, pageTitle, pageDescription, industryNiche } = req.body;
-      const response = await ai.models.generateContent({
+      const gemini = getGeminiClient();
+      const response = await gemini.models.generateContent({
         model: 'gemini-3.7-flash',
         contents: `You are a Senior SEO & Web Traffic Analytics Specialist.
 Analyze this website to create an authentic, highly realistic Organic & Social Traffic simulation profile that matches genuine human search behavior.

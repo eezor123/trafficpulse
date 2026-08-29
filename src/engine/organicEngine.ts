@@ -1312,9 +1312,10 @@ export class OrganicTrafficEngine {
     const campaignMedium = visitor.trafficSource === 'Organic Search' ? 'organic' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource === 'Direct' ? '(none)' : 'referral';
     const pageLocation = `${this.config.targetUrl}${pagePath}`;
 
-    // 1. Dispatch via Server-Side Proxy (with residential IP and Geo headers)
+    // 1. Dispatch via Server-Side Proxy (with residential IP, authentic Geo headers, and GA4 criteria ID)
     try {
       const proxyUrl = this.formatProxyNodeUrl(visitor.proxyUsed);
+      const visitorIp = visitor.ipAddress || visitor.country.ipSample || '198.51.100.42';
 
       fetch('/api/ga4/collect-beacon', {
         method: 'POST',
@@ -1330,7 +1331,7 @@ export class OrganicTrafficEngine {
           pageLocation,
           referrer: visitor.referrerUrl,
           engagementTimeMs: effectiveEngagement,
-          userIp: visitor.country.ipSample || '198.51.100.42',
+          userIp: visitorIp,
           countryCode: visitor.country.code,
           userAgent: visitor.userAgent,
           campaignSource,
@@ -1340,46 +1341,6 @@ export class OrganicTrafficEngine {
         }),
       }).catch(() => {});
     } catch {}
-
-    // 2. Dual Dispatch: Also send direct client-side beacon if valid GA4 ID is present
-    if (measurementId && measurementId.startsWith('G-') && typeof window !== 'undefined') {
-      try {
-        const clientParams = new URLSearchParams({
-          v: '2',
-          tid: measurementId,
-          cid: visitor.gaClientId,
-          sid: visitor.gaSessionId,
-          en: eventName || 'page_view',
-          dl: pageLocation,
-          dt: pageTitle,
-          dr: visitor.referrerUrl || '',
-          _s: '1',
-          seg: '1',
-          sct: '1',
-          _ee: '1',
-          _et: `${effectiveEngagement}`,
-          'epn.engagement_time_msec': `${effectiveEngagement}`,
-          ul: 'en-us',
-          sr: '1920x1080',
-        });
-
-        if (campaignSource) clientParams.append('cs', campaignSource);
-        if (campaignMedium) clientParams.append('cm', campaignMedium);
-
-        const directGaUrl = `https://www.google-analytics.com/g/collect?${clientParams.toString()}`;
-        
-        // Use fetch with keepalive / no-cors
-        if (typeof fetch === 'function') {
-          fetch(directGaUrl, { method: 'POST', mode: 'no-cors', keepalive: true }).catch(() => {});
-        }
-
-        // Image beacon fallback
-        if (typeof Image !== 'undefined') {
-          const img = new Image();
-          img.src = directGaUrl;
-        }
-      } catch {}
-    }
   }
 
   public generateSummary(): OrganicRunSummary {
