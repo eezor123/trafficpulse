@@ -7,6 +7,7 @@ import {
   OrganicVisitorConfig,
   ProxyNode,
   RealHttpTrafficHit,
+  SimulatorActionLog,
   VisitedPageStep,
 } from '../types';
 import { GLOBAL_COUNTRIES } from '../data/organicPresets';
@@ -262,6 +263,34 @@ export class OrganicTrafficEngine {
     return syntheticProxy;
   }
 
+  private appendActionLog(
+    visitor: ActiveVisitorSession,
+    type: SimulatorActionLog['type'],
+    action: string,
+    targetElement?: string,
+    badgeColor?: string
+  ) {
+    if (!visitor.liveActionLogs) {
+      visitor.liveActionLogs = [];
+    }
+    const log: SimulatorActionLog = {
+      id: `act_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      timestamp: Date.now(),
+      timeStr: new Date().toLocaleTimeString(),
+      type,
+      action,
+      targetElement: targetElement || visitor.currentHoverTarget,
+      cursorCoords: { x: visitor.cursorX, y: visitor.cursorY },
+      scrollPct: visitor.currentScrollDepthPct,
+      dwellSec: Math.round(visitor.visitedPages[visitor.currentPageIndex]?.dwellSecondsSpent || 0),
+      badgeColor: badgeColor || '#38bdf8',
+    };
+    visitor.liveActionLogs.unshift(log);
+    if (visitor.liveActionLogs.length > 50) {
+      visitor.liveActionLogs.pop();
+    }
+  }
+
   private tick() {
     if (!this.isRunning || this.isPaused) return;
 
@@ -298,6 +327,7 @@ export class OrganicTrafficEngine {
       const pageProgress = Math.min(100, (currentPage.dwellSecondsSpent / Math.max(1, currentPage.dwellPlannedSeconds)) * 100);
 
       // 1. Simulate human scrolling based on dwell progress & scrollToEndOfPage setting
+      const prevScroll = visitor.currentScrollDepthPct || 0;
       if (this.config.behavior.simulateScroll) {
         const targetScroll = this.config.behavior.scrollToEndOfPage 
           ? Math.max(currentPage.scrollDepthPct, 96 + Math.floor(Math.random() * 4)) // 96-100% full scroll
@@ -305,6 +335,18 @@ export class OrganicTrafficEngine {
 
         // Smooth ease towards target scroll
         visitor.currentScrollDepthPct = Math.min(targetScroll, Math.round(targetScroll * (pageProgress / 80)));
+        visitor.currentScrollVelocity = Math.round(((visitor.currentScrollDepthPct - prevScroll) / Math.max(0.1, tickDeltaSeconds)) * 10) / 10;
+
+        // Log scroll progress milestone
+        if (Math.abs(visitor.currentScrollDepthPct - prevScroll) >= 12 && visitor.currentScrollDepthPct > 5) {
+          this.appendActionLog(
+            visitor,
+            'scroll',
+            `Smooth scrolled to ${visitor.currentScrollDepthPct}% viewport depth`,
+            'window.viewport',
+            '#10b981'
+          );
+        }
 
         // If reached 95%+ and scrollToEndOfPage is enabled, mark footer reached
         if (visitor.currentScrollDepthPct >= 95 && !currentPage.hasScrolledToEnd) {
@@ -312,6 +354,14 @@ export class OrganicTrafficEngine {
           visitor.footerReached = true;
           visitor.lastEventLog = `Reached end of page (100% footer & comments, pausing ${this.config.behavior.footerDwellPauseSeconds || 5}s)`;
           
+          this.appendActionLog(
+            visitor,
+            'scroll',
+            `Reached 100% footer & comments section (paused reading)`,
+            'footer.site-footer',
+            '#06b6d4'
+          );
+
           this.callbacks.onTelemetryEvent({
             id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
             timestamp: Date.now(),
@@ -328,10 +378,55 @@ export class OrganicTrafficEngine {
         }
       }
 
-      // 2. Simulate human cursor movement
+      // 2. Simulate human cursor movement & track trajectory points
       if (this.config.behavior.simulateMouseMovement) {
-        visitor.cursorX = Math.round(25 + Math.sin(Date.now() / 1200 + visitor.visitorNumber) * 35 + Math.random() * 10);
-        visitor.cursorY = Math.round(15 + (visitor.currentScrollDepthPct * 0.65) + Math.cos(Date.now() / 1500) * 15);
+        const timeNow = Date.now();
+        // Dynamic human trajectory: natural micro-jitters, curved arcs
+        const wave1 = Math.sin(timeNow / 1100 + visitor.visitorNumber);
+        const wave2 = Math.cos(timeNow / 1600 + visitor.visitorNumber * 0.5);
+        
+        let targetX = 25 + wave1 * 32 + (Math.random() * 6 - 3);
+        let targetY = 15 + (visitor.currentScrollDepthPct * 0.65) + wave2 * 14;
+
+        if (visitor.status === 'clicking_ad') {
+          targetX = 52 + (Math.random() * 8 - 4);
+          targetY = Math.max(15, visitor.currentScrollDepthPct + (Math.random() * 10 - 5));
+        } else if (visitor.status === 'clicking_link') {
+          targetX = 40 + (Math.random() * 20 - 10);
+          targetY = Math.max(20, visitor.currentScrollDepthPct + (Math.random() * 8 - 4));
+        } else if (visitor.status === 'handling_popup') {
+          targetX = 50 + (Math.random() * 6 - 3);
+          targetY = 40 + (Math.random() * 6 - 3);
+        }
+
+        visitor.cursorX = Math.round(Math.min(95, Math.max(5, targetX)));
+        visitor.cursorY = Math.round(Math.min(95, Math.max(5, targetY)));
+
+        // Update dynamic hover target element
+        if (visitor.cursorY < 12) {
+          visitor.currentHoverTarget = 'nav.navbar > a.brand-logo';
+        } else if (visitor.cursorY < 24) {
+          visitor.currentHoverTarget = 'header.hero > h1.post-title';
+        } else if (visitor.cursorY < 65) {
+          visitor.currentHoverTarget = 'article.content-body > p.text-paragraph';
+        } else if (visitor.cursorY < 85) {
+          visitor.currentHoverTarget = 'section.related-articles > a.listing-item';
+        } else {
+          visitor.currentHoverTarget = 'footer.site-footer > div.comments-block';
+        }
+
+        // Store trajectory ribbon point
+        if (!visitor.cursorTrajectory) {
+          visitor.cursorTrajectory = [];
+        }
+        visitor.cursorTrajectory.push({
+          x: visitor.cursorX,
+          y: visitor.cursorY,
+          timestamp: timeNow,
+        });
+        if (visitor.cursorTrajectory.length > 12) {
+          visitor.cursorTrajectory.shift();
+        }
       }
 
       // 3. POPUP / INTERSTITIAL AD INTERACTION (Triggered once at 20-40% scroll)
@@ -347,6 +442,7 @@ export class OrganicTrafficEngine {
         visitor.status = 'handling_popup';
         visitor.cursorX = Math.round(48 + Math.random() * 8);
         visitor.cursorY = Math.round(38 + Math.random() * 12);
+        visitor.currentHoverTarget = 'div.newsletter-modal-overlay > button.cta-button';
         
         const popupAdTypes = [
           'Newsletter Lightbox Modal Ad',
@@ -364,6 +460,14 @@ export class OrganicTrafficEngine {
             
         visitor.lastEventLog = `Popup Ad: ${popupName} (${actionLabel})`;
         currentPage.lastAdClickTarget = popupName;
+
+        this.appendActionLog(
+          visitor,
+          'popup',
+          `Interacted with ${popupName}: ${actionLabel}`,
+          'div.modal-popup-container',
+          '#c084fc'
+        );
 
         // Dispatch GA4 ad engagement beacon
         if (this.config.ga4.sendEngagementEvents) {
@@ -404,7 +508,16 @@ export class OrganicTrafficEngine {
           visitor.status = 'reloading_page';
           visitor.cursorX = 12; // Refresh button in top browser chrome
           visitor.cursorY = 5;
+          visitor.currentHoverTarget = 'browser.chrome-toolbar > button.reload';
           visitor.lastEventLog = `Simulated browser refresh (F5) • Reloaded page & revalidated cache`;
+
+          this.appendActionLog(
+            visitor,
+            'reload',
+            `Dispatched browser page reload (F5) • Revalidating HTML/JS cache`,
+            'browser.reload-button',
+            '#f59e0b'
+          );
 
           // Add extra dwell time for reload pause
           currentPage.dwellSecondsSpent = Math.max(0, currentPage.dwellSecondsSpent - 4);
@@ -459,8 +572,17 @@ export class OrganicTrafficEngine {
           visitor.status = 'clicking_link';
           visitor.cursorX = Math.round(30 + Math.random() * 45); // Inside content column
           visitor.cursorY = Math.round(Math.max(15, visitor.currentScrollDepthPct + (Math.random() * 12 - 6)));
+          visitor.currentHoverTarget = `article.post-body > a[href="${chosenLink}"]`;
           visitor.lastEventLog = `Clicked ${chosenLink} (${currentPage.articleLinksClicked}/${articleLinksPlanned} article links)`;
           currentPage.lastClickTarget = chosenLink;
+
+          this.appendActionLog(
+            visitor,
+            'click',
+            `Clicked in-article link: ${chosenLink}`,
+            'article.post-body > a.internal-link',
+            '#38bdf8'
+          );
 
           // Dispatch GA4 in-article click beacon
           if (this.config.ga4.sendEngagementEvents) {
@@ -519,8 +641,17 @@ export class OrganicTrafficEngine {
             visitor.status = 'clicking_ad';
             visitor.cursorX = Math.round(pickedAd.x + (Math.random() * 6 - 3));
             visitor.cursorY = Math.round(pickedAd.y + (Math.random() * 6 - 3));
+            visitor.currentHoverTarget = `div.ad-slot[data-slot="${pickedAd.slot}"]`;
             visitor.lastEventLog = `Clicked Ad: ${pickedAd.name} (${currentPage.adClicksPerformed}/${adClicksPlanned})`;
             currentPage.lastAdClickTarget = pickedAd.name;
+
+            this.appendActionLog(
+              visitor,
+              'ad_click',
+              `Clicked sponsored banner [${pickedAd.network}]: ${pickedAd.name}`,
+              `div.ad-wrapper[data-network="${pickedAd.network}"]`,
+              '#f59e0b'
+            );
 
             // Dispatch GA4 ad click beacon
             if (this.config.ga4.sendEngagementEvents) {
@@ -574,7 +705,16 @@ export class OrganicTrafficEngine {
           visitor.status = 'clicking_element';
           visitor.cursorX = Math.round(15 + Math.random() * 70);
           visitor.cursorY = Math.round(Math.max(10, visitor.currentScrollDepthPct + (Math.random() * 20 - 10)));
+          visitor.currentHoverTarget = `button.interactive-btn[title="${targetName}"]`;
           visitor.lastEventLog = `Clicked ${targetName} at (${visitor.cursorX}%, ${visitor.cursorY}%)`;
+
+          this.appendActionLog(
+            visitor,
+            'click',
+            `Clicked UI element: ${targetName}`,
+            visitor.currentHoverTarget,
+            '#10b981'
+          );
 
           // Dispatch GA4 click interaction event
           if (this.config.ga4.sendEngagementEvents) {
@@ -650,6 +790,14 @@ export class OrganicTrafficEngine {
           }
 
           this.recordPageStats(nextPage.path, nextPage.title, nextPage.dwellPlannedSeconds);
+
+          this.appendActionLog(
+            visitor,
+            'nav',
+            `Internal navigation ➔ ${nextPage.path} (Dwell: ${nextPage.dwellPlannedSeconds}s)`,
+            `a[href="${nextPage.path}"]`,
+            '#38bdf8'
+          );
 
           // Update Referrer for internal page transition
           if (this.config.organic.forceGoogleSearchOnAllLinks) {
@@ -1194,6 +1342,23 @@ export class OrganicTrafficEngine {
       currentScrollDepthPct: 0,
       cursorX: 50,
       cursorY: 30,
+      cursorTrajectory: [{ x: 50, y: 30, timestamp: Date.now() }],
+      currentHoverTarget: 'header.hero > h1.post-title',
+      currentScrollVelocity: 0,
+      liveActionLogs: [
+        {
+          id: `act_${Date.now()}_init`,
+          timestamp: Date.now(),
+          timeStr: new Date().toLocaleTimeString(),
+          type: 'nav',
+          action: `Landed on ${landingPage.path} via ${referrerName}`,
+          targetElement: 'header.hero',
+          cursorCoords: { x: 50, y: 30 },
+          scrollPct: 0,
+          dwellSec: 0,
+          badgeColor: '#38bdf8',
+        }
+      ],
       status: 'active',
       startedAt: Date.now(),
       totalSessionDwellSeconds: 0,

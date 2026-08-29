@@ -21,9 +21,11 @@ import {
   Zap,
   X
 } from 'lucide-react';
-import { CrawledPage, SiteCrawlState } from '../types';
+import { CrawledPage, SiteCrawlState, DiscoveredRouteItem } from '../types';
 import { parseRawJobText } from '../utils/jobTextParser';
 import { ALL_VERIFIED_NAIJA_JOBS } from '../data/allNaijaJobListings';
+import { CrawlProgressBar } from './CrawlProgressBar';
+import { RecentlyDiscoveredRoutes } from './RecentlyDiscoveredRoutes';
 
 interface CrawlerPanelProps {
   crawlState: SiteCrawlState;
@@ -297,6 +299,32 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
     return <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-900 text-slate-300 border border-slate-700">PAGE</span>;
   };
 
+  // Helper to boost weight of all recent routes
+  const handleBoostRecentRoutes = () => {
+    if (!crawlState.recentlyDiscoveredRoutes || crawlState.recentlyDiscoveredRoutes.length === 0) return;
+    const recentPaths = new Set(crawlState.recentlyDiscoveredRoutes.map(r => r.path));
+    crawlState.pages.forEach(p => {
+      if (recentPaths.has(p.path)) {
+        onUpdatePageWeight(p.id, 98);
+      }
+    });
+    setFeedbackMessage(`Boosted visit probability to 98% for all ${crawlState.recentlyDiscoveredRoutes.length} recent routes.`);
+    setTimeout(() => setFeedbackMessage(null), 4000);
+  };
+
+  // Helper to include all recent routes
+  const handleIncludeAllRecentRoutes = () => {
+    if (!crawlState.recentlyDiscoveredRoutes || crawlState.recentlyDiscoveredRoutes.length === 0) return;
+    const recentPaths = new Set(crawlState.recentlyDiscoveredRoutes.map(r => r.path));
+    crawlState.pages.forEach(p => {
+      if (recentPaths.has(p.path) && !p.includedInVisits) {
+        onTogglePageInclusion(p.id);
+      }
+    });
+    setFeedbackMessage(`Included all ${crawlState.recentlyDiscoveredRoutes.length} recent routes in organic traffic campaign.`);
+    setTimeout(() => setFeedbackMessage(null), 4000);
+  };
+
   return (
     <div className="space-y-5">
       {/* Target Input & Scraper Card */}
@@ -391,6 +419,33 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Real-Time Crawl Progress Bar */}
+      <CrawlProgressBar
+        isCrawling={crawlState.isCrawling}
+        progressPct={crawlState.crawlProgressPct}
+        phase={crawlState.crawlPhase}
+        currentScanningUrl={crawlState.currentScanningUrl}
+        discoveredCount={crawlState.pages.length}
+        postsCount={postsCount}
+        categoriesCount={categoriesCount}
+        pagesCount={pagesCount}
+        visitedUrlsCount={crawlState.visitedUrlsCount}
+        targetUrl={crawlState.targetUrl}
+        statusCode={crawlState.statusCode}
+        latencyMs={crawlState.latencyMs}
+      />
+
+      {/* Recently Discovered Routes Feed */}
+      <RecentlyDiscoveredRoutes
+        recentRoutes={crawlState.recentlyDiscoveredRoutes || []}
+        isCrawling={crawlState.isCrawling}
+        onTogglePageInclusion={onTogglePageInclusion}
+        onUpdatePageWeight={onUpdatePageWeight}
+        onBoostAllRecent={handleBoostRecentRoutes}
+        onIncludeAllRecent={handleIncludeAllRecentRoutes}
+        targetDomain={crawlState.hostname}
+      />
 
       {/* Crawled Target Summary Banner & Recursive Link-Discovery Status */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-950/80 border border-slate-800 rounded-xl p-4">

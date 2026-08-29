@@ -31,6 +31,7 @@ import {
   ActiveVisitorSession,
   AuthState,
   CrawledPage,
+  DiscoveredRouteItem,
   LiveTelemetryEvent,
   MemberUser,
   MetricSnapshot, 
@@ -95,7 +96,33 @@ function loadInitialOrganicConfig(): OrganicVisitorConfig {
 
 const DEFAULT_CRAWLED_PAGES: CrawledPage[] = buildCrawledPagesFromListings('https://9jajobs.vercel.app');
 
+function buildRecentDiscoveredItems(pages: CrawledPage[]): DiscoveredRouteItem[] {
+  return pages.slice(0, 25).map((p, idx) => ({
+    id: `rec_${p.id || idx}_${p.path}`,
+    url: p.url,
+    path: p.path,
+    title: p.title,
+    description: p.description,
+    category: p.category,
+    depth: p.depth || 1,
+    statusCode: p.status || 200,
+    discoveredAt: Date.now() - (idx * 4000),
+    sourceType: p.path.includes('job=') || p.path.includes('post=') 
+      ? 'dom_pattern' 
+      : p.path.includes('category') 
+      ? 'dom_pattern' 
+      : p.id.startsWith('ld_') 
+      ? 'json_ld' 
+      : p.id.startsWith('sm_') 
+      ? 'sitemap' 
+      : p.id.startsWith('tok_') 
+      ? 'script_bundle' 
+      : 'html_link',
+  }));
+}
+
 function loadInitialCrawlState(): SiteCrawlState {
+  const initialRecent = buildRecentDiscoveredItems(DEFAULT_CRAWLED_PAGES);
   const defaultCrawl: SiteCrawlState = {
     targetUrl: 'https://9jajobs.vercel.app',
     hostname: '9jajobs.vercel.app',
@@ -108,6 +135,9 @@ function loadInitialCrawlState(): SiteCrawlState {
     statusCode: 200,
     latencyMs: 120,
     realLinksCount: 53,
+    crawlProgressPct: 100,
+    crawlPhase: 'Crawl Completed • All Routes Synced',
+    recentlyDiscoveredRoutes: initialRecent,
   };
 
   try {
@@ -122,7 +152,15 @@ function loadInitialCrawlState(): SiteCrawlState {
         parsed.hostname !== 'example.com' &&
         !parsed.pages.some((p: any) => p.id === 'p_root' || p.id === 'p_features')
       ) {
-        return { ...defaultCrawl, ...parsed, isCrawling: false };
+        return { 
+          ...defaultCrawl, 
+          ...parsed, 
+          isCrawling: false,
+          crawlProgressPct: 100,
+          recentlyDiscoveredRoutes: parsed.recentlyDiscoveredRoutes && parsed.recentlyDiscoveredRoutes.length > 0
+            ? parsed.recentlyDiscoveredRoutes
+            : buildRecentDiscoveredItems(parsed.pages)
+        };
       }
     }
   } catch (e) {
@@ -347,10 +385,39 @@ export default function App() {
       ...prev, 
       targetUrl: urlToCrawl,
       isCrawling: true, 
-      error: undefined 
+      error: undefined,
+      crawlProgressPct: 15,
+      crawlPhase: 'Initiating Handshake & DNS Resolution...',
+      currentScanningUrl: urlToCrawl,
     }));
     setOrganicConfig(prev => ({ ...prev, targetUrl: urlToCrawl }));
     setSaveBannerMessage(`Crawling ${urlToCrawl}... discovering pages, listings, and sitemaps.`);
+
+    // Active progress stages simulation while crawler scrapes
+    let stepIndex = 0;
+    const progressStages = [
+      { pct: 28, phase: 'Scraping Root HTML & Meta Headers...', sub: urlToCrawl },
+      { pct: 46, phase: 'Decompiling JavaScript Bundles & JSON-LD Schemas...', sub: `${urlToCrawl}/assets/index.js` },
+      { pct: 68, phase: 'Parsing XML Sitemaps & REST Endpoints...', sub: `${urlToCrawl}/sitemap.xml` },
+      { pct: 84, phase: 'Executing Recursive DOM Link-Discovery Pass...', sub: `${urlToCrawl}/?job=job_1787164089747` },
+      { pct: 93, phase: 'Deduplicating Routes & Calculating Priority Weights...', sub: `${urlToCrawl}/category/engineering` },
+    ];
+
+    const progressInterval = setInterval(() => {
+      if (stepIndex < progressStages.length) {
+        const stage = progressStages[stepIndex];
+        setCrawlState(prev => {
+          if (!prev.isCrawling) return prev;
+          return {
+            ...prev,
+            crawlProgressPct: stage.pct,
+            crawlPhase: stage.phase,
+            currentScanningUrl: stage.sub,
+          };
+        });
+        stepIndex++;
+      }
+    }, 450);
 
     try {
       const controller = new AbortController();
@@ -377,6 +444,8 @@ export default function App() {
         throw new Error(`Server returned non-JSON response (${res.status} ${res.statusText})`);
       }
 
+      clearInterval(progressInterval);
+
       if (!res.ok) {
         throw new Error(data.error || `Crawler request failed with status ${res.status}`);
       }
@@ -390,6 +459,7 @@ export default function App() {
           ? crawlState.pages.filter(p => !incomingPaths.has(p.path))
           : [];
         const mergedPages = [...data.pages, ...retainedCustom];
+        const recentItems = buildRecentDiscoveredItems(mergedPages);
 
         setCrawlState({
           targetUrl: data.targetUrl || urlToCrawl,
@@ -406,6 +476,10 @@ export default function App() {
           visitedUrlsCount: data.visitedUrlsCount || mergedPages.length,
           recursivePassDepth: data.recursivePassDepth || organicConfig.crawlSettings.maxDepth || 2,
           listingPatternsMatched: data.listingPatternsMatched || mergedPages.filter((p: any) => p.category === 'post' || p.path.includes('job') || p.path.includes('post')).length,
+          crawlProgressPct: 100,
+          crawlPhase: 'Crawl Completed • All Routes Synced',
+          currentScanningUrl: urlToCrawl,
+          recentlyDiscoveredRoutes: recentItems,
         });
 
         setSaveBannerMessage(`Crawl complete! Discovered ${mergedPages.length} active routes on ${data.hostname || urlToCrawl}.`);
@@ -426,6 +500,7 @@ export default function App() {
         throw new Error(data.error || 'Failed to extract links');
       }
     } catch (err: any) {
+      clearInterval(progressInterval);
       console.warn('Backend crawler notice, executing live browser crawler:', err.message);
       let hostname = 'Discovered Website';
       try {
@@ -443,17 +518,27 @@ export default function App() {
           ? crawlState.pages.filter(p => !incomingPaths.has(p.path))
           : [];
         const fallbackPages = [...discovered, ...retainedCustom];
+        const recentItems = buildRecentDiscoveredItems(fallbackPages);
 
         setCrawlState({
           targetUrl: urlToCrawl,
           hostname,
+          origin: urlToCrawl.startsWith('http') ? new URL(urlToCrawl).origin : 'https://jobs.eezor.com',
           title: liveCrawlResult.title || `${hostname} - Catalog`,
+          description: `Scraped site for ${hostname}`,
           pages: fallbackPages,
           isCrawling: false,
           statusCode: 200,
           latencyMs: 65,
           realLinksCount: fallbackPages.length,
+          visitedUrlsCount: fallbackPages.length,
+          recursivePassDepth: organicConfig.crawlSettings.maxDepth || 2,
+          listingPatternsMatched: fallbackPages.filter(p => p.category === 'post' || p.path.includes('job') || p.path.includes('post')).length,
           gaMeasurementId: liveCrawlResult.gaMeasurementId,
+          crawlProgressPct: 100,
+          crawlPhase: 'Crawl Completed • In-Browser Engine',
+          currentScanningUrl: urlToCrawl,
+          recentlyDiscoveredRoutes: recentItems,
         });
 
         setSaveBannerMessage(`Discovered ${fallbackPages.length} verified routes for ${hostname}!`);
@@ -479,16 +564,26 @@ export default function App() {
           ? crawlState.pages.filter(p => !incomingPaths.has(p.path))
           : [];
         const fallbackPages = [...catalogPages, ...retainedCustom];
+        const recentItems = buildRecentDiscoveredItems(fallbackPages);
 
         setCrawlState({
           targetUrl: urlToCrawl,
           hostname,
+          origin: urlToCrawl.startsWith('http') ? new URL(urlToCrawl).origin : 'https://jobs.eezor.com',
           title: `${hostname} - Catalog`,
+          description: `Scraped site for ${hostname}`,
           pages: fallbackPages,
           isCrawling: false,
           statusCode: 200,
           latencyMs: 40,
           realLinksCount: fallbackPages.length,
+          visitedUrlsCount: fallbackPages.length,
+          recursivePassDepth: 2,
+          listingPatternsMatched: fallbackPages.filter(p => p.category === 'post' || p.path.includes('job') || p.path.includes('post')).length,
+          crawlProgressPct: 100,
+          crawlPhase: 'Crawl Completed • Static Catalog Sync',
+          currentScanningUrl: urlToCrawl,
+          recentlyDiscoveredRoutes: recentItems,
         });
         setSaveBannerMessage(`Loaded ${fallbackPages.length} routes for ${hostname}.`);
         setTimeout(() => setSaveBannerMessage(null), 6000);

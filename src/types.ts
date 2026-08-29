@@ -47,6 +47,19 @@ export interface RealHttpTrafficHit {
   proxyUsed?: boolean;
 }
 
+export interface DiscoveredRouteItem {
+  id: string;
+  url: string;
+  path: string;
+  title: string;
+  description?: string;
+  category?: 'post' | 'category' | 'page' | 'tag' | 'archive' | 'product' | 'other';
+  depth: number;
+  statusCode?: number;
+  discoveredAt: number;
+  sourceType: 'html_link' | 'script_bundle' | 'sitemap' | 'json_ld' | 'dom_pattern' | 'url_query' | 'user_import';
+}
+
 export interface SiteCrawlState {
   isCrawling: boolean;
   targetUrl: string;
@@ -65,6 +78,10 @@ export interface SiteCrawlState {
   visitedUrlsCount?: number;
   recursivePassDepth?: number;
   listingPatternsMatched?: number;
+  crawlProgressPct?: number; // 0 to 100
+  crawlPhase?: string; // Current crawl phase label
+  currentScanningUrl?: string; // Current URL/route being scanned
+  recentlyDiscoveredRoutes?: DiscoveredRouteItem[]; // Dynamic stream of newly discovered routes
 }
 
 // ==========================================
@@ -312,6 +329,19 @@ export interface VisitedPageStep {
   endedAt?: number;
 }
 
+export interface SimulatorActionLog {
+  id: string;
+  timestamp: number;
+  timeStr: string;
+  type: 'mouse_move' | 'scroll' | 'click' | 'dwell' | 'nav' | 'ad_click' | 'popup' | 'reload' | 'ga4_beacon' | 'http_fetch';
+  action: string;
+  targetElement?: string;
+  cursorCoords?: { x: number; y: number };
+  scrollPct?: number;
+  dwellSec?: number;
+  badgeColor?: string;
+}
+
 export interface ActiveVisitorSession {
   visitorId: string;
   visitorNumber: number;
@@ -336,6 +366,10 @@ export interface ActiveVisitorSession {
   currentScrollDepthPct: number;
   cursorX: number; // 0-100% of viewport
   cursorY: number; // 0-100% of viewport
+  cursorTrajectory?: Array<{ x: number; y: number; timestamp: number }>;
+  currentHoverTarget?: string;
+  currentScrollVelocity?: number;
+  liveActionLogs?: SimulatorActionLog[];
   status: 'active' | 'reading' | 'scrolling' | 'clicking_link' | 'clicking_element' | 'clicking_ad' | 'handling_popup' | 'reloading_page' | 'transitioning' | 'completed' | 'bounced';
   startedAt: number;
   totalSessionDwellSeconds: number;

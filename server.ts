@@ -671,12 +671,33 @@ async function startServer() {
     transform: translate(-3px, -3px);
   }
   #tp-live-cursor-pointer {
-    filter: drop-shadow(0 2px 8px rgba(6, 182, 212, 0.8));
+    filter: drop-shadow(0 2px 10px rgba(6, 182, 212, 0.9));
     animation: tpCursorPulse 2.5s infinite alternate;
   }
   @keyframes tpCursorPulse {
     0% { transform: scale(1); }
     100% { transform: scale(1.08); }
+  }
+  #tp-live-click-ripple {
+    position: absolute;
+    top: -12px;
+    left: -12px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 2px solid #38bdf8;
+    background: rgba(56, 189, 248, 0.25);
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.3);
+  }
+  .tp-ripple-active {
+    animation: tpRippleAnim 0.8s cubic-bezier(0, 0.2, 0.8, 1) forwards !important;
+  }
+  @keyframes tpRippleAnim {
+    0% { transform: scale(0.3); opacity: 1; border-color: #38bdf8; }
+    50% { opacity: 0.8; }
+    100% { transform: scale(2.2); opacity: 0; border-color: #06b6d4; }
   }
   #tp-live-badge {
     position: absolute;
@@ -697,32 +718,80 @@ async function startServer() {
     position: fixed;
     bottom: 12px;
     right: 12px;
-    background: rgba(15, 23, 42, 0.92);
+    background: rgba(15, 23, 42, 0.95);
     border: 1px solid rgba(56, 189, 248, 0.4);
     color: #e2e8f0;
-    padding: 6px 12px;
-    border-radius: 8px;
+    padding: 8px 14px;
+    border-radius: 10px;
     font-size: 11px;
     font-family: monospace;
     z-index: 2147483646;
     pointer-events: none;
-    backdrop-filter: blur(6px);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #tp-live-scroll-radar {
+    position: fixed;
+    right: 4px;
+    top: 15%;
+    height: 70%;
+    width: 6px;
+    background: rgba(30, 41, 59, 0.6);
+    border-radius: 3px;
+    z-index: 2147483645;
+    pointer-events: none;
+  }
+  #tp-live-scroll-indicator {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 18%;
+    background: linear-gradient(180deg, #06b6d4, #3b82f6);
+    border-radius: 3px;
+    box-shadow: 0 0 8px #06b6d4;
+    transition: top 0.25s ease-out;
   }
 </style>
 <div id="tp-live-cursor-root">
+  <div id="tp-live-click-ripple"></div>
   <svg id="tp-live-cursor-pointer" width="26" height="26" viewBox="0 0 24 24" fill="#06b6d4" stroke="#083344" stroke-width="1.5">
     <path d="M3 3l7 18 3-7 7-3L3 3z"/>
   </svg>
   <div id="tp-live-badge">Visitor #${visitorNumber} (${country})</div>
 </div>
+<div id="tp-live-scroll-radar">
+  <div id="tp-live-scroll-indicator" style="top: ${Math.min(82, scrollPct * 0.82)}%;"></div>
+</div>
 <div id="tp-live-telemetry-hud">
-  LIVE VIRTUAL BROWSER • SCROLL: <span id="tp-hud-scroll">${Math.round(scrollPct)}</span>%
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:bold;color:#38bdf8;">
+    <span>⚡ VIRTUAL BROWSER SIMULATOR</span>
+    <span id="tp-hud-coords" style="color:#94a3b8;">X: 50% • Y: 30%</span>
+  </div>
+  <div style="font-size:10px;color:#cbd5e1;display:flex;align-items:center;gap:8px;">
+    <span>📜 SCROLL: <strong id="tp-hud-scroll" style="color:#34d399;">${Math.round(scrollPct)}%</strong></span>
+    <span>•</span>
+    <span id="tp-hud-action" style="color:#e2e8f0;">Reading document body</span>
+  </div>
 </div>
 <script id="trafficpulse-live-script">
 (function() {
   var cursor = document.getElementById('tp-live-cursor-root');
   var badge = document.getElementById('tp-live-badge');
+  var ripple = document.getElementById('tp-live-click-ripple');
   var hudScroll = document.getElementById('tp-hud-scroll');
+  var hudCoords = document.getElementById('tp-hud-coords');
+  var hudAction = document.getElementById('tp-hud-action');
+  var scrollIndicator = document.getElementById('tp-live-scroll-indicator');
+
+  function triggerClickRipple() {
+    if (!ripple) return;
+    ripple.classList.remove('tp-ripple-active');
+    void ripple.offsetWidth; // trigger reflow
+    ripple.classList.add('tp-ripple-active');
+  }
 
   // Handle smooth scroll and cursor position updates from parent window
   window.addEventListener('message', function(event) {
@@ -735,30 +804,57 @@ async function startServer() {
       window.scrollTo({ top: targetY, behavior: 'smooth' });
     }
 
-    if (hudScroll) hudScroll.textContent = Math.round(pct);
-
-    if (cursor && typeof event.data.cursorX === 'number' && typeof event.data.cursorY === 'number') {
-      cursor.style.left = Math.min(95, Math.max(3, event.data.cursorX)) + '%';
-      cursor.style.top = Math.min(92, Math.max(5, event.data.cursorY)) + '%';
+    if (hudScroll) hudScroll.textContent = Math.round(pct) + '%';
+    if (scrollIndicator) {
+      scrollIndicator.style.top = Math.min(82, (pct * 0.82)) + '%';
     }
 
-    if (badge && event.data.status) {
-      if (event.data.status === 'clicking_ad') {
-        badge.textContent = '🎯 Clicking Sponsored Banner';
-        badge.style.color = '#f59e0b';
-        badge.style.borderColor = '#f59e0b';
-      } else if (event.data.status === 'clicking_link') {
-        badge.textContent = '👆 Navigating Deep Link';
-        badge.style.color = '#38bdf8';
-        badge.style.borderColor = '#38bdf8';
-      } else if (event.data.status === 'handling_popup') {
-        badge.textContent = '✨ Interacting with Newsletter';
-        badge.style.color = '#c084fc';
-        badge.style.borderColor = '#c084fc';
-      } else {
-        badge.textContent = '👁️ Reading (' + Math.round(pct) + '%)';
-        badge.style.color = '#38bdf8';
-        badge.style.borderColor = 'rgba(56, 189, 248, 0.5)';
+    if (cursor && typeof event.data.cursorX === 'number' && typeof event.data.cursorY === 'number') {
+      var cx = Math.min(95, Math.max(3, event.data.cursorX));
+      var cy = Math.min(92, Math.max(5, event.data.cursorY));
+      cursor.style.left = cx + '%';
+      cursor.style.top = cy + '%';
+      if (hudCoords) hudCoords.textContent = 'X: ' + cx + '% • Y: ' + cy + '%';
+    }
+
+    if (event.data.status) {
+      var st = event.data.status;
+      if (st === 'clicking_ad' || st === 'clicking_link' || st === 'handling_popup' || st === 'clicking_element') {
+        triggerClickRipple();
+      }
+
+      if (badge) {
+        if (st === 'clicking_ad') {
+          badge.textContent = '🎯 Clicking Sponsored Ad';
+          badge.style.color = '#f59e0b';
+          badge.style.borderColor = '#f59e0b';
+          if (hudAction) hudAction.textContent = 'Dispatched Ad Click on Sponsor Banner';
+        } else if (st === 'clicking_link') {
+          badge.textContent = '👆 Navigating Deep Link';
+          badge.style.color = '#38bdf8';
+          badge.style.borderColor = '#38bdf8';
+          if (hudAction) hudAction.textContent = 'Clicked in-article link to child page';
+        } else if (st === 'handling_popup') {
+          badge.textContent = '✨ Interacting with Newsletter';
+          badge.style.color = '#c084fc';
+          badge.style.borderColor = '#c084fc';
+          if (hudAction) hudAction.textContent = 'Newsletter modal promo CTA dismissed';
+        } else if (st === 'clicking_element') {
+          badge.textContent = '🖱️ Mouse Click on Element';
+          badge.style.color = '#34d399';
+          badge.style.borderColor = '#34d399';
+          if (hudAction) hudAction.textContent = 'Dispatched click on interactive card/button';
+        } else if (pct >= 95) {
+          badge.textContent = '📜 Reached 100% Footer';
+          badge.style.color = '#2dd4bf';
+          badge.style.borderColor = '#2dd4bf';
+          if (hudAction) hudAction.textContent = 'Dwell pause at footer / comments';
+        } else {
+          badge.textContent = '👁️ Reading (' + Math.round(pct) + '%)';
+          badge.style.color = '#38bdf8';
+          badge.style.borderColor = 'rgba(56, 189, 248, 0.5)';
+          if (hudAction) hudAction.textContent = 'Reading page text content';
+        }
       }
     }
   });
