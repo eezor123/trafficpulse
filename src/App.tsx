@@ -394,13 +394,18 @@ export default function App() {
         setCrawlState({
           targetUrl: data.targetUrl || urlToCrawl,
           hostname: newHostname,
+          origin: data.origin || (urlToCrawl.startsWith('http') ? new URL(urlToCrawl).origin : 'https://jobs.eezor.com'),
           title: data.title || 'Discovered Website',
+          description: data.description || `Scraped site for ${newHostname}`,
           pages: mergedPages,
           isCrawling: false,
           gaMeasurementId: data.gaMeasurementId,
           statusCode: data.statusCode,
           latencyMs: data.latencyMs,
           realLinksCount: data.realLinksCount || mergedPages.length,
+          visitedUrlsCount: data.visitedUrlsCount || mergedPages.length,
+          recursivePassDepth: data.recursivePassDepth || organicConfig.crawlSettings.maxDepth || 2,
+          listingPatternsMatched: data.listingPatternsMatched || mergedPages.filter((p: any) => p.category === 'post' || p.path.includes('job') || p.path.includes('post')).length,
         });
 
         setSaveBannerMessage(`Crawl complete! Discovered ${mergedPages.length} active routes on ${data.hostname || urlToCrawl}.`);

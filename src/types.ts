@@ -62,6 +62,9 @@ export interface SiteCrawlState {
   statusCode?: number;
   latencyMs?: number;
   realLinksCount?: number;
+  visitedUrlsCount?: number;
+  recursivePassDepth?: number;
+  listingPatternsMatched?: number;
 }
 
 // ==========================================

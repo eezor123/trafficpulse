@@ -226,7 +226,9 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
   let gtmId: string | undefined;
 
   const discoveredPaths = new Set<string>();
+  const visitedUrls = new Set<string>();
   const discoveredPages: CrawledPage[] = [];
+  let listingPatternsMatched = 0;
 
   if (html) {
     // Title
@@ -248,6 +250,7 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
     // Add root page
     const rootPath = parsed.pathname || '/';
     discoveredPaths.add(rootPath);
+    visitedUrls.add(formatted.toLowerCase());
     discoveredPages.push({
       id: 'root_page',
       url: formatted,
@@ -262,7 +265,47 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
       category: 'page',
     });
 
-    // 1. Extract Anchor links
+    // 1. Prioritize DOM structures: <article>, [data-job-id], [data-post-id], .job-card, .listing-item
+    const domArticleRegex = /<(?:article|div|section|li)\b[^>]*\b(?:class|id|data-[a-z0-9_-]+)=["'][^"']*(?:job|post|listing|card|vacancy|item|entry|article)[^"']*["'][^>]*>([\s\S]*?)<\/(?:article|div|section|li)>/gi;
+    let am: RegExpExecArray | null;
+    while ((am = domArticleRegex.exec(html)) !== null && discoveredPages.length < 500) {
+      const cardHtml = am[0];
+      const linkMatch = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/i.exec(cardHtml);
+      if (linkMatch) {
+        const rawHref = (linkMatch[1] || linkMatch[2] || linkMatch[3] || '').trim();
+        const linkText = (linkMatch[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+        if (rawHref && !rawHref.startsWith('#') && !rawHref.startsWith('javascript:') && !rawHref.startsWith('mailto:')) {
+          try {
+            const resolved = new URL(rawHref, origin);
+            if (resolved.hostname === hostname || resolved.hostname.endsWith(`.${hostname}`)) {
+              const path = resolved.pathname + (resolved.search ? resolved.search : '');
+              const canonical = `${resolved.protocol}//${resolved.host.toLowerCase()}${path}`;
+              if (!discoveredPaths.has(path) && !visitedUrls.has(canonical) && !path.match(/\.(png|jpg|jpeg|gif|svg|ico|css|js|woff|pdf|json|xml)$/i)) {
+                discoveredPaths.add(path);
+                visitedUrls.add(canonical);
+                listingPatternsMatched++;
+                const cleanTitle = linkText || path.replace(/[-_/=?&]/g, ' ').trim();
+                discoveredPages.push({
+                  id: `dom_${discoveredPages.length + 1}`,
+                  url: resolved.toString(),
+                  path,
+                  title: cleanTitle.length > 75 ? cleanTitle.slice(0, 75) + '...' : cleanTitle,
+                  description: `[DOM Card Discovery] ${cleanTitle}`,
+                  depth: 1,
+                  status: 200,
+                  includedInVisits: true,
+                  visitWeight: 98,
+                  gaDetected: !!gaMeasurementId || !!gtmId,
+                  category: 'post',
+                });
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+
+    // 2. Extract Anchor links
     const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
     let match: RegExpExecArray | null;
     while ((match = linkRegex.exec(html)) !== null && discoveredPages.length < 500) {
@@ -275,14 +318,18 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
         const resolved = new URL(rawHref, origin);
         if (resolved.hostname === hostname || resolved.hostname.endsWith(`.${hostname}`)) {
           const path = resolved.pathname + (resolved.search ? resolved.search : '');
-          if (!discoveredPaths.has(path) && !path.match(/\.(png|jpg|jpeg|gif|svg|ico|css|js|woff|pdf|json|xml)$/i)) {
+          const canonical = `${resolved.protocol}//${resolved.host.toLowerCase()}${path}`;
+          if (!discoveredPaths.has(path) && !visitedUrls.has(canonical) && !path.match(/\.(png|jpg|jpeg|gif|svg|ico|css|js|woff|pdf|json|xml)$/i)) {
             discoveredPaths.add(path);
-            const isJob = path.includes('job') || path.includes('listing');
+            visitedUrls.add(canonical);
+            const isJob = path.includes('job') || path.includes('listing') || path.includes('vacancy') || path.includes('career') || path.includes('post=') || path.includes('article=');
             const isCategory = path.includes('category') || path.includes('categories') || path.includes('topic');
             const isProduct = path.includes('product') || path.includes('item') || path.includes('shop');
-            const cleanTitle = linkText || path.replace(/[-_/]/g, ' ').trim();
+            const cleanTitle = linkText || path.replace(/[-_/=?&]/g, ' ').trim();
             const cat = isJob ? 'post' : isCategory ? 'category' : isProduct ? 'product' : 'page';
             
+            if (isJob) listingPatternsMatched++;
+
             discoveredPages.push({
               id: `page_${discoveredPages.length + 1}`,
               url: resolved.toString(),
@@ -292,7 +339,7 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
               depth: path.split('/').filter(Boolean).length || 1,
               status: 200,
               includedInVisits: true,
-              visitWeight: isJob ? 95 : 80,
+              visitWeight: isJob ? 95 : isCategory ? 85 : 75,
               gaDetected: !!gaMeasurementId || !!gtmId,
               category: cat,
             });
@@ -301,14 +348,17 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
       } catch {}
     }
 
-    // 2. Extract dynamic entity tokens (job_123, post_123, article_123)
+    // 3. Extract dynamic entity tokens (job_123, post_123, article_123)
     const tokenRegex = /\b(job_\d{3,20}|job_[a-zA-Z0-9_\-]{4,30}|post_\d{3,20}|article_\d{3,20})\b/g;
     let tm: RegExpExecArray | null;
     while ((tm = tokenRegex.exec(html)) !== null && discoveredPages.length < 500) {
       const token = tm[1];
       const qPath = `/?job=${token}`;
-      if (!discoveredPaths.has(qPath)) {
+      const canonical = `${origin.toLowerCase()}${qPath}`;
+      if (!discoveredPaths.has(qPath) && !visitedUrls.has(canonical)) {
         discoveredPaths.add(qPath);
+        visitedUrls.add(canonical);
+        listingPatternsMatched++;
         discoveredPages.push({
           id: `tok_${token}`,
           url: `${origin}${qPath}`,

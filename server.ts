@@ -987,19 +987,31 @@ async function startServer() {
         return true;
       };
 
-      // Discovered structures
+      // Discovered structures & recursive tracking
       const normalizePathWithQuery = (u: URL): string => {
         const cleanSearch = new URLSearchParams(u.search);
-        const trackingKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', '_ga', '_gl', 'ref', 'source'];
+        const trackingKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', '_ga', '_gl', 'ref', 'source', 'trk'];
         trackingKeys.forEach(k => cleanSearch.delete(k));
         const queryStr = cleanSearch.toString() ? `?${cleanSearch.toString()}` : '';
         const pName = u.pathname.replace(/\/$/, '') || '/';
         return `${pName}${queryStr}`;
       };
 
+      const normalizeCanonicalUrl = (u: URL): string => {
+        const cleanPath = normalizePathWithQuery(u);
+        return `${u.protocol}//${u.host.toLowerCase()}${cleanPath}`;
+      };
+
+      // Visited URLs Set strictly prevents infinite loops and circular crawls
+      const visitedUrls = new Set<string>();
+      const rootNormalizedUrl = normalizeCanonicalUrl(parsedBase);
+      visitedUrls.add(rootNormalizedUrl);
+
       const discoveredPaths = new Set<string>();
       const rootPathIdent = normalizePathWithQuery(parsedBase);
       discoveredPaths.add(rootPathIdent);
+
+      let listingPatternsMatched = 0;
 
       const discoveredPages: Array<{
         id: string;
@@ -1040,6 +1052,44 @@ async function startServer() {
           return 'post';
         }
         return 'page';
+      };
+
+      // Priority Scoring for Link Discovery: Identifies & prioritizes listing/post DOM patterns
+      const calculatePriorityScore = (urlObj: URL, path: string, linkText: string, domContext = ''): number => {
+        let score = 40;
+        const lowerPath = path.toLowerCase();
+        const lowerText = (linkText || '').toLowerCase();
+        const lowerContext = domContext.toLowerCase();
+
+        // 1. Direct query parameters for jobs, posts, articles, listings
+        if (urlObj.searchParams.has('job') || urlObj.searchParams.has('post') || urlObj.searchParams.has('article') || urlObj.searchParams.has('listing') || urlObj.searchParams.has('vacancy') || (urlObj.searchParams.get('id') || '').startsWith('job_')) {
+          score += 55;
+          listingPatternsMatched++;
+        }
+
+        // 2. Direct path matches for listing/post patterns
+        if (/\/(job|jobs|post|posts|article|articles|listing|listings|vacancy|vacancies|career|careers|product|item|view|p)\b/i.test(lowerPath) || /job_\d+|art_\d+|post_\d+/i.test(lowerPath)) {
+          score += 45;
+          listingPatternsMatched++;
+        }
+
+        // 3. Identified DOM structures (inside <article>, [data-job-id], card containers, entry titles)
+        if (lowerContext.includes('article') || lowerContext.includes('job') || lowerContext.includes('post') || lowerContext.includes('listing') || lowerContext.includes('card') || lowerContext.includes('vacancy') || lowerContext.includes('entry-title')) {
+          score += 35;
+          listingPatternsMatched++;
+        }
+
+        // 4. Keyword matches in anchor text
+        if (/urgent|hiring|vacancy|engineer|technician|developer|manager|specialist|salary|apply|full-time|remote|salary/i.test(lowerText)) {
+          score += 25;
+        }
+
+        // 5. Category hubs & pagination
+        if (/\/(category|categories|topics|section|archive|browse)\b/i.test(lowerPath) || urlObj.searchParams.has('category') || urlObj.searchParams.has('page') || urlObj.searchParams.has('paged')) {
+          score += 20;
+        }
+
+        return Math.min(100, score);
       };
 
       // Check if root input is a specific post/listing query
@@ -1717,21 +1767,110 @@ async function startServer() {
       await Promise.allSettled(parallelTasks);
 
       // ----------------------------------------------------------------------
-      // 3. LEVEL-2 RECURSIVE SUB-CRAWL (For top discovered category/section pages)
+      // 3. MULTI-LEVEL RECURSIVE LINK-DISCOVERY PASS
+      //    Tracks visited URLs in visitedUrls (Set) to strictly prevent loops.
+      //    Prioritizes 'listing' and 'post' DOM patterns, job boards, blog articles,
+      //    and deep catalog hierarchies.
       // ----------------------------------------------------------------------
-      if (discoveredPages.length < 25) {
-        const topSections = discoveredPages
-          .filter(p => p.path !== '/' && !p.path.includes('?') && (p.category === 'category' || p.path.includes('job') || p.path.includes('blog') || p.path.includes('listing') || p.path.includes('news')))
-          .slice(0, 6);
+      const targetMaxDepth = Math.min(3, Math.max(1, parseInt(req.body.maxDepth, 10) || 2));
+      let currentDepth = 1;
 
-        const subCrawlTasks = topSections.map(async (subPage) => {
+      type CrawlCandidate = {
+        url: string;
+        path: string;
+        title: string;
+        depth: number;
+        priority: number;
+        category: 'post' | 'category' | 'page' | 'tag' | 'archive' | 'product' | 'other';
+      };
+
+      while (currentDepth <= targetMaxDepth && discoveredPages.length < maxLinks) {
+        // Collect unvisited candidates discovered from previous passes
+        const pendingToVisit: CrawlCandidate[] = discoveredPages
+          .filter(p => p.depth === currentDepth && p.url.startsWith('http') && !visitedUrls.has(normalizeCanonicalUrl(new URL(p.url))))
+          .map(p => {
+            const u = new URL(p.url);
+            return {
+              url: p.url,
+              path: p.path,
+              title: p.title,
+              depth: p.depth,
+              priority: calculatePriorityScore(u, p.path, p.title, p.description),
+              category: p.category || classifyPage(p.path, p.title),
+            };
+          })
+          .sort((a, b) => b.priority - a.priority); // Highest priority (listings/posts/categories) FIRST
+
+        if (pendingToVisit.length === 0) {
+          break;
+        }
+
+        // Limit concurrent recursive crawls per level to balance performance and coverage
+        const batchToCrawl = pendingToVisit.slice(0, currentDepth === 1 ? 12 : 8);
+
+        // Mark all in visitedUrls immediately to prevent redundant concurrent dispatches
+        batchToCrawl.forEach(c => {
+          try {
+            visitedUrls.add(normalizeCanonicalUrl(new URL(c.url)));
+          } catch {}
+        });
+
+        const recursiveTasks = batchToCrawl.map(async (candidate) => {
           try {
             const ctrl = new AbortController();
-            const tm = setTimeout(() => ctrl.abort(), 3000);
-            const r = await fetch(subPage.url, { headers: browserHeaders, signal: ctrl.signal, redirect: 'follow' });
+            const tm = setTimeout(() => ctrl.abort(), 3500);
+            const r = await fetch(candidate.url, {
+              headers: browserHeaders,
+              signal: ctrl.signal,
+              redirect: 'follow',
+            });
             clearTimeout(tm);
+
             if (r.ok) {
               const subHtml = await r.text();
+
+              // Extract DOM elements with high-priority listing indicators:
+              // <article>, [data-job-id], [data-post-id], [data-href], .job-card, .listing-item
+              const domArticleRegex = /<(?:article|div|section|li)\b[^>]*\b(?:class|id|data-[a-z0-9_-]+)=["'][^"']*(?:job|post|listing|card|vacancy|item|entry|article)[^"']*["'][^>]*>([\s\S]*?)<\/(?:article|div|section|li)>/gi;
+              let am: RegExpExecArray | null;
+              while ((am = domArticleRegex.exec(subHtml)) !== null && discoveredPages.length < maxLinks) {
+                const articleChunk = am[0];
+                // Extract link inside listing card
+                const innerLinkMatch = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/i.exec(articleChunk);
+                if (innerLinkMatch) {
+                  const sHref = (innerLinkMatch[1] || innerLinkMatch[2] || innerLinkMatch[3] || '').trim();
+                  const sText = (innerLinkMatch[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+                  if (sHref && !sHref.startsWith('#') && !sHref.startsWith('javascript:') && !sHref.startsWith('mailto:')) {
+                    try {
+                      const resolvedSub = new URL(sHref, origin);
+                      if (resolvedSub.hostname === hostname || resolvedSub.hostname.endsWith(`.${hostname}`)) {
+                        const subCleanPath = normalizePathWithQuery(resolvedSub);
+                        if (isCleanPublicPage(subCleanPath, sText) && !discoveredPaths.has(subCleanPath)) {
+                          discoveredPaths.add(subCleanPath);
+                          const subCat = classifyPage(subCleanPath, sText);
+                          const sTitle = sText || subCleanPath.replace(/^\//, '').replace(/\/$/, '').replace(/[-_/=?&]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                          listingPatternsMatched++;
+                          discoveredPages.push({
+                            id: `dom_rec_${discoveredPages.length + 1}`,
+                            url: resolvedSub.toString(),
+                            path: subCleanPath,
+                            title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
+                            description: `[DOM Card Discovery] ${sTitle}`,
+                            depth: currentDepth + 1,
+                            status: 200,
+                            includedInVisits: true,
+                            visitWeight: subCat === 'post' ? 98 : 90,
+                            gaDetected: !!gaMeasurementId || !!gtmId,
+                            category: subCat,
+                          });
+                        }
+                      }
+                    } catch {}
+                  }
+                }
+              }
+
+              // Extract standard anchor links from the sub-page
               const subLinkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
               let sm: RegExpExecArray | null;
               while ((sm = subLinkRegex.exec(subHtml)) !== null && discoveredPages.length < maxLinks) {
@@ -1749,12 +1888,12 @@ async function startServer() {
                       const subCat = classifyPage(subCleanPath, sText);
                       const sTitle = sText || subCleanPath.replace(/^\//, '').replace(/\/$/, '').replace(/[-_/=?&]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
                       discoveredPages.push({
-                        id: `page_${discoveredPages.length + 1}`,
+                        id: `rec_${discoveredPages.length + 1}`,
                         url: resolvedSub.toString(),
                         path: subCleanPath,
                         title: sTitle.length > 70 ? sTitle.slice(0, 70) + '...' : sTitle,
                         description: `${subCat.toUpperCase()}: ${sTitle}`,
-                        depth: 2,
+                        depth: currentDepth + 1,
                         status: 200,
                         includedInVisits: true,
                         visitWeight: subCat === 'post' ? 95 : 75,
@@ -1769,7 +1908,8 @@ async function startServer() {
           } catch {}
         });
 
-        await Promise.allSettled(subCrawlTasks);
+        await Promise.allSettled(recursiveTasks);
+        currentDepth++;
       }
 
       // ----------------------------------------------------------------------
@@ -1843,6 +1983,9 @@ async function startServer() {
         isRealScrape,
         realLinksFound: rawLinksFound,
         totalPagesDiscovered: discoveredPages.length,
+        visitedUrlsCount: visitedUrls.size,
+        recursivePassDepth: Math.max(1, currentDepth - 1),
+        listingPatternsMatched,
         pages: discoveredPages,
         error: fetchErrorMsg || undefined,
       });

@@ -273,12 +273,13 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
     const cat = page.category;
     const isJobOrPost = cat === 'post' || page.path.includes('job=') || page.path.includes('post=') || page.path.includes('article');
     const isCat = cat === 'category' || page.path.includes('category');
+    const isDomCard = page.id.startsWith('dom_') || page.id.startsWith('dom_rec_') || page.description.includes('DOM');
 
     if (isJobOrPost) {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-500/40">
           <Sparkles className="w-2.5 h-2.5 text-indigo-400" />
-          <span>LISTING / POST</span>
+          <span>{isDomCard ? 'DOM LISTING CARD' : 'LISTING / POST'}</span>
         </span>
       );
     }
@@ -286,7 +287,7 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950/90 text-amber-300 border border-amber-500/40">
           <Tag className="w-2.5 h-2.5 text-amber-400" />
-          <span>CATEGORY</span>
+          <span>CATEGORY HUB</span>
         </span>
       );
     }
@@ -391,7 +392,7 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
         </div>
       </div>
 
-      {/* Crawled Target Summary Banner */}
+      {/* Crawled Target Summary Banner & Recursive Link-Discovery Status */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-950/80 border border-slate-800 rounded-xl p-4">
         <div>
           <span className="text-[11px] text-slate-400 uppercase font-bold tracking-wider">Target Domain</span>
@@ -409,17 +410,20 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
           <div className="text-sm font-medium text-slate-200 truncate mt-0.5" title={crawlState.title}>
             <span className="text-indigo-400 font-bold">{postsCount}</span> Listings/Posts • <span className="text-amber-400 font-bold">{categoriesCount}</span> Cats
           </div>
-          {crawlState.realLinksCount !== undefined && (
-            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-              {crawlState.realLinksCount} internal anchors scraped
-            </div>
-          )}
+          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+            {crawlState.realLinksCount !== undefined ? `${crawlState.realLinksCount} links` : `${crawlState.pages.length} links`} • Depth {crawlState.recursivePassDepth ?? 2}
+          </div>
         </div>
         <div>
-          <span className="text-[11px] text-slate-400 uppercase font-bold tracking-wider">Discovered Routes</span>
-          <div className="text-sm font-semibold text-emerald-400 mt-0.5 flex items-center gap-1.5">
-            <span>{crawlState.pages.length} Total Routes</span>
-            <span className="text-xs text-slate-400 font-normal">({includedPagesCount} active)</span>
+          <span className="text-[11px] text-slate-400 uppercase font-bold tracking-wider">Recursive Engine Guard</span>
+          <div className="text-xs font-medium text-emerald-400 mt-0.5 flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[11px]">
+              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <span>Zero-Loop Guard ({crawlState.visitedUrlsCount ?? crawlState.pages.length} URLs)</span>
+            </span>
+          </div>
+          <div className="text-[10px] text-indigo-300 font-mono mt-1">
+            {crawlState.listingPatternsMatched ?? postsCount} DOM listing/post patterns
           </div>
         </div>
         <div>
@@ -437,6 +441,35 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
               </span>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Recursive Link-Discovery Engine Highlights & DOM Pattern Priority Mode */}
+      <div className="bg-slate-900/50 border border-indigo-500/20 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+        <div className="flex items-start gap-2.5">
+          <div className="p-2 rounded-lg bg-indigo-950 border border-indigo-500/40 text-indigo-400 mt-0.5">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="font-semibold text-slate-200 flex items-center gap-2">
+              <span>Recursive DOM Link-Discovery Pass</span>
+              <span className="px-1.5 py-0.2 rounded bg-indigo-900/80 text-indigo-300 text-[10px] border border-indigo-500/30">PRIORITY ENGINE ACTIVE</span>
+            </div>
+            <p className="text-slate-400 text-[11px] mt-0.5">
+              Tracks <code className="text-cyan-300 bg-slate-950 px-1 py-0.5 rounded">visitedUrls: Set&lt;string&gt;</code> to eliminate infinite crawl loops while prioritizing <code className="text-indigo-300 bg-slate-950 px-1 py-0.5 rounded">&lt;article&gt;</code>, <code className="text-indigo-300 bg-slate-950 px-1 py-0.5 rounded">?job=</code>, <code className="text-indigo-300 bg-slate-950 px-1 py-0.5 rounded">?post=</code>, and <code className="text-indigo-300 bg-slate-950 px-1 py-0.5 rounded">[data-job-id]</code> DOM structures.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          <button
+            type="button"
+            onClick={() => onStartCrawl(crawlState.targetUrl)}
+            disabled={crawlState.isCrawling || !crawlState.targetUrl}
+            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg font-semibold text-xs flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-950/50 transition-all"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${crawlState.isCrawling ? 'animate-spin' : ''}`} />
+            <span>Run Recursive Pass</span>
+          </button>
         </div>
       </div>
 
