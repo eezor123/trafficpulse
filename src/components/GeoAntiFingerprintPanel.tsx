@@ -145,7 +145,8 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
 
   const handleSelectPreset = (preset: typeof REGION_PRESETS[0]) => {
     let updated: GeoCountry[];
-    if (preset.countryCodes.length === 0) {
+    const isGlobal = preset.countryCodes.length === 0;
+    if (isGlobal) {
       // All countries enabled with default weights
       updated = countries.map(c => ({ ...c, enabled: true, weight: c.weight || 20 }));
     } else {
@@ -155,9 +156,35 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
         weight: preset.countryCodes.includes(c.code) ? Math.max(c.weight || 30, 20) : 0,
       }));
     }
+
+    // Also synchronize proxy engine so only proxies matching the preset are active
+    let updatedProxyEngine = proxyEngine;
+    if (proxyEngine) {
+      const activeCountries = isGlobal ? updated : updated.filter(c => preset.countryCodes.includes(c.code));
+      const activeRegions = Array.from(new Set(activeCountries.map(c => {
+        if (c.region === 'North America' || c.region === 'South America') return 'Americas';
+        if (c.region === 'Asia' || c.region === 'Oceania') return 'Asia-Pacific';
+        if (c.region === 'Middle East' || c.region === 'Africa') return 'Middle East & Africa';
+        return c.region || 'Europe';
+      })));
+
+      const updatedProxies = proxyEngine.proxies.map(p => {
+        if (isGlobal) return { ...p, enabled: true };
+        const matchCountry = preset.countryCodes.includes(p.countryCode.toUpperCase());
+        return { ...p, enabled: matchCountry };
+      });
+
+      updatedProxyEngine = {
+        ...proxyEngine,
+        selectedRegions: activeRegions.length > 0 ? activeRegions : ['Americas', 'Europe'],
+        proxies: updatedProxies,
+      };
+    }
+
     onChange({
       ...fingerprintConfig,
       countries: updated,
+      proxyEngine: updatedProxyEngine,
     });
   };
 
@@ -221,11 +248,22 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
     } else {
       updatedRegions = [...current, regionName];
     }
+
+    // Filter proxies matching updated regions
+    const updatedProxies = proxyEngine.proxies.map(p => {
+      const pReg = p.region === 'North America' || p.region === 'South America' ? 'Americas'
+        : p.region === 'Asia' || p.region === 'Oceania' ? 'Asia-Pacific'
+        : p.region === 'Middle East' || p.region === 'Africa' ? 'Middle East & Africa'
+        : p.region || 'Europe';
+      return { ...p, enabled: updatedRegions.includes(pReg) || updatedRegions.includes(p.region || '') };
+    });
+
     onChange({
       ...fingerprintConfig,
       proxyEngine: {
         ...proxyEngine,
         selectedRegions: updatedRegions,
+        proxies: updatedProxies,
       }
     });
   };

@@ -1948,36 +1948,51 @@ async function startServer() {
 
       const cleanCountryCode = (countryCode || 'US').toUpperCase();
       const COUNTRY_GEO_REGISTRY: Record<string, { criteriaId: number; ipSubnets: string[] }> = {
-        US: { criteriaId: 2840, ipSubnets: ['24.120', '73.180', '98.210', '108.45', '174.60', '67.160', '76.100'] },
-        GB: { criteriaId: 2826, ipSubnets: ['82.35', '86.150', '90.200', '92.238', '151.224', '185.120'] },
-        CA: { criteriaId: 2124, ipSubnets: ['24.200', '70.24', '99.230', '142.112', '174.112'] },
-        DE: { criteriaId: 2276, ipSubnets: ['84.116', '91.64', '178.200', '217.80', '92.247'] },
-        FR: { criteriaId: 2250, ipSubnets: ['82.224', '86.200', '90.50', '176.130', '51.15'] },
-        NL: { criteriaId: 2528, ipSubnets: ['84.80', '145.220', '213.124', '77.160'] },
-        AU: { criteriaId: 2036, ipSubnets: ['1.120', '120.150', '139.130', '203.200', '49.180'] },
-        JP: { criteriaId: 2392, ipSubnets: ['122.130', '126.150', '133.242', '153.120', '60.100'] },
-        SG: { criteriaId: 2702, ipSubnets: ['118.189', '175.156', '202.166', '122.11'] },
-        IN: { criteriaId: 2356, ipSubnets: ['103.21', '117.200', '122.160', '157.34', '49.200'] },
-        AE: { criteriaId: 2784, ipSubnets: ['86.96', '94.200', '178.84', '213.42'] },
-        SA: { criteriaId: 2682, ipSubnets: ['93.168', '212.138', '62.149'] },
-        ZA: { criteriaId: 2710, ipSubnets: ['105.184', '196.25', '197.80', '41.13'] },
-        NG: { criteriaId: 2566, ipSubnets: ['105.112', '197.210', '41.58', '102.89'] },
-        GH: { criteriaId: 2288, ipSubnets: ['154.160', '196.201', '41.215'] },
-        KE: { criteriaId: 2404, ipSubnets: ['105.160', '196.201', '41.89'] },
-        BR: { criteriaId: 2076, ipSubnets: ['177.100', '187.50', '200.150', '189.10'] },
-        MX: { criteriaId: 2484, ipSubnets: ['132.248', '187.188', '201.140', '189.200'] },
-        IT: { criteriaId: 2380, ipSubnets: ['79.16', '87.10', '93.34', '151.15'] },
-        ES: { criteriaId: 2724, ipSubnets: ['83.32', '88.1', '95.16', '213.97'] },
-        CH: { criteriaId: 2756, ipSubnets: ['130.59', '178.197', '194.230'] },
-        SE: { criteriaId: 2752, ipSubnets: ['193.10', '213.112', '81.224'] },
-        NO: { criteriaId: 2578, ipSubnets: ['84.208', '193.212', '88.88'] },
-        DK: { criteriaId: 2208, ipSubnets: ['80.62', '87.54', '188.176'] },
-        FI: { criteriaId: 2246, ipSubnets: ['80.220', '88.112', '193.64'] },
-        IE: { criteriaId: 2372, ipSubnets: ['80.233', '86.40', '89.100'] },
-        PL: { criteriaId: 2616, ipSubnets: ['83.4', '89.64', '178.42'] },
-        TR: { criteriaId: 2792, ipSubnets: ['194.27', '88.224', '78.160'] },
-        KR: { criteriaId: 2410, ipSubnets: ['147.46', '121.130', '211.200'] },
-        NZ: { criteriaId: 2554, ipSubnets: ['118.148', '122.56', '202.180'] },
+        US: { criteriaId: 2840, ipSubnets: ['24.120', '73.180', '98.210', '108.45', '174.60', '67.160', '76.100', '24.105', '68.192'] },
+        GB: { criteriaId: 2826, ipSubnets: ['82.35', '86.150', '90.200', '92.238', '151.224', '185.120', '2.24', '81.130'] },
+        CA: { criteriaId: 2124, ipSubnets: ['24.200', '70.24', '99.230', '142.112', '174.112', '198.53', '207.161'] },
+        DE: { criteriaId: 2276, ipSubnets: ['84.116', '91.64', '178.200', '217.80', '92.247', '80.187', '188.192'] },
+        FR: { criteriaId: 2250, ipSubnets: ['82.224', '86.200', '90.50', '176.130', '51.15', '92.154', '194.250'] },
+        NL: { criteriaId: 2528, ipSubnets: ['84.80', '145.220', '213.124', '77.160', '82.161', '145.131'] },
+        AU: { criteriaId: 2036, ipSubnets: ['1.120', '120.150', '139.130', '203.200', '49.180', '101.160', '110.140'] },
+        JP: { criteriaId: 2392, ipSubnets: ['122.130', '126.150', '133.242', '153.120', '60.100', '118.238', '125.192'] },
+        SG: { criteriaId: 2702, ipSubnets: ['118.189', '175.156', '202.166', '122.11', '119.74', '220.255'] },
+        IN: { criteriaId: 2356, ipSubnets: ['103.21', '117.200', '122.160', '157.34', '49.200', '106.210', '115.110'] },
+        AE: { criteriaId: 2784, ipSubnets: ['86.96', '94.200', '178.84', '213.42', '5.36', '89.148'] },
+        SA: { criteriaId: 2682, ipSubnets: ['93.168', '212.138', '62.149', '37.224', '51.252'] },
+        ZA: { criteriaId: 2710, ipSubnets: ['105.184', '196.25', '197.80', '41.13', '169.255'] },
+        NG: { criteriaId: 2566, ipSubnets: ['105.112', '197.210', '41.58', '102.89', '105.113'] },
+        GH: { criteriaId: 2288, ipSubnets: ['154.160', '196.201', '41.215', '102.176'] },
+        KE: { criteriaId: 2404, ipSubnets: ['105.160', '196.201', '41.89', '102.68'] },
+        BR: { criteriaId: 2076, ipSubnets: ['177.100', '187.50', '200.150', '189.10', '179.180'] },
+        MX: { criteriaId: 2484, ipSubnets: ['132.248', '187.188', '201.140', '189.200', '200.68'] },
+        IT: { criteriaId: 2380, ipSubnets: ['79.16', '87.10', '93.34', '151.15', '2.32', '188.152'] },
+        ES: { criteriaId: 2724, ipSubnets: ['83.32', '88.1', '95.16', '213.97', '80.24', '217.124'] },
+        CH: { criteriaId: 2756, ipSubnets: ['130.59', '178.197', '194.230', '85.0', '178.82'] },
+        SE: { criteriaId: 2752, ipSubnets: ['193.10', '213.112', '81.224', '85.224', '217.210'] },
+        NO: { criteriaId: 2578, ipSubnets: ['84.208', '193.212', '88.88', '80.202', '148.122'] },
+        DK: { criteriaId: 2208, ipSubnets: ['80.62', '87.54', '188.176', '93.160', '212.130'] },
+        FI: { criteriaId: 2246, ipSubnets: ['80.220', '88.112', '193.64', '85.76', '91.152'] },
+        IE: { criteriaId: 2372, ipSubnets: ['80.233', '86.40', '89.100', '109.255', '185.51'] },
+        PL: { criteriaId: 2616, ipSubnets: ['83.4', '89.64', '178.42', '94.254', '188.146'] },
+        TR: { criteriaId: 2792, ipSubnets: ['194.27', '88.224', '78.160', '176.240', '85.96'] },
+        KR: { criteriaId: 2410, ipSubnets: ['147.46', '121.130', '211.200', '175.192', '218.144'] },
+        NZ: { criteriaId: 2554, ipSubnets: ['118.148', '122.56', '202.180', '210.55', '121.72'] },
+        BE: { criteriaId: 2056, ipSubnets: ['81.240', '91.180', '195.238', '178.116'] },
+        AT: { criteriaId: 2040, ipSubnets: ['80.120', '91.112', '194.138', '213.47'] },
+        PT: { criteriaId: 2620, ipSubnets: ['82.154', '85.240', '194.65', '188.80'] },
+        IL: { criteriaId: 2376, ipSubnets: ['84.108', '89.138', '192.114', '212.179'] },
+        HK: { criteriaId: 2344, ipSubnets: ['119.236', '14.198', '202.128', '203.186'] },
+        TW: { criteriaId: 2158, ipSubnets: ['114.32', '118.160', '220.128', '140.112'] },
+        AR: { criteriaId: 2032, ipSubnets: ['181.16', '190.18', '200.45', '186.136'] },
+        CO: { criteriaId: 2170, ipSubnets: ['181.48', '190.156', '201.232'] },
+        CL: { criteriaId: 2152, ipSubnets: ['181.42', '190.160', '200.83'] },
+        PE: { criteriaId: 2604, ipSubnets: ['181.64', '190.232', '200.106'] },
+        CR: { criteriaId: 2188, ipSubnets: ['186.15', '190.113', '201.192'] },
+        EG: { criteriaId: 2818, ipSubnets: ['156.192', '197.32', '41.232'] },
+        MA: { criteriaId: 2504, ipSubnets: ['105.154', '196.200', '41.140'] },
+        QA: { criteriaId: 2634, ipSubnets: ['82.148', '89.211', '178.152'] },
+        CZ: { criteriaId: 2203, ipSubnets: ['89.102', '194.228', '85.70'] },
       };
 
       const geoData = COUNTRY_GEO_REGISTRY[cleanCountryCode] || COUNTRY_GEO_REGISTRY['US'];
@@ -2102,21 +2117,39 @@ async function startServer() {
       const collectUrl = `https://www.google-analytics.com/g/collect?${params.toString()}`;
 
       try {
-        const gaRes = await fetch(collectUrl, {
-          method: 'POST',
-          headers: {
-            'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-            'X-Forwarded-For': authenticCountryIp,
-            'Client-IP': authenticCountryIp,
-            'CF-Connecting-IP': authenticCountryIp,
-            'CF-IPCountry': cleanCountryCode,
-            'X-Country-Code': cleanCountryCode,
-            'X-Real-IP': authenticCountryIp,
-          },
-          body: '',
-          // @ts-ignore
-          agent,
-        });
+        let gaRes;
+        try {
+          gaRes = await fetch(collectUrl, {
+            method: 'POST',
+            headers: {
+              'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+              'X-Forwarded-For': authenticCountryIp,
+              'Client-IP': authenticCountryIp,
+              'CF-Connecting-IP': authenticCountryIp,
+              'CF-IPCountry': cleanCountryCode,
+              'X-Country-Code': cleanCountryCode,
+              'X-Real-IP': authenticCountryIp,
+            },
+            body: '',
+            // @ts-ignore
+            agent,
+          });
+        } catch (proxyFetchErr) {
+          // If proxy agent was unreachable, retry directly with authentic headers
+          gaRes = await fetch(collectUrl, {
+            method: 'POST',
+            headers: {
+              'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+              'X-Forwarded-For': authenticCountryIp,
+              'Client-IP': authenticCountryIp,
+              'CF-Connecting-IP': authenticCountryIp,
+              'CF-IPCountry': cleanCountryCode,
+              'X-Country-Code': cleanCountryCode,
+              'X-Real-IP': authenticCountryIp,
+            },
+            body: '',
+          });
+        }
 
         // Also trigger lightweight GET ping fallback if POST returned non-200
         if (!gaRes.ok) {
@@ -2129,8 +2162,6 @@ async function startServer() {
                 'CF-IPCountry': cleanCountryCode,
                 'X-Country-Code': cleanCountryCode,
               },
-              // @ts-ignore
-              agent,
             });
           } catch {}
         }
@@ -2174,7 +2205,7 @@ async function startServer() {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
 
-      const forwardedIp = headers['X-Forwarded-For'] || headers['X-Real-IP'] || headers['True-Client-IP'] || '198.51.100.42';
+      const forwardedIp = headers['X-Forwarded-For'] || headers['X-Real-IP'] || headers['True-Client-IP'] || '24.120.45.18';
       const countryCode = headers['CF-IPCountry'] || headers['X-Country-Code'] || 'US';
 
       const outgoingHeaders: Record<string, string> = {
@@ -2206,7 +2237,18 @@ async function startServer() {
         fetchOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
       }
 
-      const response = await fetch(targetUrl, fetchOptions);
+      let response;
+      try {
+        response = await fetch(targetUrl, fetchOptions);
+      } catch (proxyErr) {
+        // If fetch through proxy agent failed, retry directly without agent
+        if (agent) {
+          const directOptions = { ...fetchOptions, agent: undefined };
+          response = await fetch(targetUrl, directOptions);
+        } else {
+          throw proxyErr;
+        }
+      }
       clearTimeout(timer);
 
       const responseText = await response.text();

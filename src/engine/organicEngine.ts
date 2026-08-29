@@ -196,7 +196,46 @@ export class OrganicTrafficEngine {
     // so traffic NEVER gets diverted or locked into an unwanted foreign country!
     const countryCity = country.city?.split('/')[0]?.trim() || country.name;
     const countryIsp = country.isp?.split('/')[0]?.trim() || 'Residential Broadband';
-    const cleanIp = country.ipSample || '198.51.100.1';
+    
+    // Generate realistic residential IP if sample is missing or placeholder
+    let cleanIp = country.ipSample;
+    if (!cleanIp || cleanIp.startsWith('198.51') || cleanIp === '127.0.0.1') {
+      const SUBNETS: Record<string, string[]> = {
+        US: ['24.120', '73.180', '98.210', '108.45', '174.60', '67.160', '76.100'],
+        GB: ['82.35', '86.150', '90.200', '92.238', '151.224', '185.120'],
+        CA: ['24.200', '70.24', '99.230', '142.112', '174.112'],
+        DE: ['84.116', '91.64', '178.200', '217.80', '92.247'],
+        FR: ['82.224', '86.200', '90.50', '176.130', '51.15'],
+        NL: ['84.80', '145.220', '213.124', '77.160'],
+        AU: ['1.120', '120.150', '139.130', '203.200', '49.180'],
+        JP: ['122.130', '126.150', '133.242', '153.120', '60.100'],
+        SG: ['118.189', '175.156', '202.166', '122.11'],
+        IN: ['103.21', '117.200', '122.160', '157.34', '49.200'],
+        AE: ['86.96', '94.200', '178.84', '213.42'],
+        SA: ['93.168', '212.138', '62.149'],
+        ZA: ['105.184', '196.25', '197.80', '41.13'],
+        NG: ['105.112', '197.210', '41.58', '102.89'],
+        GH: ['154.160', '196.201', '41.215'],
+        KE: ['105.160', '196.201', '41.89'],
+        BR: ['177.100', '187.50', '200.150', '189.10'],
+        MX: ['132.248', '187.188', '201.140', '189.200'],
+        IT: ['79.16', '87.10', '93.34', '151.15'],
+        ES: ['83.32', '88.1', '95.16', '213.97'],
+        CH: ['130.59', '178.197', '194.230'],
+        SE: ['193.10', '213.112', '81.224'],
+        NO: ['84.208', '193.212', '88.88'],
+        DK: ['80.62', '87.54', '188.176'],
+        FI: ['80.220', '88.112', '193.64'],
+        IE: ['80.233', '86.40', '89.100'],
+        PL: ['83.4', '89.64', '178.42'],
+        TR: ['194.27', '88.224', '78.160'],
+        KR: ['147.46', '121.130', '211.200'],
+        NZ: ['118.148', '122.56', '202.180'],
+      };
+      const sub = SUBNETS[country.code] || SUBNETS['US'];
+      const pfx = sub[Math.floor(Math.random() * sub.length)];
+      cleanIp = `${pfx}.${Math.floor(Math.random() * 200 + 10)}.${Math.floor(Math.random() * 250 + 2)}`;
+    }
 
     const syntheticProxy: ProxyNode = {
       id: `prx_res_${country.code.toLowerCase()}_${Math.floor(Math.random() * 9000 + 1000)}`,
@@ -1213,7 +1252,7 @@ export class OrganicTrafficEngine {
     pageTitle: string
   ) {
     try {
-      const userIp = visitor.ipAddress || visitor.country.ipSample || '198.51.100.42';
+      const userIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';
       const proxyUrl = this.formatProxyNodeUrl(visitor.proxyUsed);
 
       const res = await fetch('/api/traffic/dispatch-single', {
@@ -1315,7 +1354,7 @@ export class OrganicTrafficEngine {
     // 1. Dispatch via Server-Side Proxy (with residential IP, authentic Geo headers, and GA4 criteria ID)
     try {
       const proxyUrl = this.formatProxyNodeUrl(visitor.proxyUsed);
-      const visitorIp = visitor.ipAddress || visitor.country.ipSample || '198.51.100.42';
+      const visitorIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';
 
       fetch('/api/ga4/collect-beacon', {
         method: 'POST',
