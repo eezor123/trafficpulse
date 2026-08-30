@@ -3,7 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
-import { buildCrawledPagesFromListings } from '../src/data/allNaijaJobListings';
+import { executeUniversalCrawl, FetchFunction } from '../src/utils/universalCrawler';
 
 dotenv.config();
 
@@ -465,40 +465,17 @@ router.get('/browser/live-page', async (req: Request, res: Response) => {
 router.post('/crawler/scrape', async (req: Request, res: Response) => {
   try {
     const rawInput = req.body.url || req.body.targetUrl || req.body.target;
-    const maxLinks = Math.min(2500, Math.max(10, req.body.maxLinks || 1000));
+    const maxLinks = Math.min(2500, Math.max(10, req.body.maxLinks || 1500));
+    const maxDepth = Math.min(3, Math.max(1, req.body.maxDepth || 2));
     if (!rawInput) {
       return res.status(400).json({ error: 'Target URL is required' });
     }
 
-    let parsedBase: URL;
-    try {
-      const withProtocol = rawInput.startsWith('http://') || rawInput.startsWith('https://') 
-        ? rawInput 
-        : `https://${rawInput}`;
-      parsedBase = new URL(withProtocol);
-    } catch (err) {
-      return res.status(400).json({ error: 'Invalid URL format' });
-    }
-
-    const targetUrl = parsedBase.toString();
-    const origin = parsedBase.origin;
-    const hostname = parsedBase.hostname;
-    const isDirectSitemapInput = parsedBase.pathname.endsWith('.xml') || parsedBase.pathname.includes('sitemap');
-
-    const scrapeStartTime = performance.now();
-    let html = '';
-    let statusCode = 200;
-    let gaMeasurementId: string | null = null;
-    let gtmId: string | null = null;
-    let isRealScrape = false;
-    let fetchErrorMsg = '';
-    let listingPatternsMatched = 0;
-
     const browserHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Sec-Ch-Ua': '"Chromium";v="129", "Not=A?Brand";v="8", "Google Chrome";v="129"',
+      'Sec-Ch-Ua': '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
       'Sec-Ch-Ua-Mobile': '?0',
       'Sec-Ch-Ua-Platform': '"Windows"',
       'Sec-Fetch-Dest': 'document',
@@ -506,684 +483,72 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       'Sec-Fetch-Site': 'none',
       'Sec-Fetch-User': '?1',
       'Upgrade-Insecure-Requests': '1',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
     };
 
-    const resilientFetch = async (target: string, timeoutMs: number = 7000): Promise<{ ok: boolean; status: number; text: string; contentType: string }> => {
-      const runAttempt = async (hdrs: Record<string, string>) => {
+    const botHeaders = {
+      'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    };
+
+    // Resilient fetch helper with automatic Googlebot WAF fallback
+    const resilientFetch: FetchFunction = async (url: string, timeoutMs = 6000) => {
+      try {
         const ctrl = new AbortController();
         const tm = setTimeout(() => ctrl.abort(), timeoutMs);
-        try {
-          const resp = await fetch(target, { headers: hdrs, signal: ctrl.signal, redirect: 'follow' });
-          clearTimeout(tm);
-          const cType = resp.headers.get('content-type') || '';
-          const bodyTxt = await resp.text();
-          return { ok: resp.ok, status: resp.status, text: bodyTxt, contentType: cType };
-        } catch (e: any) {
-          clearTimeout(tm);
-          return { ok: false, status: 0, text: '', contentType: '' };
+        const res = await fetch(url, { headers: browserHeaders, signal: ctrl.signal, redirect: 'follow' });
+        clearTimeout(tm);
+        if (res.ok) {
+          const txt = await res.text();
+          return { ok: true, status: res.status, text: txt };
         }
-      };
-
-      let res = await runAttempt(browserHeaders);
-      if (!res.ok && (res.status === 403 || res.status === 503 || res.status === 429 || res.status === 0)) {
-        const googlebotHeaders = {
-          'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'From': 'googlebot(at)googlebot.com',
-        };
-        const fallbackRes = await runAttempt(googlebotHeaders);
-        if (fallbackRes.ok || fallbackRes.text.length > 50) {
-          return fallbackRes;
-        }
-      }
-      return res;
-    };
-
-    // 1. Fetch Primary HTML
-    const initialFetch = await resilientFetch(targetUrl, 10000);
-    if (initialFetch.ok || initialFetch.text.length > 50) {
-      statusCode = initialFetch.status || 200;
-      html = initialFetch.text;
-      isRealScrape = true;
-    } else {
-      fetchErrorMsg = `Target returned status ${initialFetch.status || 'Connection Timeout'}`;
-      html = `<html><head><title>${hostname}</title><meta name="description" content="Official portal for ${hostname}"></head><body><h1>${hostname}</h1></body></html>`;
-    }
-
-    // Extract Page Title & OG metadata
-    const ogTitleMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
-                         html.match(/<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["']/i);
-    const standardTitleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const title = ogTitleMatch ? ogTitleMatch[1].trim() : standardTitleMatch ? standardTitleMatch[1].trim() : `${hostname} - Portal`;
-
-    // Extract Meta Description
-    const descMatch = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ||
-                      html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i) ||
-                      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i);
-    const description = descMatch ? descMatch[1].trim() : `Main portal for ${hostname}`;
-
-    // Detect GA4 / GTM
-    const ga4Match = html.match(/G-[A-Z0-9]{8,14}/i) || html.match(/gtag\(['"]config['"],\s*['"](G-[A-Z0-9]+)['"]/i);
-    if (ga4Match) {
-      gaMeasurementId = Array.isArray(ga4Match) ? ga4Match[1] || ga4Match[0] : ga4Match;
-    }
-    const gtmMatch = html.match(/GTM-[A-Z0-9]{4,10}/i);
-    if (gtmMatch) {
-      gtmId = gtmMatch[0];
-    }
-
-    const isCleanPublicPage = (testPath: string, testTitle: string): boolean => {
-      const lowerPath = testPath.toLowerCase();
-      const lowerTitle = (testTitle || '').toLowerCase();
-
-      if (/\.(js|jsx|ts|tsx|json|xml|rss|atom|css|map|wasm|ico|svg|png|jpg|jpeg|webp|gif|woff|woff2|ttf|eot|otf|pdf|zip|gz|tar|mp4|webm|avi|mp3|wav|ogg|bin|txt|md|yml|yaml|env|sql|log)($|\?)/i.test(lowerPath)) {
-        return false;
-      }
-      if (/\/(iframe|partial|template|chunk|embed|widget|bundle|sw|service-worker|manifest)\.html?/i.test(lowerPath)) {
-        return false;
-      }
-      const bannedPrefixes = [
-        '/api/', '/api', '/_next/', '/__next', '/_nuxt/', '/static/', '/assets/', '/node_modules/',
-        '/cdn-cgi/', '/wp-json/', '/wp-admin/', '/wp-includes/', '/xmlrpc.php', '/autodiscover/',
-        '/.well-known/', '/graphql', '/socket.io', '/sockjs', '/telescope/', '/horizon/',
-        '/oauth/', '/auth/callback', '/auth/login', '/auth/signup', '/health', '/healthz', '/metrics',
-        '/cgi-bin/', '/track', '/telemetry', '/beacon', '/pixel', '/ping'
-      ];
-      if (bannedPrefixes.some(prefix => lowerPath.startsWith(prefix) || lowerPath.includes(`/${prefix.replace(/^\//, '')}`))) {
-        return false;
-      }
-      if (
-        lowerTitle.includes('<script') ||
-        lowerTitle.includes('function(') ||
-        lowerTitle.includes('{id:') ||
-        lowerTitle.includes('application/json') ||
-        lowerTitle.includes('object object') ||
-        lowerTitle.includes('undefined') ||
-        lowerTitle.includes('null') ||
-        lowerTitle.startsWith('chunk-') ||
-        lowerTitle.endsWith('.js') ||
-        lowerTitle.endsWith('.json') ||
-        lowerTitle.endsWith('.xml')
-      ) {
-        return false;
-      }
-      return true;
-    };
-
-    const normalizePathWithQuery = (u: URL): string => {
-      const cleanSearch = new URLSearchParams(u.search);
-      const trackingKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', '_ga', '_gl', 'ref', 'source'];
-      trackingKeys.forEach(k => cleanSearch.delete(k));
-      const queryStr = cleanSearch.toString() ? `?${cleanSearch.toString()}` : '';
-      const pName = u.pathname.replace(/\/$/, '') || '/';
-      return `${pName}${queryStr}`;
-    };
-
-    const normalizeCanonicalUrl = (u: URL): string => {
-      return `${u.origin}${u.pathname.replace(/\/$/, '') || '/'}`;
-    };
-
-    const discoveredPaths = new Set<string>();
-    const visitedUrls = new Set<string>();
-
-    const rootPathIdent = normalizePathWithQuery(parsedBase);
-    discoveredPaths.add(rootPathIdent);
-    visitedUrls.add(normalizeCanonicalUrl(parsedBase));
-
-    const discoveredPages: Array<{
-      id: string;
-      url: string;
-      path: string;
-      title: string;
-      description: string;
-      depth: number;
-      status: number;
-      includedInVisits: boolean;
-      visitWeight: number;
-      gaDetected: boolean;
-      category?: 'post' | 'category' | 'page' | 'tag' | 'archive' | 'product' | 'other';
-    }> = [];
-
-    const classifyPage = (path: string, linkText: string): 'post' | 'category' | 'page' | 'tag' | 'archive' | 'product' | 'other' => {
-      const lower = path.toLowerCase();
-      if (lower.includes('/category/') || lower.includes('/categories/') || lower.includes('/topics/') || lower.includes('/section/') || lower.includes('category=') || lower.includes('cat=')) {
-        return 'category';
-      }
-      if (lower.includes('/tag/') || lower.includes('/tags/') || lower.includes('/post_tag/') || lower.includes('tag=')) {
-        return 'tag';
-      }
-      if (lower.includes('/product/') || lower.includes('/item/') || lower.includes('/shop/') || lower.includes('/pricing') || lower.includes('product=') || lower.includes('item=')) {
-        return 'product';
-      }
-      if (lower.includes('/archive') || lower.includes('/author/') || /\/\d{4}\/\d{2}/.test(lower)) {
-        return 'archive';
-      }
-      if (lower.includes('/job/') || lower.includes('/jobs/') || lower.includes('job=') || lower.includes('job_') || lower.includes('/post/') || lower.includes('post=') || lower.includes('/article/') || lower.includes('article=') || lower.includes('/listing/') || lower.includes('listing=') || lower.includes('p=') || lower.includes('id=job_')) {
-        return 'post';
-      }
-      if (['/about', '/about-us', '/contact', '/contact-us', '/privacy-policy', '/privacy', '/terms', '/terms-and-conditions', '/terms-of-service', '/disclaimer', '/cookie-policy', '/login', '/signup', '/register', '/faq', '/help', '/features', '/docs', '/services', '/escrow', '/safety', '/disputes', '/post-job', '/freelancers'].some(p => lower.startsWith(p) || lower === p || lower === `${p}/`)) {
-        return 'page';
-      }
-      if (path.length > 15 || path.includes('-') || path.split('/').filter(Boolean).length >= 1) {
-        return 'post';
-      }
-      return 'page';
-    };
-
-    const isRootPost = classifyPage(rootPathIdent, title) === 'post' || rootPathIdent.includes('job=') || rootPathIdent.includes('post=') || rootPathIdent.includes('listing=');
-
-    let rootTitle = title || 'Home Page';
-    if (isRootPost && (!ogTitleMatch || rootTitle.includes(hostname))) {
-      if (rootPathIdent.includes('job=')) {
-        const qJob = parsedBase.searchParams.get('job') || 'Featured Job';
-        rootTitle = `Job Listing: ${qJob}`;
-      } else if (rootPathIdent.includes('post=')) {
-        const qPost = parsedBase.searchParams.get('post') || 'Featured Post';
-        rootTitle = `Post: ${qPost}`;
-      }
-    }
-
-    discoveredPages.push({
-      id: 'page_root',
-      url: targetUrl,
-      path: rootPathIdent,
-      title: rootTitle,
-      description: isRootPost ? `Target Listing / Post on ${hostname}` : (description || 'Main Landing Page'),
-      depth: isRootPost ? 1 : 0,
-      status: statusCode,
-      includedInVisits: true,
-      visitWeight: 100,
-      gaDetected: !!gaMeasurementId || !!gtmId,
-      category: isRootPost ? 'post' : 'page',
-    });
-
-    if (rootPathIdent !== '/' && !discoveredPaths.has('/')) {
-      discoveredPaths.add('/');
-      discoveredPages.push({
-        id: 'page_home',
-        url: `${origin}/`,
-        path: '/',
-        title: `${hostname} - Home Portal`,
-        description: `Root Home Portal for ${hostname}`,
-        depth: 0,
-        status: 200,
-        includedInVisits: true,
-        visitWeight: 90,
-        gaDetected: !!gaMeasurementId || !!gtmId,
-        category: 'page',
-      });
-    }
-
-    const slugToTitle = (slugPath: string): string => {
-      const lastSegment = slugPath.split('/').filter(Boolean).pop() || slugPath;
-      const clean = lastSegment
-        .replace(/\.html?$/i, '')
-        .replace(/[?#].*$/, '')
-        .replace(/[-_=+]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!clean) return 'Article';
-      return clean.replace(/\b\w/g, c => c.toUpperCase());
-    };
-
-    // Deep Sitemap, Sitemap-Index & Multi-Page Discovery
-    const sitemapQueue: string[] = [];
-    const parsedSitemaps = new Set<string>();
-
-    if (isDirectSitemapInput) {
-      sitemapQueue.push(targetUrl);
-    }
-
-    [
-      `${origin}/sitemap.xml`,
-      `${origin}/sitemap_index.xml`,
-      `${origin}/wp-sitemap.xml`,
-      `${origin}/post-sitemap.xml`,
-      `${origin}/post-sitemap1.xml`,
-      `${origin}/post-sitemap2.xml`,
-      `${origin}/post-sitemap3.xml`,
-      `${origin}/post-sitemap4.xml`,
-      `${origin}/post-sitemap5.xml`,
-      `${origin}/wp-sitemap-posts-post-1.xml`,
-      `${origin}/wp-sitemap-posts-post-2.xml`,
-      `${origin}/wp-sitemap-posts-post-3.xml`,
-      `${origin}/wp-sitemap-posts-post-4.xml`,
-      `${origin}/wp-sitemap-posts-post-5.xml`,
-      `${origin}/wp-sitemap-posts-post-6.xml`,
-      `${origin}/wp-sitemap-posts-post-7.xml`,
-      `${origin}/wp-sitemap-posts-post-8.xml`,
-      `${origin}/wp-sitemap-posts-post-9.xml`,
-      `${origin}/wp-sitemap-posts-post-10.xml`,
-      `${origin}/page-sitemap.xml`,
-      `${origin}/category-sitemap.xml`,
-      `${origin}/job-sitemap.xml`,
-      `${origin}/news-sitemap.xml`,
-      `${origin}/sitemap-1.xml`,
-      `${origin}/sitemap-2.xml`,
-      `${origin}/sitemap-3.xml`,
-      `${origin}/sitemap-index.xml`,
-    ].forEach(sm => {
-      if (!sitemapQueue.includes(sm)) sitemapQueue.push(sm);
-    });
-
-    const robotsRes = await resilientFetch(`${origin}/robots.txt`, 3000);
-    if (robotsRes.ok) {
-      const smMatches = robotsRes.text.matchAll(/Sitemap:\s*(https?:\/\/[^\s\r\n]+)/gi);
-      for (const smm of smMatches) {
-        const discoveredSm = smm[1].trim();
-        if (!sitemapQueue.includes(discoveredSm)) {
-          sitemapQueue.push(discoveredSm);
-        }
-      }
-    }
-
-    const processSitemapXml = (smXml: string, sourceUrl: string) => {
-      if (!smXml || smXml.length < 20) return;
-
-      if (!gaMeasurementId) {
-        const ga = smXml.match(/G-[A-Z0-9]{8,14}/i);
-        if (ga) gaMeasurementId = ga[0];
-      }
-
-      const childSitemapRegex = /<sitemap>[\s\S]*?<loc>(?:<!\[CDATA\[)?(https?:\/\/[^<\]\s]+)(?:\]\]>)?<\/loc>[\s\S]*?<\/sitemap>/gi;
-      let csm: RegExpExecArray | null;
-      while ((csm = childSitemapRegex.exec(smXml)) !== null) {
-        const childUrl = csm[1].trim();
-        if (!parsedSitemaps.has(childUrl) && !sitemapQueue.includes(childUrl) && sitemapQueue.length < 200) {
-          sitemapQueue.push(childUrl);
-        }
-      }
-
-      const urlLocRegex = /<url>[\s\S]*?<loc>(?:<!\[CDATA\[)?(https?:\/\/[^<\]\s]+)(?:\]\]>)?<\/loc>(?:[\s\S]*?<lastmod>([^<]+)<\/lastmod>)?(?:[\s\S]*?<image:title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/image:title>)?[\s\S]*?<\/url>/gi;
-      let um: RegExpExecArray | null;
-      while ((um = urlLocRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
-        const uLoc = um[1].trim();
-        const imgTitle = (um[3] || '').trim();
-
-        if (uLoc.endsWith('.xml') || (uLoc.includes('sitemap') && uLoc.includes('.xml'))) {
-          if (!parsedSitemaps.has(uLoc) && !sitemapQueue.includes(uLoc) && sitemapQueue.length < 200) {
-            sitemapQueue.push(uLoc);
+        if ([401, 403, 429, 503].includes(res.status)) {
+          const bCtrl = new AbortController();
+          const bTm = setTimeout(() => bCtrl.abort(), timeoutMs);
+          const bRes = await fetch(url, { headers: botHeaders, signal: bCtrl.signal, redirect: 'follow' });
+          clearTimeout(bTm);
+          if (bRes.ok) {
+            const bTxt = await bRes.text();
+            return { ok: true, status: bRes.status, text: bTxt };
           }
-          continue;
         }
-
+        return { ok: false, status: res.status, text: '' };
+      } catch {
         try {
-          const pUrl = new URL(uLoc);
-          if (pUrl.hostname === hostname || pUrl.hostname.endsWith(`.${hostname}`)) {
-            const sPath = normalizePathWithQuery(pUrl);
-            const sTitle = imgTitle || slugToTitle(pUrl.pathname);
-            if (isCleanPublicPage(sPath, sTitle) && !discoveredPaths.has(sPath)) {
-              discoveredPaths.add(sPath);
-              visitedUrls.add(normalizeCanonicalUrl(pUrl));
-              const cat = classifyPage(sPath, sTitle);
-              listingPatternsMatched++;
-              discoveredPages.push({
-                id: `sm_${discoveredPages.length + 1}`,
-                url: uLoc,
-                path: sPath,
-                title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
-                description: `${cat.toUpperCase()}: ${sTitle}`,
-                depth: sPath.split('/').filter(Boolean).length || 1,
-                status: 200,
-                includedInVisits: true,
-                visitWeight: cat === 'post' ? 95 : cat === 'category' ? 90 : 80,
-                gaDetected: !!gaMeasurementId || !!gtmId,
-                category: cat,
-              });
-            }
+          const bCtrl = new AbortController();
+          const bTm = setTimeout(() => bCtrl.abort(), timeoutMs);
+          const bRes = await fetch(url, { headers: botHeaders, signal: bCtrl.signal, redirect: 'follow' });
+          clearTimeout(bTm);
+          if (bRes.ok) {
+            const bTxt = await bRes.text();
+            return { ok: true, status: bRes.status, text: bTxt };
           }
         } catch {}
-      }
-
-      const genericLocRegex = /<loc>(?:<!\[CDATA\[)?(https?:\/\/[^<\]\s]+)(?:\]\]>)?<\/loc>/gi;
-      let gm: RegExpExecArray | null;
-      while ((gm = genericLocRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
-        const locStr = gm[1].trim();
-        if (locStr.endsWith('.xml') || (locStr.includes('sitemap') && locStr.includes('.xml'))) {
-          if (!parsedSitemaps.has(locStr) && !sitemapQueue.includes(locStr) && sitemapQueue.length < 200) {
-            sitemapQueue.push(locStr);
-          }
-          continue;
-        }
-        try {
-          const pUrl = new URL(locStr);
-          if (pUrl.hostname === hostname || pUrl.hostname.endsWith(`.${hostname}`)) {
-            const sPath = normalizePathWithQuery(pUrl);
-            const sTitle = slugToTitle(pUrl.pathname);
-            if (isCleanPublicPage(sPath, sTitle) && !discoveredPaths.has(sPath)) {
-              discoveredPaths.add(sPath);
-              visitedUrls.add(normalizeCanonicalUrl(pUrl));
-              const cat = classifyPage(sPath, sTitle);
-              discoveredPages.push({
-                id: `sm_gen_${discoveredPages.length + 1}`,
-                url: locStr,
-                path: sPath,
-                title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
-                description: `${cat.toUpperCase()}: ${sTitle}`,
-                depth: sPath.split('/').filter(Boolean).length || 1,
-                status: 200,
-                includedInVisits: true,
-                visitWeight: cat === 'post' ? 95 : 80,
-                gaDetected: !!gaMeasurementId || !!gtmId,
-                category: cat,
-              });
-            }
-          }
-        } catch {}
+        return { ok: false, status: 0, text: '' };
       }
     };
 
-    if (isDirectSitemapInput && html) {
-      processSitemapXml(html, targetUrl);
-      parsedSitemaps.add(targetUrl);
-    }
-
-    let sitemapBatchCount = 0;
-    while (sitemapQueue.length > 0 && sitemapBatchCount < 60 && discoveredPages.length < maxLinks) {
-      const currentBatch = sitemapQueue.splice(0, 10).filter(sm => !parsedSitemaps.has(sm));
-      currentBatch.forEach(sm => parsedSitemaps.add(sm));
-      if (currentBatch.length === 0) break;
-      sitemapBatchCount++;
-
-      const sitemapTasks = currentBatch.map(async (smUrl) => {
-        const smRes = await resilientFetch(smUrl, 4000);
-        if (smRes.ok && (smRes.text.includes('<urlset') || smRes.text.includes('<sitemapindex') || smRes.text.includes('<loc>'))) {
-          processSitemapXml(smRes.text, smUrl);
-        }
-      });
-      await Promise.allSettled(sitemapTasks);
-    }
-
-    // WordPress REST API Multi-page pagination discovery
-    const wpBaseEndpoints = [
-      `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug`,
-      `${origin}/wp-json/wp/v2/job-listings?per_page=100&_fields=id,link,title,slug`,
-      `${origin}/wp-json/wp/v2/vacancies?per_page=100&_fields=id,link,title,slug`,
-      `${origin}/wp-json/wp/v2/articles?per_page=100&_fields=id,link,title,slug`,
-      `${origin}/wp-json/wp/v2/listings?per_page=100&_fields=id,link,title,slug`,
-      `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug`,
-      `${origin}/wp-json/wp/v2/categories?per_page=100&_fields=id,link,name,slug`,
-    ];
-
-    const wpPage1Tasks = wpBaseEndpoints.map(async (wpUrl) => {
-      try {
-        const r = await resilientFetch(wpUrl, 4000);
-        if (r.ok) {
-          const data = JSON.parse(r.text);
-          if (Array.isArray(data) && data.length > 0) {
-            data.forEach(item => {
-              if (discoveredPages.length >= maxLinks) return;
-              if (item.link) {
-                try {
-                  const u = new URL(item.link);
-                  const p = normalizePathWithQuery(u);
-                  if (!discoveredPaths.has(p)) {
-                    discoveredPaths.add(p);
-                    visitedUrls.add(normalizeCanonicalUrl(u));
-                    const itemTitle = (typeof item.title === 'object' && item.title?.rendered ? item.title.rendered : item.title) || item.name || slugToTitle(item.slug || p);
-                    const cleanT = itemTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
-                    const isCat = wpUrl.includes('categories');
-                    listingPatternsMatched++;
-                    discoveredPages.push({
-                      id: `wp_${item.id || discoveredPages.length + 1}`,
-                      url: item.link,
-                      path: p,
-                      title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
-                      description: isCat ? `Category: ${cleanT}` : `WordPress Post: ${cleanT}`,
-                      depth: p.split('/').filter(Boolean).length || 1,
-                      status: 200,
-                      includedInVisits: true,
-                      visitWeight: isCat ? 85 : 95,
-                      gaDetected: !!gaMeasurementId || !!gtmId,
-                      category: isCat ? 'category' : 'post',
-                    });
-                  }
-                } catch {}
-              }
-            });
-
-            if (data.length >= 50) {
-              const subPages = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
-              const pageTasks = subPages.map(async (pgNum) => {
-                if (discoveredPages.length >= maxLinks) return;
-                const pgUrl = `${wpUrl}&page=${pgNum}`;
-                const pgRes = await resilientFetch(pgUrl, 3500);
-                if (pgRes.ok) {
-                  try {
-                    const pgData = JSON.parse(pgRes.text);
-                    if (Array.isArray(pgData)) {
-                      pgData.forEach(item => {
-                        if (discoveredPages.length >= maxLinks) return;
-                        if (item.link) {
-                          try {
-                            const u = new URL(item.link);
-                            const p = normalizePathWithQuery(u);
-                            if (!discoveredPaths.has(p)) {
-                              discoveredPaths.add(p);
-                              visitedUrls.add(normalizeCanonicalUrl(u));
-                              const itemTitle = (typeof item.title === 'object' && item.title?.rendered ? item.title.rendered : item.title) || slugToTitle(item.slug || p);
-                              const cleanT = itemTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
-                              listingPatternsMatched++;
-                              discoveredPages.push({
-                                id: `wp_${item.id || discoveredPages.length + 1}`,
-                                url: item.link,
-                                path: p,
-                                title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
-                                description: `WordPress Article: ${cleanT}`,
-                                depth: p.split('/').filter(Boolean).length || 1,
-                                status: 200,
-                                includedInVisits: true,
-                                visitWeight: 95,
-                                gaDetected: !!gaMeasurementId || !!gtmId,
-                                category: 'post',
-                              });
-                            }
-                          } catch {}
-                        }
-                      });
-                    }
-                  } catch {}
-                }
-              });
-              await Promise.allSettled(pageTasks);
-            }
-          }
-        }
-      } catch {}
-    });
-    await Promise.allSettled(wpPage1Tasks);
-
-    // Automatic HTML Pagination Follower (crawl /page/2, /page/3, etc. found on site)
-    const paginationRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi;
-    const paginationUrls: string[] = [];
-    let pMatch: RegExpExecArray | null;
-    while ((pMatch = paginationRegex.exec(html)) !== null) {
-      const pHref = (pMatch[1] || pMatch[2] || pMatch[3] || '').trim();
-      if (pHref && (/\/page\/\d+/i.test(pHref) || /[?&]paged?=\d+/i.test(pHref) || /[?&]offset=\d+/i.test(pHref))) {
-        try {
-          const pRes = new URL(pHref, origin);
-          if (pRes.hostname === hostname || pRes.hostname.endsWith(`.${hostname}`)) {
-            const pNorm = normalizeCanonicalUrl(pRes);
-            if (!paginationUrls.includes(pNorm) && !visitedUrls.has(pNorm) && paginationUrls.length < 25) {
-              paginationUrls.push(pNorm);
-            }
-          }
-        } catch {}
-      }
-    }
-
-    if (paginationUrls.length > 0) {
-      const pagTasks = paginationUrls.map(async (pUrlStr) => {
-        try {
-          visitedUrls.add(pUrlStr);
-          const pResp = await resilientFetch(pUrlStr, 4000);
-          if (pResp.ok) {
-            const pSubHtml = pResp.text;
-            const subLRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
-            let plm: RegExpExecArray | null;
-            while ((plm = subLRegex.exec(pSubHtml)) !== null && discoveredPages.length < maxLinks) {
-              const slHref = (plm[1] || plm[2] || plm[3] || '').trim();
-              const slText = (plm[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-              if (!slHref || slHref.startsWith('#') || slHref.startsWith('javascript:') || slHref.startsWith('mailto:')) continue;
-              try {
-                const rUrl = new URL(slHref, origin);
-                if (rUrl.hostname === hostname || rUrl.hostname.endsWith(`.${hostname}`)) {
-                  const scPath = normalizePathWithQuery(rUrl);
-                  if (!isCleanPublicPage(scPath, slText)) continue;
-                  if (!discoveredPaths.has(scPath)) {
-                    discoveredPaths.add(scPath);
-                    const cat = classifyPage(scPath, slText);
-                    const sTitle = slText || slugToTitle(scPath);
-                    discoveredPages.push({
-                      id: `pag_${discoveredPages.length + 1}`,
-                      url: rUrl.toString(),
-                      path: scPath,
-                      title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
-                      description: `${cat.toUpperCase()}: ${sTitle}`,
-                      depth: 2,
-                      status: 200,
-                      includedInVisits: true,
-                      visitWeight: cat === 'post' ? 95 : 80,
-                      gaDetected: !!gaMeasurementId || !!gtmId,
-                      category: cat,
-                    });
-                  }
-                }
-              } catch {}
-            }
-          }
-        } catch {}
-      });
-      await Promise.allSettled(pagTasks);
-    }
-
-    // HTML Anchor extraction
-    const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
-    let match: RegExpExecArray | null;
-    let rawLinksFound = 0;
-
-    while ((match = linkRegex.exec(html)) !== null && discoveredPages.length < maxLinks) {
-      rawLinksFound++;
-      const rawHref = (match[1] || match[2] || match[3] || '').trim();
-      const linkText = (match[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-
-      if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) {
-        continue;
-      }
-
-      try {
-        const resolvedUrl = new URL(rawHref, origin);
-        if (resolvedUrl.hostname === hostname || resolvedUrl.hostname.endsWith(`.${hostname}`)) {
-          const pagePath = normalizePathWithQuery(resolvedUrl);
-          if (!isCleanPublicPage(pagePath, linkText)) {
-            continue;
-          }
-
-          if (!discoveredPaths.has(pagePath) && discoveredPages.length < maxLinks) {
-            discoveredPaths.add(pagePath);
-            const cat = classifyPage(pagePath, linkText);
-            let cleanTitle = linkText || slugToTitle(pagePath);
-
-            const isJob = cat === 'post' || pagePath.includes('job') || pagePath.includes('listing');
-            const finalCat = isJob ? 'post' : cat;
-            discoveredPages.push({
-              id: `page_${discoveredPages.length + 1}`,
-              url: resolvedUrl.toString(),
-              path: pagePath,
-              title: cleanTitle.length > 70 ? cleanTitle.slice(0, 70) + '...' : cleanTitle,
-              description: `${finalCat.toUpperCase()}: ${cleanTitle}`,
-              depth: pagePath.split('/').filter(Boolean).length || 1,
-              status: 200,
-              includedInVisits: true,
-              visitWeight: isJob ? 95 : finalCat === 'category' ? 80 : finalCat === 'product' ? 85 : 70,
-              gaDetected: !!gaMeasurementId || !!gtmId,
-              category: finalCat,
-            });
-          }
-        }
-      } catch {}
-    }
-
-    // Recursive link crawl pass
-    const targetMaxDepth = Math.min(3, Math.max(1, parseInt(req.body.maxDepth, 10) || 2));
-    let currentDepth = 1;
-
-    while (currentDepth <= targetMaxDepth && discoveredPages.length < maxLinks) {
-      const pendingToVisit = discoveredPages
-        .filter(p => p.depth === currentDepth && p.url.startsWith('http') && !visitedUrls.has(normalizeCanonicalUrl(new URL(p.url))))
-        .slice(0, currentDepth === 1 ? 16 : 10);
-
-      if (pendingToVisit.length === 0) break;
-
-      pendingToVisit.forEach(c => {
-        try { visitedUrls.add(normalizeCanonicalUrl(new URL(c.url))); } catch {}
-      });
-
-      const recursiveTasks = pendingToVisit.map(async (candidate) => {
-        const r = await resilientFetch(candidate.url, 4000);
-        if (r.ok) {
-          const subHtml = r.text;
-          const subLinkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
-          let sm: RegExpExecArray | null;
-          while ((sm = subLinkRegex.exec(subHtml)) !== null && discoveredPages.length < maxLinks) {
-            const sHref = (sm[1] || sm[2] || sm[3] || '').trim();
-            const sText = (sm[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-            if (!sHref || sHref.startsWith('#') || sHref.startsWith('javascript:') || sHref.startsWith('mailto:')) continue;
-
-            try {
-              const resolvedSub = new URL(sHref, origin);
-              if (resolvedSub.hostname === hostname || resolvedSub.hostname.endsWith(`.${hostname}`)) {
-                const subCleanPath = normalizePathWithQuery(resolvedSub);
-                if (!isCleanPublicPage(subCleanPath, sText)) continue;
-                if (!discoveredPaths.has(subCleanPath)) {
-                  discoveredPaths.add(subCleanPath);
-                  const subCat = classifyPage(subCleanPath, sText);
-                  const sTitle = sText || slugToTitle(subCleanPath);
-                  discoveredPages.push({
-                    id: `rec_${discoveredPages.length + 1}`,
-                    url: resolvedSub.toString(),
-                    path: subCleanPath,
-                    title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
-                    description: `${subCat.toUpperCase()}: ${sTitle}`,
-                    depth: currentDepth + 1,
-                    status: 200,
-                    includedInVisits: true,
-                    visitWeight: subCat === 'post' ? 95 : 75,
-                    gaDetected: !!gaMeasurementId || !!gtmId,
-                    category: subCat,
-                  });
-                }
-              }
-            } catch {}
-          }
-        }
-      });
-
-      await Promise.allSettled(recursiveTasks);
-      currentDepth++;
-    }
-
-    const latencyMs = Math.round(performance.now() - scrapeStartTime);
+    const crawlResult = await executeUniversalCrawl(rawInput, maxDepth, maxLinks, resilientFetch);
 
     res.json({
       success: true,
-      targetUrl,
-      hostname,
-      origin,
-      title,
-      description,
-      gaMeasurementId,
-      gtmId,
-      statusCode,
-      latencyMs,
-      isRealScrape,
-      realLinksFound: discoveredPages.length,
-      totalPagesDiscovered: discoveredPages.length,
-      pages: discoveredPages,
-      error: fetchErrorMsg || undefined,
+      targetUrl: crawlResult.targetUrl,
+      hostname: crawlResult.hostname,
+      origin: crawlResult.origin,
+      title: crawlResult.title,
+      description: crawlResult.description,
+      gaMeasurementId: crawlResult.gaMeasurementId,
+      gtmId: crawlResult.gtmId,
+      statusCode: crawlResult.statusCode,
+      latencyMs: crawlResult.latencyMs,
+      isRealScrape: crawlResult.statusCode === 200,
+      realLinksFound: crawlResult.pages.length,
+      totalPagesDiscovered: crawlResult.pages.length,
+      visitedUrlsCount: crawlResult.visitedUrlsCount,
+      recursivePassDepth: crawlResult.recursivePassDepth,
+      listingPatternsMatched: crawlResult.listingPatternsMatched,
+      sitemapFound: crawlResult.sitemapFound,
+      pages: crawlResult.pages,
+      error: crawlResult.error,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Crawler failed' });

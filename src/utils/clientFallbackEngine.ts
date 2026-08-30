@@ -1,5 +1,5 @@
 import { CrawledPage } from '../types';
-import { buildCrawledPagesFromListings } from '../data/allNaijaJobListings';
+import { executeUniversalCrawl, FetchFunction } from './universalCrawler';
 
 export interface GeneratedAICampaign {
   name: string;
@@ -40,64 +40,62 @@ export interface GeneratedAICampaign {
 }
 
 /**
- * Intelligent client-side AI campaign generator that works offline and when Vercel lacks GEMINI_API_KEY
+ * Intelligent client-side AI campaign generator that adapts purely to the domain and topic
  */
 export function generateClientSideCampaign(url: string, description: string = '', objective: string = 'seo'): GeneratedAICampaign {
   let hostname = 'target-site.com';
   try {
     if (url.startsWith('http')) {
       hostname = new URL(url).hostname;
+    } else {
+      hostname = url.replace(/\/.*$/, '');
     }
   } catch {}
 
-  const isNigerianPortal = hostname.includes('9jajobs') || hostname.includes('eezor') || url.includes('ng') || description.toLowerCase().includes('nigeria') || description.toLowerCase().includes('naira');
-  const isEcommerce = objective === 'ecommerce' || description.toLowerCase().includes('store') || description.toLowerCase().includes('shop') || description.toLowerCase().includes('buy');
-  const isViralSocial = objective === 'viral_social' || description.toLowerCase().includes('social') || description.toLowerCase().includes('viral') || description.toLowerCase().includes('tiktok');
+  const brandName = hostname.replace(/^(www\.|jobs\.|blog\.|app\.|shop\.)/, '').replace(/\.[a-z.]+$/, '');
+  const isEcommerce = objective === 'ecommerce' || description.toLowerCase().includes('store') || description.toLowerCase().includes('shop') || description.toLowerCase().includes('product') || description.toLowerCase().includes('cart');
+  const isViralSocial = objective === 'viral_social' || description.toLowerCase().includes('social') || description.toLowerCase().includes('viral') || description.toLowerCase().includes('community');
+  const isJobBoard = description.toLowerCase().includes('job') || description.toLowerCase().includes('career') || description.toLowerCase().includes('hiring') || hostname.includes('job') || hostname.includes('career');
 
   let keywords: string[] = [];
-  if (isNigerianPortal) {
+  if (isJobBoard) {
     keywords = [
-      'high paying jobs in lagos 2026',
-      'remote tech jobs nigeria paystack flutterwave',
-      'escrow protected freelance marketplace nigeria',
-      'verified recruitment agencies port harcourt',
-      'urgent job vacancies in ikeja and lekki',
-      'teaching jobs nursery basic port harcourt atali',
-      'van sales representative rivers state recruitment',
-      'solar engineer installation jobs nigeria',
-      'entry level corporate jobs abuja maitama',
-      'full stack nextjs developer jobs nigeria',
-      'domestic worker caregiver vacancies lagos',
-      'hospitality waitress and cook jobs port harcourt',
-      'audit associate accounting jobs lagos onipanu',
-      'how to hire verified nigerian freelancers safe escrow',
-      'nysc fresh graduate jobs opportunities nigeria'
+      `${brandName} verified job openings`,
+      `remote career opportunities on ${hostname}`,
+      `entry level and senior roles ${brandName}`,
+      `urgent hiring alerts ${hostname}`,
+      `how to apply for jobs on ${brandName}`,
+      `salary guide and reviews ${hostname}`,
+      `top tech and corporate positions ${brandName}`,
+      `verified employer listings ${hostname}`,
+      `interview tips and applications ${brandName}`,
+      `full-time and freelance jobs ${hostname}`
     ];
   } else if (isEcommerce) {
     keywords = [
       `buy online best price ${hostname}`,
-      `discount deals and free shipping ${hostname}`,
-      'top rated customer reviews',
-      'order online fast delivery guarantee',
-      'best budget alternatives comparison 2026',
-      'checkout coupon promo codes verified',
-      'where to buy high quality items online',
-      'trusted marketplace with buyer protection',
-      'same day dispatch order tracking',
-      'affordable luxury collection clearance sale'
+      `discount deals and free shipping ${brandName}`,
+      `top rated customer reviews ${brandName}`,
+      `order online fast delivery guarantee ${hostname}`,
+      `best alternatives comparison ${brandName}`,
+      `checkout coupon promo codes verified ${hostname}`,
+      `where to buy quality products on ${brandName}`,
+      `trusted store with buyer protection ${hostname}`,
+      `same day dispatch order tracking ${brandName}`,
+      `official clearance collection ${hostname}`
     ];
   } else {
     keywords = [
-      `official platform login ${hostname}`,
-      `best tools and services review ${hostname}`,
-      'how to get started step by step guide 2026',
-      'top performance features and benefits',
-      'cloud software pricing and plans',
-      'industry leading solutions for professionals',
-      'secure authentication and user dashboard',
-      'high conversion workflow optimization',
-      'api integration documentation and sdk',
-      'customer success stories and testimonials'
+      `official portal login ${hostname}`,
+      `best features and solutions on ${brandName}`,
+      `how to get started guide ${hostname}`,
+      `platform review and customer ratings ${brandName}`,
+      `pricing plans and subscription tiers ${hostname}`,
+      `high performance tools ${brandName}`,
+      `secure account dashboard ${hostname}`,
+      `api documentation and developer guides ${brandName}`,
+      `industry leading solutions ${hostname}`,
+      `customer success stories ${brandName}`
     ];
   }
 
@@ -108,32 +106,22 @@ export function generateClientSideCampaign(url: string, description: string = ''
     trafficSources = { organicSearch: 45, socialMedia: 30, direct: 15, referral: 10 };
   }
 
-  let recommendedCountries = [
-    { code: 'US', name: 'United States', weight: 40 },
+  const recommendedCountries = [
+    { code: 'US', name: 'United States', weight: 45 },
     { code: 'GB', name: 'United Kingdom', weight: 20 },
-    { code: 'NG', name: 'Nigeria', weight: 15 },
-    { code: 'CA', name: 'Canada', weight: 10 },
+    { code: 'CA', name: 'Canada', weight: 12 },
     { code: 'DE', name: 'Germany', weight: 8 },
-    { code: 'FR', name: 'France', weight: 7 },
+    { code: 'FR', name: 'France', weight: 8 },
+    { code: 'AU', name: 'Australia', weight: 7 },
   ];
 
-  if (isNigerianPortal) {
-    recommendedCountries = [
-      { code: 'NG', name: 'Nigeria', weight: 75 },
-      { code: 'GB', name: 'United Kingdom', weight: 10 },
-      { code: 'US', name: 'United States', weight: 8 },
-      { code: 'GH', name: 'Ghana', weight: 4 },
-      { code: 'CA', name: 'Canada', weight: 3 },
-    ];
-  }
-
   return {
-    name: `Organic Growth Blueprint (${hostname})`,
+    name: `Organic Strategy (${hostname})`,
     keywords,
     trafficSources,
     searchEngines: {
-      google: 82,
-      bing: 12,
+      google: 84,
+      bing: 10,
       duckduckgo: 4,
       yahoo: 2,
       baidu: 0,
@@ -151,19 +139,18 @@ export function generateClientSideCampaign(url: string, description: string = ''
     },
     recommendedCountries,
     behavior: {
-      minDwellSeconds: 35,
-      maxDwellSeconds: 110,
+      minDwellSeconds: 40,
+      maxDwellSeconds: 120,
       minPagesPerVisit: 2,
       maxPagesPerVisit: 5,
       bounceRatePct: 18,
     },
-    seoStrategySummary: `Crafted a humanized multi-session profile for ${hostname} prioritizing high-intent search queries and realistic GA4 engagement metrics with smooth scroll depth and zero artificial bot flags.`,
+    seoStrategySummary: `Tailored multi-session organic configuration for ${hostname} prioritizing clean canonical crawl routes, realistic viewport dwell, and high-conversion search signals.`,
   };
 }
 
 /**
- * Live Client-Side Web Crawler & Link Extraction Engine
- * Uses fast parallel CORS proxies and rapid DOM parsing
+ * Live Client-Side Web Crawler using Universal Crawl Engine with resilient browser proxies
  */
 export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
   title: string;
@@ -172,237 +159,74 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
   gaMeasurementId?: string;
   gtmId?: string;
 }> {
-  let formatted = targetUrl.startsWith('http') ? targetUrl : `https://${targetUrl}`;
-  let parsed: URL;
-  try {
-    parsed = new URL(formatted);
-  } catch {
-    formatted = `https://${targetUrl}`;
-    parsed = new URL(formatted);
-  }
-
-  const origin = parsed.origin;
-  const hostname = parsed.hostname;
-  let html = '';
-
-  // Parallel fast fetch endpoints
-  const fetchEndpoints = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(formatted)}`,
-    `https://corsproxy.io/?url=${encodeURIComponent(formatted)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(formatted)}`,
-  ];
-
-  const fetchPromises = fetchEndpoints.map(async (ep) => {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
+  const browserResilientFetch: FetchFunction = async (url: string, timeoutMs = 6000) => {
+    // 1. Direct browser fetch (for same-origin or CORS-enabled targets)
     try {
-      const res = await fetch(ep, { signal: ctrl.signal });
-      clearTimeout(timer);
+      const ctrl = new AbortController();
+      const tm = setTimeout(() => ctrl.abort(), timeoutMs);
+      const res = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(tm);
       if (res.ok) {
         const text = await res.text();
-        if (text && text.length > 80 && (text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('<body') || text.includes('<div') || text.includes('<head'))) {
-          return text;
+        if (text && text.length > 50) {
+          return { ok: true, status: res.status, text };
         }
       }
     } catch {}
-    clearTimeout(timer);
-    return null;
-  });
 
-  try {
-    const results = await Promise.allSettled(fetchPromises);
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value) {
-        html = r.value;
-        break;
-      }
-    }
-  } catch {}
+    // 2. High-speed CORS proxy endpoints
+    const proxies = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+      `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    ];
 
-  // Parse HTML
-  let title = `${hostname} - Home Portal`;
-  let description = `Official site for ${hostname}`;
-  let gaMeasurementId: string | undefined;
-  let gtmId: string | undefined;
-
-  const discoveredPaths = new Set<string>();
-  const visitedUrls = new Set<string>();
-  const discoveredPages: CrawledPage[] = [];
-  let listingPatternsMatched = 0;
-
-  if (html) {
-    // Title
-    const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
-    const standardTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    if (ogTitle) title = ogTitle[1].trim();
-    else if (standardTitle) title = standardTitle[1].trim();
-
-    // Description
-    const descMatch = html.match(/<meta[^>]+(?:name|property)=["'](?:og:)?description["'][^>]+content=["']([^"']+)["']/i);
-    if (descMatch) description = descMatch[1].trim();
-
-    // GA4 & GTM
-    const gaMatch = html.match(/G-[A-Z0-9]{8,12}/i);
-    if (gaMatch) gaMeasurementId = gaMatch[0];
-    const gtmMatch = html.match(/GTM-[A-Z0-9]{4,10}/i);
-    if (gtmMatch) gtmId = gtmMatch[0];
-
-    // Add root page
-    const rootPath = parsed.pathname || '/';
-    discoveredPaths.add(rootPath);
-    visitedUrls.add(formatted.toLowerCase());
-    discoveredPages.push({
-      id: 'root_page',
-      url: formatted,
-      path: rootPath,
-      title,
-      description,
-      depth: 0,
-      status: 200,
-      includedInVisits: true,
-      visitWeight: 100,
-      gaDetected: !!gaMeasurementId || !!gtmId,
-      category: 'page',
-    });
-
-    // 1. Prioritize DOM structures: <article>, [data-job-id], [data-post-id], .job-card, .listing-item
-    const domArticleRegex = /<(?:article|div|section|li)\b[^>]*\b(?:class|id|data-[a-z0-9_-]+)=["'][^"']*(?:job|post|listing|card|vacancy|item|entry|article)[^"']*["'][^>]*>([\s\S]*?)<\/(?:article|div|section|li)>/gi;
-    let am: RegExpExecArray | null;
-    while ((am = domArticleRegex.exec(html)) !== null && discoveredPages.length < 2500) {
-      const cardHtml = am[0];
-      const linkMatch = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/i.exec(cardHtml);
-      if (linkMatch) {
-        const rawHref = (linkMatch[1] || linkMatch[2] || linkMatch[3] || '').trim();
-        const linkText = (linkMatch[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-        if (rawHref && !rawHref.startsWith('#') && !rawHref.startsWith('javascript:') && !rawHref.startsWith('mailto:')) {
-          try {
-            const resolved = new URL(rawHref, origin);
-            if (resolved.hostname === hostname || resolved.hostname.endsWith(`.${hostname}`)) {
-              const path = resolved.pathname + (resolved.search ? resolved.search : '');
-              const canonical = `${resolved.protocol}//${resolved.host.toLowerCase()}${path}`;
-              if (!discoveredPaths.has(path) && !visitedUrls.has(canonical) && !path.match(/\.(png|jpg|jpeg|gif|svg|ico|css|js|woff|pdf|json|xml)$/i)) {
-                discoveredPaths.add(path);
-                visitedUrls.add(canonical);
-                listingPatternsMatched++;
-                const cleanTitle = linkText || path.replace(/[-_/=?&]/g, ' ').trim();
-                discoveredPages.push({
-                  id: `dom_${discoveredPages.length + 1}`,
-                  url: resolved.toString(),
-                  path,
-                  title: cleanTitle.length > 75 ? cleanTitle.slice(0, 75) + '...' : cleanTitle,
-                  description: `[DOM Card Discovery] ${cleanTitle}`,
-                  depth: 1,
-                  status: 200,
-                  includedInVisits: true,
-                  visitWeight: 98,
-                  gaDetected: !!gaMeasurementId || !!gtmId,
-                  category: 'post',
-                });
-              }
-            }
-          } catch {}
-        }
-      }
-    }
-
-    // 2. Extract Anchor links
-    const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
-    let match: RegExpExecArray | null;
-    while ((match = linkRegex.exec(html)) !== null && discoveredPages.length < 2500) {
-      const rawHref = (match[1] || match[2] || match[3] || '').trim();
-      const linkText = (match[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-
-      if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) continue;
-
+    for (const proxyUrl of proxies) {
       try {
-        const resolved = new URL(rawHref, origin);
-        if (resolved.hostname === hostname || resolved.hostname.endsWith(`.${hostname}`)) {
-          const path = resolved.pathname + (resolved.search ? resolved.search : '');
-          const canonical = `${resolved.protocol}//${resolved.host.toLowerCase()}${path}`;
-          if (!discoveredPaths.has(path) && !visitedUrls.has(canonical) && !path.match(/\.(png|jpg|jpeg|gif|svg|ico|css|js|woff|pdf|json|xml)$/i)) {
-            discoveredPaths.add(path);
-            visitedUrls.add(canonical);
-            const isJob = path.includes('job') || path.includes('listing') || path.includes('vacancy') || path.includes('career') || path.includes('post=') || path.includes('article=');
-            const isCategory = path.includes('category') || path.includes('categories') || path.includes('topic');
-            const isProduct = path.includes('product') || path.includes('item') || path.includes('shop');
-            const cleanTitle = linkText || path.replace(/[-_/=?&]/g, ' ').trim();
-            const cat = isJob ? 'post' : isCategory ? 'category' : isProduct ? 'product' : 'page';
-            
-            if (isJob) listingPatternsMatched++;
-
-            discoveredPages.push({
-              id: `page_${discoveredPages.length + 1}`,
-              url: resolved.toString(),
-              path,
-              title: cleanTitle.length > 70 ? cleanTitle.slice(0, 70) + '...' : cleanTitle,
-              description: `Discovered Link: ${cleanTitle}`,
-              depth: path.split('/').filter(Boolean).length || 1,
-              status: 200,
-              includedInVisits: true,
-              visitWeight: isJob ? 95 : isCategory ? 85 : 75,
-              gaDetected: !!gaMeasurementId || !!gtmId,
-              category: cat,
-            });
+        const ctrl = new AbortController();
+        const tm = setTimeout(() => ctrl.abort(), timeoutMs);
+        const res = await fetch(proxyUrl, { signal: ctrl.signal });
+        clearTimeout(tm);
+        if (res.ok) {
+          const text = await res.text();
+          if (text && text.length > 50 && (text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('<body') || text.includes('<div') || text.includes('<url') || text.includes('<sitemap') || text.includes('{"') || text.includes('[{'))) {
+            return { ok: true, status: 200, text };
           }
         }
       } catch {}
     }
 
-    // 3. Extract dynamic entity tokens (job_123, post_123, article_123)
-    const tokenRegex = /\b(job_\d{3,20}|job_[a-zA-Z0-9_\-]{4,30}|post_\d{3,20}|article_\d{3,20})\b/g;
-    let tm: RegExpExecArray | null;
-    while ((tm = tokenRegex.exec(html)) !== null && discoveredPages.length < 500) {
-      const token = tm[1];
-      const qPath = `/?job=${token}`;
-      const canonical = `${origin.toLowerCase()}${qPath}`;
-      if (!discoveredPaths.has(qPath) && !visitedUrls.has(canonical)) {
-        discoveredPaths.add(qPath);
-        visitedUrls.add(canonical);
-        listingPatternsMatched++;
-        discoveredPages.push({
-          id: `tok_${token}`,
-          url: `${origin}${qPath}`,
-          path: qPath,
-          title: `Job Listing: ${token}`,
-          description: `Dynamic listing token: ${token}`,
-          depth: 2,
-          status: 200,
-          includedInVisits: true,
-          visitWeight: 95,
-          gaDetected: !!gaMeasurementId || !!gtmId,
-          category: 'post',
-        });
-      }
-    }
-  }
+    return { ok: false, status: 0, text: '' };
+  };
 
-  // If live scrape yielded few links (e.g. strict WAF or SPA blank root), synthesize domain catalog
-  if (discoveredPages.length < 5) {
-    const catalog = getClientSideCrawledPages(targetUrl);
+  const crawlResult = await executeUniversalCrawl(targetUrl, 2, 1000, browserResilientFetch);
+
+  if (crawlResult.pages.length === 0) {
+    const fallback = getClientSideCrawledPages(targetUrl);
     return {
-      title,
-      description,
-      pages: catalog,
-      gaMeasurementId,
-      gtmId,
+      title: crawlResult.title,
+      description: crawlResult.description,
+      pages: fallback,
+      gaMeasurementId: crawlResult.gaMeasurementId || undefined,
+      gtmId: crawlResult.gtmId || undefined,
     };
   }
 
   return {
-    title,
-    description,
-    pages: discoveredPages,
-    gaMeasurementId,
-    gtmId,
+    title: crawlResult.title,
+    description: crawlResult.description,
+    pages: crawlResult.pages,
+    gaMeasurementId: crawlResult.gaMeasurementId || undefined,
+    gtmId: crawlResult.gtmId || undefined,
   };
 }
 
 /**
- * Rich client-side catalog discovery for any website
+ * Domain-isolated fallback page catalog generated ONLY from the given domain hostname
  */
 export function getClientSideCrawledPages(targetUrl: string): CrawledPage[] {
-  let hostname = 'target-portal';
-  let rootOrigin = 'https://target-portal';
+  let hostname = 'target-site.com';
+  let rootOrigin = 'https://target-site.com';
   try {
     if (targetUrl.startsWith('http')) {
       const u = new URL(targetUrl);
@@ -414,28 +238,24 @@ export function getClientSideCrawledPages(targetUrl: string): CrawledPage[] {
     }
   } catch {}
 
-  // Only the exact 9jajobs.vercel.app domain uses the dedicated NaijaJobs dataset
-  if (hostname === '9jajobs.vercel.app') {
-    return buildCrawledPagesFromListings(targetUrl);
-  }
+  const isJobDomain = hostname.startsWith('jobs.') || hostname.includes('career') || hostname.includes('vacancy');
 
-  // If the target is a jobs portal (e.g., jobs.eezor.com), provide job-specific structure for that exact domain
-  if (hostname.startsWith('jobs.') || hostname.includes('career')) {
+  if (isJobDomain) {
     const jobRoutes: Array<{ path: string; title: string; desc: string; cat: 'page' | 'post' | 'category' | 'product'; weight: number }> = [
-      { path: '/', title: `${hostname} - Career & Job Portal`, desc: `Featured Job Openings & Opportunities on ${hostname}`, cat: 'page', weight: 100 },
-      { path: '/jobs', title: 'Browse All Open Positions', desc: 'Search and filter active job listings across departments', cat: 'category', weight: 95 },
-      { path: '/jobs/engineering', title: 'Software Engineering & Tech Jobs', desc: 'Frontend, Backend, DevOps and Mobile engineering roles', cat: 'category', weight: 90 },
-      { path: '/jobs/product', title: 'Product Management & Design Roles', desc: 'UI/UX designers, Product Managers, and UX researchers', cat: 'category', weight: 88 },
-      { path: '/jobs/marketing', title: 'Growth, Marketing & Sales Opportunities', desc: 'Content strategists, performance marketers and account executives', cat: 'category', weight: 85 },
-      { path: '/jobs/remote', title: 'Remote & Hybrid Job Opportunities', desc: 'Work from anywhere global opportunities', cat: 'category', weight: 92 },
-      { path: '/post-job', title: 'Employer Portal: Post a Job Listing', desc: 'Publish open requisitions to reach qualified talent', cat: 'page', weight: 85 },
-      { path: '/companies', title: 'Top Hiring Companies Directory', desc: 'Explore verified companies actively recruiting', cat: 'page', weight: 80 },
-      { path: '/salaries', title: 'Salary Benchmark & Compensation Guide', desc: 'Market pay rates by role and experience level', cat: 'page', weight: 82 },
-      { path: '/about', title: `About ${hostname}`, desc: `Mission, recruitment standards, and values of ${hostname}`, cat: 'page', weight: 75 },
-      { path: '/contact', title: 'Candidate & Employer Support', desc: 'Get assistance with job listings and candidate profiles', cat: 'page', weight: 70 },
-      { path: '/faq', title: 'Job Seeker & Recruiter FAQ', desc: 'Frequently asked questions about hiring workflows', cat: 'page', weight: 70 },
-      { path: '/privacy', title: 'Privacy Policy & Applicant Data Protection', desc: 'Applicant privacy and CV security standards', cat: 'page', weight: 60 },
-      { path: '/terms', title: 'Terms of Service for Candidates & Employers', desc: 'Platform usage rules and employer policies', cat: 'page', weight: 60 },
+      { path: '/', title: `${hostname} - Career & Job Portal`, desc: `Featured Job Openings on ${hostname}`, cat: 'page', weight: 100 },
+      { path: '/jobs', title: 'Browse All Open Positions', desc: 'Search and filter active vacancies', cat: 'category', weight: 95 },
+      { path: '/jobs/engineering', title: 'Engineering & Tech Roles', desc: 'Software, DevOps, and Infrastructure jobs', cat: 'category', weight: 90 },
+      { path: '/jobs/product', title: 'Product & Design Openings', desc: 'Product Managers and UX designers', cat: 'category', weight: 88 },
+      { path: '/jobs/marketing', title: 'Marketing & Sales Opportunities', desc: 'Growth and account executive positions', cat: 'category', weight: 85 },
+      { path: '/jobs/remote', title: 'Remote & Hybrid Opportunities', desc: 'Global remote job listings', cat: 'category', weight: 92 },
+      { path: '/post-job', title: 'Post a Job Listing', desc: 'Employer portal to publish vacancies', cat: 'page', weight: 85 },
+      { path: '/companies', title: 'Hiring Companies Directory', desc: 'Verified companies currently hiring', cat: 'page', weight: 80 },
+      { path: '/salaries', title: 'Salary Benchmark & Compensation Guide', desc: 'Market pay rates and benchmarks', cat: 'page', weight: 82 },
+      { path: '/about', title: `About ${hostname}`, desc: `About ${hostname}`, cat: 'page', weight: 75 },
+      { path: '/contact', title: 'Contact Support', desc: 'Candidate & Employer Support', cat: 'page', weight: 70 },
+      { path: '/faq', title: 'Frequently Asked Questions', desc: 'FAQ about jobs and hiring', cat: 'page', weight: 70 },
+      { path: '/privacy', title: 'Privacy Policy', desc: 'Applicant privacy and data protection', cat: 'page', weight: 60 },
+      { path: '/terms', title: 'Terms of Service', desc: 'Platform terms and conditions', cat: 'page', weight: 60 },
     ];
 
     return jobRoutes.map((r, idx) => ({
@@ -453,23 +273,20 @@ export function getClientSideCrawledPages(targetUrl: string): CrawledPage[] {
     }));
   }
 
-  // Clean, realistic 25+ pages catalog strictly isolated to the given domain
   const baseRoutes: Array<{ path: string; title: string; desc: string; cat: 'page' | 'post' | 'category' | 'product'; weight: number }> = [
-    { path: '/', title: `${hostname} - Home Portal`, desc: 'Main Landing Page & Navigation Hub', cat: 'page', weight: 100 },
-    { path: '/features', title: 'Platform Features & Core Capabilities', desc: 'Overview of platform architecture and tools', cat: 'page', weight: 90 },
-    { path: '/pricing', title: 'Pricing, Plans & Enterprise Subscriptions', desc: 'Compare plans and pricing tiers', cat: 'page', weight: 88 },
-    { path: '/products', title: 'Product Catalog & Solutions Directory', desc: 'Full list of available products and tools', cat: 'category', weight: 85 },
-    { path: '/services', title: 'Professional Services & Consulting', desc: 'Expert solutions and advisory services', cat: 'page', weight: 82 },
-    { path: '/docs', title: 'Developer Documentation & API Guides', desc: 'Technical documentation and quick start guides', cat: 'page', weight: 90 },
-    { path: '/blog', title: 'Insights, Articles & Latest Updates', desc: 'Industry insights and technology trends', cat: 'category', weight: 85 },
-    { path: '/blog/getting-started-guide', title: 'Getting Started Guide & Best Practices', desc: 'A complete walkthrough for new users and teams', cat: 'post', weight: 95 },
-    { path: '/blog/performance-optimization', title: 'Top Performance Optimization Techniques', desc: 'Deep dive into speed, latency, and scaling', cat: 'post', weight: 92 },
-    { path: '/about', title: 'About Us, Our Mission & Core Team', desc: 'Company history, executive team, and vision', cat: 'page', weight: 80 },
-    { path: '/careers', title: 'Careers & Open Opportunities', desc: 'Join our fast-growing global team', cat: 'page', weight: 85 },
-    { path: '/contact', title: 'Contact Support & Sales Inquiry', desc: 'Get in touch with customer support', cat: 'page', weight: 75 },
-    { path: '/faq', title: 'Frequently Asked Questions & Knowledgebase', desc: 'Instant answers to common customer inquiries', cat: 'page', weight: 80 },
-    { path: '/terms', title: 'Terms of Service & Usage Agreements', desc: 'Legal guidelines and customer terms', cat: 'page', weight: 65 },
-    { path: '/privacy', title: 'Privacy Policy & Cookie Consent', desc: 'How we collect, store, and protect user data', cat: 'page', weight: 65 },
+    { path: '/', title: `${hostname} - Home`, desc: 'Main Landing Page', cat: 'page', weight: 100 },
+    { path: '/features', title: 'Platform Features & Core Capabilities', desc: 'Overview of features and tools', cat: 'page', weight: 90 },
+    { path: '/pricing', title: 'Pricing & Plans', desc: 'Compare pricing plans', cat: 'page', weight: 88 },
+    { path: '/products', title: 'Products Directory', desc: 'List of available products', cat: 'category', weight: 85 },
+    { path: '/services', title: 'Services & Solutions', desc: 'Solutions overview', cat: 'page', weight: 82 },
+    { path: '/docs', title: 'Documentation & Guides', desc: 'Technical documentation', cat: 'page', weight: 90 },
+    { path: '/blog', title: 'Latest Articles & Blog', desc: 'Insights and articles', cat: 'category', weight: 85 },
+    { path: '/about', title: `About ${hostname}`, desc: `About ${hostname}`, cat: 'page', weight: 80 },
+    { path: '/careers', title: 'Careers', desc: 'Join our team', cat: 'page', weight: 85 },
+    { path: '/contact', title: 'Contact & Support', desc: 'Get in touch', cat: 'page', weight: 75 },
+    { path: '/faq', title: 'Frequently Asked Questions', desc: 'Common questions and answers', cat: 'page', weight: 80 },
+    { path: '/terms', title: 'Terms of Service', desc: 'Terms of service', cat: 'page', weight: 65 },
+    { path: '/privacy', title: 'Privacy Policy', desc: 'Privacy policy', cat: 'page', weight: 65 },
   ];
 
   return baseRoutes.map((r, idx) => ({
