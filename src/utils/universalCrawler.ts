@@ -1,4 +1,4 @@
-import { CrawledPage } from '../types';
+import type { CrawledPage } from '../types';
 
 export interface CrawlEngineResult {
   targetUrl: string;
@@ -493,15 +493,16 @@ export async function executeUniversalCrawl(
       try {
         const smRes = await fetchFn(smUrl, 4500);
         if (!smRes.ok || !smRes.text) return;
-        const smXml = smRes.text;
-        if (!smXml.includes('<urlset') && !smXml.includes('<sitemapindex') && !smXml.includes('<loc>')) {
+        // Strip CDATA tags to cleanly match loc, lastmod, and title
+        const smXml = smRes.text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1');
+        if (!smXml.includes('<urlset') && !smXml.includes('<sitemapindex') && !smXml.includes('<loc>') && !smXml.includes('<sitemap')) {
           return;
         }
 
         sitemapFound = true;
 
         // Parse Child Sitemaps (<sitemap><loc>...</loc></sitemap>)
-        const childSitemapRegex = /<sitemap\b[^>]*>[\s\S]*?<loc>\s*(https?:\/\/[^<]+)\s*<\/loc>[\s\S]*?<\/sitemap>/gi;
+        const childSitemapRegex = /<sitemap\b[^>]*>[\s\S]*?<loc>\s*(https?:\/\/[^<\s]+)\s*<\/loc>[\s\S]*?<\/sitemap>/gi;
         let csm: RegExpExecArray | null;
         while ((csm = childSitemapRegex.exec(smXml)) !== null) {
           const childUrl = csm[1].trim();
@@ -511,7 +512,7 @@ export async function executeUniversalCrawl(
         }
 
         // Parse Page URLs (<url><loc>...</loc><lastmod>...</lastmod><image:title>...</image:title></url>)
-        const urlEntryRegex = /<url\b[^>]*>[\s\S]*?<loc>\s*(https?:\/\/[^<]+)\s*<\/loc>(?:[\s\S]*?<lastmod>\s*([^<]+)\s*<\/lastmod>)?(?:[\s\S]*?<image:title>\s*([^<]+)\s*<\/image:title>)?[\s\S]*?<\/url>/gi;
+        const urlEntryRegex = /<url\b[^>]*>[\s\S]*?<loc>\s*(https?:\/\/[^<\s]+)\s*<\/loc>(?:[\s\S]*?<lastmod>\s*([^<]+)\s*<\/lastmod>)?(?:[\s\S]*?<image:title>\s*([^<]+)\s*<\/image:title>)?[\s\S]*?<\/url>/gi;
         let um: RegExpExecArray | null;
         while ((um = urlEntryRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
           const uLoc = um[1].trim();
@@ -555,7 +556,7 @@ export async function executeUniversalCrawl(
         }
 
         // Generic <loc> fallback for flat sitemaps
-        const genericLocRegex = /<loc>\s*(https?:\/\/[^<]+)\s*<\/loc>/gi;
+        const genericLocRegex = /<loc>\s*(https?:\/\/[^<\s]+)\s*<\/loc>/gi;
         let gm: RegExpExecArray | null;
         while ((gm = genericLocRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
           const locStr = gm[1].trim();

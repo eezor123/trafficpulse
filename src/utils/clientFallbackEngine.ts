@@ -1,4 +1,4 @@
-import { CrawledPage } from '../types';
+import type { CrawledPage } from '../types';
 import { executeUniversalCrawl, FetchFunction } from './universalCrawler';
 
 export interface GeneratedAICampaign {
