@@ -100,7 +100,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const [selectedHit, setSelectedHit] = useState<RealHttpTrafficHit | null>(null);
   const [autoFollow, setAutoFollow] = useState(true);
   const [copiedUrl, setCopiedUrl] = useState(false);
-  const [viewportMode, setViewportMode] = useState<'live_webview' | 'direct_iframe' | 'dom'>('live_webview');
+  const [viewportMode, setViewportMode] = useState<'live_webview' | 'direct_iframe' | 'dom'>('dom');
   const [browserHeight, setBrowserHeight] = useState<'standard' | 'expanded'>('expanded');
   const [logFilter, setLogFilter] = useState<'all' | 'scroll' | 'click' | 'ad' | 'popup' | 'nav'>('all');
   const [autoScrollLogs, setAutoScrollLogs] = useState(true);
@@ -108,6 +108,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const liveIframeRef = useRef<HTMLIFrameElement>(null);
   const logFeedRef = useRef<HTMLDivElement>(null);
+  const lastPostMessageTimeRef = useRef<number>(0);
 
   // Auto-follow active visitor if enabled
   useEffect(() => {
@@ -139,8 +140,14 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
     return `/api/browser/live-page?url=${encodeURIComponent(fullLiveUrl)}&visitorNumber=${selectedVisitor?.visitorNumber || 1}&country=${selectedVisitor?.country?.code || 'US'}`;
   }, [fullLiveUrl, selectedVisitor?.visitorNumber, selectedVisitor?.country?.code]);
 
-  // Synchronize active visitor status, scroll percentage, and cursor coordinates to the live iframe
+  // Synchronize active visitor status, scroll percentage, and cursor coordinates to the live iframe (rate-limited to 200ms)
   useEffect(() => {
+    const now = Date.now();
+    if (now - lastPostMessageTimeRef.current < 180) {
+      return;
+    }
+    lastPostMessageTimeRef.current = now;
+
     if (liveIframeRef.current && liveIframeRef.current.contentWindow && selectedVisitor) {
       try {
         liveIframeRef.current.contentWindow.postMessage({
@@ -887,11 +894,11 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                       <div className="w-full h-full relative bg-slate-950">
                         <iframe
                           ref={liveIframeRef}
-                          key={`${fullLiveUrl}-${selectedVisitor?.visitorNumber}`}
+                          key={fullLiveUrl}
                           src={liveWebviewSrc}
                           title="Live Target URL Proxied Webview"
                           className="w-full h-full border-none bg-slate-950"
-                          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                          sandbox="allow-scripts allow-same-origin allow-forms"
                         />
                         <div className="absolute bottom-2 left-2 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl pointer-events-none">
                           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -1129,23 +1136,75 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                                 {matchedArticle?.title || '10 Proven Tips to Ace High-Paying Job Interviews in Nigeria'}
                               </h1>
                               <div className="text-xs text-slate-400 font-mono">
-                                Published by 9jaJobs Editorial • 5 min read • Verified 2026
+                                Published by Editorial Team • 5 min read • Verified 2026
                               </div>
                             </div>
                             <div className="text-xs text-slate-300 leading-relaxed space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
                               <p>{matchedArticle?.description}</p>
                               <p>
-                                When interviewing with top-tier Nigerian banks, multinationals, or high-growth tech startups in Lagos and Abuja, candidate preparation must emphasize concrete milestone results and verifiable impact.
+                                When exploring verified listings and corporate opportunities, candidate preparation must emphasize concrete milestone results and verifiable impact.
                               </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* GENERIC CRAWLED PAGE VIEW (For any custom website, blog, or store) */}
+                        {!isJobView && !isArticleView && (
+                          <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+                            <div className="space-y-2 border-b border-slate-800 pb-4">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/30 uppercase">
+                                  {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.path.includes('category') ? 'Category Archive' : 'Live Document / Post'}
+                                </span>
+                                <span className="text-xs text-slate-400 font-mono">
+                                  {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.path}
+                                </span>
+                              </div>
+                              <h1 className="text-xl font-extrabold text-white leading-snug">
+                                {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.title || 'Discovered Website Post'}
+                              </h1>
+                              <div className="text-xs text-slate-400 font-mono flex items-center gap-3">
+                                <span>Status: 200 OK</span>
+                                <span>•</span>
+                                <span>Exit IP: {selectedVisitor.ipAddress}</span>
+                                <span>•</span>
+                                <span>Device: {selectedVisitor.deviceType}</span>
+                              </div>
+                            </div>
+
+                            <div className="text-xs text-slate-300 leading-relaxed space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
+                              <p className="text-slate-200 font-medium">
+                                Active visitor #{selectedVisitor.visitorNumber} from {selectedVisitor.country.name} ({selectedVisitor.country.flag}) is currently reading this document and executing authentic organic human engagement actions.
+                              </p>
+                              <p className="text-slate-400">
+                                Simulated micro-movements, randomized viewport scrolling, organic pause intervals, and context-aware element clicks are being dispatched without triggerable bot anomalies.
+                              </p>
+                            </div>
+
+                            {/* In-Article Contextual Resource Links */}
+                            <div className="space-y-2">
+                              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                Related Discovered Links
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <span className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-all ${
+                                  selectedVisitor.status === 'clicking_link'
+                                    ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-900/50 animate-pulse'
+                                    : 'bg-slate-950 text-blue-400 border-blue-500/30'
+                                }`}>
+                                  <Link2 className="w-3 h-3" />
+                                  <span>{selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.title}</span>
+                                </span>
+                              </div>
                             </div>
                           </div>
                         )}
 
                         {/* Footer & End of Page Section */}
                         <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-5 text-center text-xs text-slate-500 space-y-2">
-                          <div className="text-slate-400 font-bold">9jaJobs Escrow Platform • © 2026 All Rights Reserved</div>
+                          <div className="text-slate-400 font-bold">Portal Experience • © 2026 All Rights Reserved</div>
                           <p className="text-[11px] text-slate-500">
-                            100% Escrow Milestone Protection for Nigerian Freelancers and Corporate Employers.
+                            Organic Traffic Simulation & Multi-Session Human Telemetry.
                           </p>
                           <div className="text-[10px] font-mono text-teal-400 font-bold pt-2">
                             {selectedVisitor.currentScrollDepthPct >= 95 ? '✓ 100% End of Page (Footer Reached)' : 'Scrolling down through comments...'}

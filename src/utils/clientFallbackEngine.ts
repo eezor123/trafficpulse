@@ -268,7 +268,7 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
     // 1. Prioritize DOM structures: <article>, [data-job-id], [data-post-id], .job-card, .listing-item
     const domArticleRegex = /<(?:article|div|section|li)\b[^>]*\b(?:class|id|data-[a-z0-9_-]+)=["'][^"']*(?:job|post|listing|card|vacancy|item|entry|article)[^"']*["'][^>]*>([\s\S]*?)<\/(?:article|div|section|li)>/gi;
     let am: RegExpExecArray | null;
-    while ((am = domArticleRegex.exec(html)) !== null && discoveredPages.length < 500) {
+    while ((am = domArticleRegex.exec(html)) !== null && discoveredPages.length < 2500) {
       const cardHtml = am[0];
       const linkMatch = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/i.exec(cardHtml);
       if (linkMatch) {
@@ -308,7 +308,7 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
     // 2. Extract Anchor links
     const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
     let match: RegExpExecArray | null;
-    while ((match = linkRegex.exec(html)) !== null && discoveredPages.length < 500) {
+    while ((match = linkRegex.exec(html)) !== null && discoveredPages.length < 2500) {
       const rawHref = (match[1] || match[2] || match[3] || '').trim();
       const linkText = (match[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 

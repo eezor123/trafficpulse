@@ -654,9 +654,10 @@ async function startServer() {
           html = `${headInjection}\n` + html;
         }
 
-        // 2. Remove restrictive CSP and frame headers if present inside meta tags
+        // 2. Remove restrictive CSP, frame headers, and heavy intrusive 3rd-party ad trackers
         html = html.replace(/<meta\b[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/gi, '');
         html = html.replace(/<meta\b[^>]*http-equiv=["']X-Frame-Options["'][^>]*>/gi, '');
+        html = html.replace(/<script\b[^>]*\bsrc=["'][^"']*(?:googlesyndication|doubleclick|clarity\.ms|criteo|taboola|outbrain|pubmatic|rubiconproject|adnxs|amazon-adsystem|adsafeprotected|moatads)[^"']*["'][^>]*>[\s\S]*?<\/script>/gi, '');
 
         // 3. Inject TrafficPulse Virtual Browser Companion Script
         const companionScript = `
@@ -794,69 +795,75 @@ async function startServer() {
   }
 
   // Handle smooth scroll and cursor position updates from parent window
+  var lastAppliedScrollPct = -1;
   window.addEventListener('message', function(event) {
-    if (!event.data || event.data.type !== 'TP_UPDATE_VISITOR') return;
-    
-    var pct = typeof event.data.scrollPct === 'number' ? event.data.scrollPct : 0;
-    var maxScroll = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) - window.innerHeight;
-    if (maxScroll > 0) {
-      var targetY = (pct / 100) * maxScroll;
-      window.scrollTo({ top: targetY, behavior: 'smooth' });
-    }
-
-    if (hudScroll) hudScroll.textContent = Math.round(pct) + '%';
-    if (scrollIndicator) {
-      scrollIndicator.style.top = Math.min(82, (pct * 0.82)) + '%';
-    }
-
-    if (cursor && typeof event.data.cursorX === 'number' && typeof event.data.cursorY === 'number') {
-      var cx = Math.min(95, Math.max(3, event.data.cursorX));
-      var cy = Math.min(92, Math.max(5, event.data.cursorY));
-      cursor.style.left = cx + '%';
-      cursor.style.top = cy + '%';
-      if (hudCoords) hudCoords.textContent = 'X: ' + cx + '% • Y: ' + cy + '%';
-    }
-
-    if (event.data.status) {
-      var st = event.data.status;
-      if (st === 'clicking_ad' || st === 'clicking_link' || st === 'handling_popup' || st === 'clicking_element') {
-        triggerClickRipple();
-      }
-
-      if (badge) {
-        if (st === 'clicking_ad') {
-          badge.textContent = '🎯 Clicking Sponsored Ad';
-          badge.style.color = '#f59e0b';
-          badge.style.borderColor = '#f59e0b';
-          if (hudAction) hudAction.textContent = 'Dispatched Ad Click on Sponsor Banner';
-        } else if (st === 'clicking_link') {
-          badge.textContent = '👆 Navigating Deep Link';
-          badge.style.color = '#38bdf8';
-          badge.style.borderColor = '#38bdf8';
-          if (hudAction) hudAction.textContent = 'Clicked in-article link to child page';
-        } else if (st === 'handling_popup') {
-          badge.textContent = '✨ Interacting with Newsletter';
-          badge.style.color = '#c084fc';
-          badge.style.borderColor = '#c084fc';
-          if (hudAction) hudAction.textContent = 'Newsletter modal promo CTA dismissed';
-        } else if (st === 'clicking_element') {
-          badge.textContent = '🖱️ Mouse Click on Element';
-          badge.style.color = '#34d399';
-          badge.style.borderColor = '#34d399';
-          if (hudAction) hudAction.textContent = 'Dispatched click on interactive card/button';
-        } else if (pct >= 95) {
-          badge.textContent = '📜 Reached 100% Footer';
-          badge.style.color = '#2dd4bf';
-          badge.style.borderColor = '#2dd4bf';
-          if (hudAction) hudAction.textContent = 'Dwell pause at footer / comments';
-        } else {
-          badge.textContent = '👁️ Reading (' + Math.round(pct) + '%)';
-          badge.style.color = '#38bdf8';
-          badge.style.borderColor = 'rgba(56, 189, 248, 0.5)';
-          if (hudAction) hudAction.textContent = 'Reading page text content';
+    try {
+      if (!event.data || event.data.type !== 'TP_UPDATE_VISITOR') return;
+      
+      var pct = typeof event.data.scrollPct === 'number' ? event.data.scrollPct : 0;
+      if (Math.abs(pct - lastAppliedScrollPct) >= 0.5) {
+        lastAppliedScrollPct = pct;
+        var maxScroll = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) - window.innerHeight;
+        if (maxScroll > 0) {
+          var targetY = (pct / 100) * maxScroll;
+          window.scrollTo(0, targetY);
         }
       }
-    }
+
+      if (hudScroll) hudScroll.textContent = Math.round(pct) + '%';
+      if (scrollIndicator) {
+        scrollIndicator.style.top = Math.min(82, (pct * 0.82)) + '%';
+      }
+
+      if (cursor && typeof event.data.cursorX === 'number' && typeof event.data.cursorY === 'number') {
+        var cx = Math.min(95, Math.max(3, event.data.cursorX));
+        var cy = Math.min(92, Math.max(5, event.data.cursorY));
+        cursor.style.left = cx + '%';
+        cursor.style.top = cy + '%';
+        if (hudCoords) hudCoords.textContent = 'X: ' + cx + '% • Y: ' + cy + '%';
+      }
+
+      if (event.data.status) {
+        var st = event.data.status;
+        if (st === 'clicking_ad' || st === 'clicking_link' || st === 'handling_popup' || st === 'clicking_element') {
+          triggerClickRipple();
+        }
+
+        if (badge) {
+          if (st === 'clicking_ad') {
+            badge.textContent = '🎯 Clicking Sponsored Ad';
+            badge.style.color = '#f59e0b';
+            badge.style.borderColor = '#f59e0b';
+            if (hudAction) hudAction.textContent = 'Dispatched Ad Click on Sponsor Banner';
+          } else if (st === 'clicking_link') {
+            badge.textContent = '👆 Navigating Deep Link';
+            badge.style.color = '#38bdf8';
+            badge.style.borderColor = '#38bdf8';
+            if (hudAction) hudAction.textContent = 'Clicked in-article link to child page';
+          } else if (st === 'handling_popup') {
+            badge.textContent = '✨ Interacting with Newsletter';
+            badge.style.color = '#c084fc';
+            badge.style.borderColor = '#c084fc';
+            if (hudAction) hudAction.textContent = 'Newsletter modal promo CTA dismissed';
+          } else if (st === 'clicking_element') {
+            badge.textContent = '🖱️ Mouse Click on Element';
+            badge.style.color = '#34d399';
+            badge.style.borderColor = '#34d399';
+            if (hudAction) hudAction.textContent = 'Dispatched click on interactive card/button';
+          } else if (pct >= 95) {
+            badge.textContent = '📜 Reached 100% Footer';
+            badge.style.color = '#2dd4bf';
+            badge.style.borderColor = '#2dd4bf';
+            if (hudAction) hudAction.textContent = 'Dwell pause at footer / comments';
+          } else {
+            badge.textContent = '👁️ Reading (' + Math.round(pct) + '%)';
+            badge.style.color = '#38bdf8';
+            badge.style.borderColor = 'rgba(56, 189, 248, 0.5)';
+            if (hudAction) hudAction.textContent = 'Reading page text content';
+          }
+        }
+      }
+    } catch(err) {}
   });
 
   // Intercept in-page navigation clicks smoothly
@@ -1692,13 +1699,27 @@ async function startServer() {
         `${origin}/post-sitemap.xml`,
         `${origin}/post-sitemap1.xml`,
         `${origin}/post-sitemap2.xml`,
+        `${origin}/post-sitemap3.xml`,
+        `${origin}/post-sitemap4.xml`,
+        `${origin}/post-sitemap5.xml`,
         `${origin}/wp-sitemap-posts-post-1.xml`,
         `${origin}/wp-sitemap-posts-post-2.xml`,
+        `${origin}/wp-sitemap-posts-post-3.xml`,
+        `${origin}/wp-sitemap-posts-post-4.xml`,
+        `${origin}/wp-sitemap-posts-post-5.xml`,
+        `${origin}/wp-sitemap-posts-post-6.xml`,
+        `${origin}/wp-sitemap-posts-post-7.xml`,
+        `${origin}/wp-sitemap-posts-post-8.xml`,
+        `${origin}/wp-sitemap-posts-post-9.xml`,
+        `${origin}/wp-sitemap-posts-post-10.xml`,
         `${origin}/page-sitemap.xml`,
         `${origin}/category-sitemap.xml`,
         `${origin}/job-sitemap.xml`,
         `${origin}/news-sitemap.xml`,
         `${origin}/sitemap-1.xml`,
+        `${origin}/sitemap-2.xml`,
+        `${origin}/sitemap-3.xml`,
+        `${origin}/sitemap-index.xml`,
       ].forEach(sm => {
         if (!sitemapQueue.includes(sm)) sitemapQueue.push(sm);
       });
@@ -1743,7 +1764,7 @@ async function startServer() {
         let csm: RegExpExecArray | null;
         while ((csm = childSitemapRegex.exec(smXml)) !== null) {
           const childUrl = csm[1].trim();
-          if (!parsedSitemaps.has(childUrl) && !sitemapQueue.includes(childUrl) && sitemapQueue.length < 50) {
+          if (!parsedSitemaps.has(childUrl) && !sitemapQueue.includes(childUrl) && sitemapQueue.length < 200) {
             sitemapQueue.push(childUrl);
           }
         }
@@ -1757,7 +1778,7 @@ async function startServer() {
 
           // If the URL is another XML sitemap, queue it
           if (uLoc.endsWith('.xml') || (uLoc.includes('sitemap') && uLoc.includes('.xml'))) {
-            if (!parsedSitemaps.has(uLoc) && !sitemapQueue.includes(uLoc) && sitemapQueue.length < 50) {
+            if (!parsedSitemaps.has(uLoc) && !sitemapQueue.includes(uLoc) && sitemapQueue.length < 200) {
               sitemapQueue.push(uLoc);
             }
             continue;
@@ -1797,7 +1818,7 @@ async function startServer() {
         while ((gm = genericLocRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
           const locStr = gm[1].trim();
           if (locStr.endsWith('.xml') || (locStr.includes('sitemap') && locStr.includes('.xml'))) {
-            if (!parsedSitemaps.has(locStr) && !sitemapQueue.includes(locStr) && sitemapQueue.length < 50) {
+            if (!parsedSitemaps.has(locStr) && !sitemapQueue.includes(locStr) && sitemapQueue.length < 200) {
               sitemapQueue.push(locStr);
             }
             continue;
@@ -1838,8 +1859,8 @@ async function startServer() {
 
       // Fetch queued sitemaps in concurrent batches
       let sitemapBatchCount = 0;
-      while (sitemapQueue.length > 0 && sitemapBatchCount < 35 && discoveredPages.length < maxLinks) {
-        const currentBatch = sitemapQueue.splice(0, 8).filter(sm => !parsedSitemaps.has(sm));
+      while (sitemapQueue.length > 0 && sitemapBatchCount < 60 && discoveredPages.length < maxLinks) {
+        const currentBatch = sitemapQueue.splice(0, 10).filter(sm => !parsedSitemaps.has(sm));
         currentBatch.forEach(sm => parsedSitemaps.add(sm));
         if (currentBatch.length === 0) break;
         sitemapBatchCount++;
@@ -1901,11 +1922,11 @@ async function startServer() {
                 }
               });
 
-              if (data.length >= 95 && wpUrl.includes('posts')) {
-                const subPages = [2, 3, 4, 5, 6, 7, 8, 9, 10];
+              if (data.length >= 50) {
+                const subPages = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
                 const pageTasks = subPages.map(async (pgNum) => {
                   if (discoveredPages.length >= maxLinks) return;
-                  const pgUrl = `${origin}/wp-json/wp/v2/posts?per_page=100&page=${pgNum}&_fields=id,link,title,slug`;
+                  const pgUrl = `${wpUrl}&page=${pgNum}`;
                   const pgRes = await resilientFetch(pgUrl, 3500);
                   if (pgRes.ok) {
                     try {
@@ -2023,6 +2044,70 @@ async function startServer() {
         }
       });
       await Promise.allSettled(feedTasks);
+
+      // Automatic HTML Pagination Follower (crawl /page/2, /page/3, etc. found on site)
+      const paginationRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi;
+      const paginationUrls: string[] = [];
+      let pMatch: RegExpExecArray | null;
+      while ((pMatch = paginationRegex.exec(html)) !== null) {
+        const pHref = (pMatch[1] || pMatch[2] || pMatch[3] || '').trim();
+        if (pHref && (/\/page\/\d+/i.test(pHref) || /[?&]paged?=\d+/i.test(pHref) || /[?&]offset=\d+/i.test(pHref))) {
+          try {
+            const pRes = new URL(pHref, origin);
+            if (pRes.hostname === hostname || pRes.hostname.endsWith(`.${hostname}`)) {
+              const pNorm = normalizeCanonicalUrl(pRes);
+              if (!paginationUrls.includes(pNorm) && !visitedUrls.has(pNorm) && paginationUrls.length < 25) {
+                paginationUrls.push(pNorm);
+              }
+            }
+          } catch {}
+        }
+      }
+
+      if (paginationUrls.length > 0) {
+        const pagTasks = paginationUrls.map(async (pUrlStr) => {
+          try {
+            visitedUrls.add(pUrlStr);
+            const pResp = await resilientFetch(pUrlStr, 4000);
+            if (pResp.ok) {
+              const pSubHtml = pResp.text;
+              const subLRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
+              let plm: RegExpExecArray | null;
+              while ((plm = subLRegex.exec(pSubHtml)) !== null && discoveredPages.length < maxLinks) {
+                const slHref = (plm[1] || plm[2] || plm[3] || '').trim();
+                const slText = (plm[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+                if (!slHref || slHref.startsWith('#') || slHref.startsWith('javascript:') || slHref.startsWith('mailto:')) continue;
+                try {
+                  const rUrl = new URL(slHref, origin);
+                  if (rUrl.hostname === hostname || rUrl.hostname.endsWith(`.${hostname}`)) {
+                    const scPath = normalizePathWithQuery(rUrl);
+                    if (!isCleanPublicPage(scPath, slText)) continue;
+                    if (!discoveredPaths.has(scPath)) {
+                      discoveredPaths.add(scPath);
+                      const cat = classifyPage(scPath, slText);
+                      const sTitle = slText || slugToTitle(scPath);
+                      discoveredPages.push({
+                        id: `pag_${discoveredPages.length + 1}`,
+                        url: rUrl.toString(),
+                        path: scPath,
+                        title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
+                        description: `${cat.toUpperCase()}: ${sTitle}`,
+                        depth: 2,
+                        status: 200,
+                        includedInVisits: true,
+                        visitWeight: cat === 'post' ? 95 : 80,
+                        gaDetected: !!gaMeasurementId || !!gtmId,
+                        category: cat,
+                      });
+                    }
+                  }
+                } catch {}
+              }
+            }
+          } catch {}
+        });
+        await Promise.allSettled(pagTasks);
+      }
 
       // Recursive link discovery pass
       const targetMaxDepth = Math.min(3, Math.max(1, parseInt(req.body.maxDepth, 10) || 2));

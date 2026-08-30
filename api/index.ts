@@ -744,13 +744,27 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       `${origin}/post-sitemap.xml`,
       `${origin}/post-sitemap1.xml`,
       `${origin}/post-sitemap2.xml`,
+      `${origin}/post-sitemap3.xml`,
+      `${origin}/post-sitemap4.xml`,
+      `${origin}/post-sitemap5.xml`,
       `${origin}/wp-sitemap-posts-post-1.xml`,
       `${origin}/wp-sitemap-posts-post-2.xml`,
+      `${origin}/wp-sitemap-posts-post-3.xml`,
+      `${origin}/wp-sitemap-posts-post-4.xml`,
+      `${origin}/wp-sitemap-posts-post-5.xml`,
+      `${origin}/wp-sitemap-posts-post-6.xml`,
+      `${origin}/wp-sitemap-posts-post-7.xml`,
+      `${origin}/wp-sitemap-posts-post-8.xml`,
+      `${origin}/wp-sitemap-posts-post-9.xml`,
+      `${origin}/wp-sitemap-posts-post-10.xml`,
       `${origin}/page-sitemap.xml`,
       `${origin}/category-sitemap.xml`,
       `${origin}/job-sitemap.xml`,
       `${origin}/news-sitemap.xml`,
       `${origin}/sitemap-1.xml`,
+      `${origin}/sitemap-2.xml`,
+      `${origin}/sitemap-3.xml`,
+      `${origin}/sitemap-index.xml`,
     ].forEach(sm => {
       if (!sitemapQueue.includes(sm)) sitemapQueue.push(sm);
     });
@@ -778,7 +792,7 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       let csm: RegExpExecArray | null;
       while ((csm = childSitemapRegex.exec(smXml)) !== null) {
         const childUrl = csm[1].trim();
-        if (!parsedSitemaps.has(childUrl) && !sitemapQueue.includes(childUrl) && sitemapQueue.length < 50) {
+        if (!parsedSitemaps.has(childUrl) && !sitemapQueue.includes(childUrl) && sitemapQueue.length < 200) {
           sitemapQueue.push(childUrl);
         }
       }
@@ -790,7 +804,7 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
         const imgTitle = (um[3] || '').trim();
 
         if (uLoc.endsWith('.xml') || (uLoc.includes('sitemap') && uLoc.includes('.xml'))) {
-          if (!parsedSitemaps.has(uLoc) && !sitemapQueue.includes(uLoc) && sitemapQueue.length < 50) {
+          if (!parsedSitemaps.has(uLoc) && !sitemapQueue.includes(uLoc) && sitemapQueue.length < 200) {
             sitemapQueue.push(uLoc);
           }
           continue;
@@ -829,7 +843,7 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       while ((gm = genericLocRegex.exec(smXml)) !== null && discoveredPages.length < maxLinks) {
         const locStr = gm[1].trim();
         if (locStr.endsWith('.xml') || (locStr.includes('sitemap') && locStr.includes('.xml'))) {
-          if (!parsedSitemaps.has(locStr) && !sitemapQueue.includes(locStr) && sitemapQueue.length < 50) {
+          if (!parsedSitemaps.has(locStr) && !sitemapQueue.includes(locStr) && sitemapQueue.length < 200) {
             sitemapQueue.push(locStr);
           }
           continue;
@@ -868,8 +882,8 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
     }
 
     let sitemapBatchCount = 0;
-    while (sitemapQueue.length > 0 && sitemapBatchCount < 35 && discoveredPages.length < maxLinks) {
-      const currentBatch = sitemapQueue.splice(0, 8).filter(sm => !parsedSitemaps.has(sm));
+    while (sitemapQueue.length > 0 && sitemapBatchCount < 60 && discoveredPages.length < maxLinks) {
+      const currentBatch = sitemapQueue.splice(0, 10).filter(sm => !parsedSitemaps.has(sm));
       currentBatch.forEach(sm => parsedSitemaps.add(sm));
       if (currentBatch.length === 0) break;
       sitemapBatchCount++;
@@ -931,11 +945,11 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
               }
             });
 
-            if (data.length >= 95 && wpUrl.includes('posts')) {
-              const subPages = [2, 3, 4, 5, 6, 7, 8, 9, 10];
+            if (data.length >= 50) {
+              const subPages = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
               const pageTasks = subPages.map(async (pgNum) => {
                 if (discoveredPages.length >= maxLinks) return;
-                const pgUrl = `${origin}/wp-json/wp/v2/posts?per_page=100&page=${pgNum}&_fields=id,link,title,slug`;
+                const pgUrl = `${wpUrl}&page=${pgNum}`;
                 const pgRes = await resilientFetch(pgUrl, 3500);
                 if (pgRes.ok) {
                   try {
@@ -981,6 +995,70 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       } catch {}
     });
     await Promise.allSettled(wpPage1Tasks);
+
+    // Automatic HTML Pagination Follower (crawl /page/2, /page/3, etc. found on site)
+    const paginationRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi;
+    const paginationUrls: string[] = [];
+    let pMatch: RegExpExecArray | null;
+    while ((pMatch = paginationRegex.exec(html)) !== null) {
+      const pHref = (pMatch[1] || pMatch[2] || pMatch[3] || '').trim();
+      if (pHref && (/\/page\/\d+/i.test(pHref) || /[?&]paged?=\d+/i.test(pHref) || /[?&]offset=\d+/i.test(pHref))) {
+        try {
+          const pRes = new URL(pHref, origin);
+          if (pRes.hostname === hostname || pRes.hostname.endsWith(`.${hostname}`)) {
+            const pNorm = normalizeCanonicalUrl(pRes);
+            if (!paginationUrls.includes(pNorm) && !visitedUrls.has(pNorm) && paginationUrls.length < 25) {
+              paginationUrls.push(pNorm);
+            }
+          }
+        } catch {}
+      }
+    }
+
+    if (paginationUrls.length > 0) {
+      const pagTasks = paginationUrls.map(async (pUrlStr) => {
+        try {
+          visitedUrls.add(pUrlStr);
+          const pResp = await resilientFetch(pUrlStr, 4000);
+          if (pResp.ok) {
+            const pSubHtml = pResp.text;
+            const subLRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
+            let plm: RegExpExecArray | null;
+            while ((plm = subLRegex.exec(pSubHtml)) !== null && discoveredPages.length < maxLinks) {
+              const slHref = (plm[1] || plm[2] || plm[3] || '').trim();
+              const slText = (plm[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+              if (!slHref || slHref.startsWith('#') || slHref.startsWith('javascript:') || slHref.startsWith('mailto:')) continue;
+              try {
+                const rUrl = new URL(slHref, origin);
+                if (rUrl.hostname === hostname || rUrl.hostname.endsWith(`.${hostname}`)) {
+                  const scPath = normalizePathWithQuery(rUrl);
+                  if (!isCleanPublicPage(scPath, slText)) continue;
+                  if (!discoveredPaths.has(scPath)) {
+                    discoveredPaths.add(scPath);
+                    const cat = classifyPage(scPath, slText);
+                    const sTitle = slText || slugToTitle(scPath);
+                    discoveredPages.push({
+                      id: `pag_${discoveredPages.length + 1}`,
+                      url: rUrl.toString(),
+                      path: scPath,
+                      title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
+                      description: `${cat.toUpperCase()}: ${sTitle}`,
+                      depth: 2,
+                      status: 200,
+                      includedInVisits: true,
+                      visitWeight: cat === 'post' ? 95 : 80,
+                      gaDetected: !!gaMeasurementId || !!gtmId,
+                      category: cat,
+                    });
+                  }
+                }
+              } catch {}
+            }
+          }
+        } catch {}
+      });
+      await Promise.allSettled(pagTasks);
+    }
 
     // HTML Anchor extraction
     const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
