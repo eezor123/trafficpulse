@@ -19,10 +19,16 @@ import {
   ShieldCheck,
   UploadCloud,
   Zap,
-  X
+  X,
+  FileCode,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  ListPlus
 } from 'lucide-react';
 import { CrawledPage, SiteCrawlState, DiscoveredRouteItem } from '../types';
 import { parseRawJobText } from '../utils/jobTextParser';
+import { parseSitemapOrUrlList, ParseResult } from '../utils/sitemapParser';
 import { ALL_VERIFIED_NAIJA_JOBS } from '../data/allNaijaJobListings';
 import { CrawlProgressBar } from './CrawlProgressBar';
 import { RecentlyDiscoveredRoutes } from './RecentlyDiscoveredRoutes';
@@ -34,6 +40,11 @@ interface CrawlerPanelProps {
   onTogglePageInclusion: (pageId: string) => void;
   onUpdatePageWeight: (pageId: string, weight: number) => void;
   onAddCustomPage: (path: string, title: string) => void;
+  onAddMultiplePages?: (
+    pages: Array<{ path: string; title: string; category?: 'post' | 'category' | 'page'; url?: string; weight?: number }>,
+    discoveredUrl?: string,
+    discoveredHostname?: string
+  ) => void;
   onRemovePage: (pageId: string) => void;
   onAutoPopulateRoutes: () => void;
   onClearAllPages?: () => void;
@@ -47,6 +58,7 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
   onTogglePageInclusion,
   onUpdatePageWeight,
   onAddCustomPage,
+  onAddMultiplePages,
   onRemovePage,
   onAutoPopulateRoutes,
   onClearAllPages,
@@ -61,6 +73,19 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
   const [showClearModal, setShowClearModal] = useState(false);
   const [bulkInput, setBulkInput] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+
+  // Dedicated Raw Sitemap / URL list state
+  const [sitemapInput, setSitemapInput] = useState('');
+  const [isParsingSitemap, setIsParsingSitemap] = useState(false);
+  const [sitemapProgressMsg, setSitemapProgressMsg] = useState<string | null>(null);
+  const [sitemapLastStats, setSitemapLastStats] = useState<{
+    sitemapsParsed: number;
+    postsCount: number;
+    pagesCount: number;
+    categoriesCount: number;
+    total: number;
+  } | null>(null);
+  const [isSitemapCardOpen, setIsSitemapCardOpen] = useState(true);
 
   React.useEffect(() => {
     setUrlInput(crawlState.targetUrl);
@@ -171,9 +196,68 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
     setTimeout(() => setFeedbackMessage(null), 5000);
   };
 
-  const handleBulkImport = () => {
+  const handleParseAndMergeSitemapOrUrls = async (customInput?: string) => {
+    const raw = (customInput !== undefined ? customInput : sitemapInput).trim();
+    if (!raw) return;
+
+    setIsParsingSitemap(true);
+    setSitemapProgressMsg('Analyzing input & resolving sitemaps...');
+
+    try {
+      const result = await parseSitemapOrUrlList(
+        raw,
+        crawlState.origin || crawlState.targetUrl || 'https://jobs.eezor.com',
+        (msg) => setSitemapProgressMsg(msg)
+      );
+
+      if (result.pages.length === 0) {
+        setFeedbackMessage('No valid URLs, routes, or sitemap entries found in the input.');
+        setTimeout(() => setFeedbackMessage(null), 5000);
+        return;
+      }
+
+      // Merge into crawlState
+      if (onAddMultiplePages) {
+        onAddMultiplePages(result.pages, result.discoveredTargetUrl, result.discoveredHostname);
+      } else {
+        result.pages.forEach(p => onAddCustomPage(p.path, p.title));
+      }
+
+      setSitemapLastStats(result.stats);
+      setFeedbackMessage(
+        `Merged ${result.pages.length} routes (${result.stats.postsCount} posts, ${result.stats.categoriesCount} categories, ${result.stats.pagesCount} pages) directly into route catalog!`
+      );
+      setSitemapInput('');
+      setActiveFilter('all');
+      setTimeout(() => setFeedbackMessage(null), 8000);
+    } catch (err: any) {
+      console.error('Error parsing sitemap / URL list:', err);
+      setFeedbackMessage(`Error parsing sitemap: ${err.message || 'Unknown parsing error'}`);
+      setTimeout(() => setFeedbackMessage(null), 6000);
+    } finally {
+      setIsParsingSitemap(false);
+      setSitemapProgressMsg(null);
+    }
+  };
+
+  const handleBulkImport = async () => {
     const raw = bulkInput.trim();
     if (!raw) return;
+
+    // If input contains XML sitemap URLs or raw XML, route through our sitemap & URL parser
+    if (
+      raw.includes('.xml') ||
+      raw.includes('sitemap') ||
+      raw.includes('<?xml') ||
+      raw.includes('<urlset') ||
+      raw.includes('<sitemapindex') ||
+      raw.includes('<rss')
+    ) {
+      await handleParseAndMergeSitemapOrUrls(raw);
+      setBulkInput('');
+      setShowBulkModal(false);
+      return;
+    }
 
     let count = 0;
 
@@ -181,26 +265,37 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
     if (raw.includes('📍') || raw.includes('₦') || raw.includes('Job Title:') || raw.includes('Urgent Recruitment')) {
       const parsedPages = parseRawJobText(raw, crawlState.origin);
       if (parsedPages.length > 0) {
-        parsedPages.forEach(p => {
-          onAddCustomPage(p.path, p.title);
-          count++;
-        });
+        if (onAddMultiplePages) {
+          onAddMultiplePages(parsedPages);
+          count = parsedPages.length;
+        } else {
+          parsedPages.forEach(p => {
+            onAddCustomPage(p.path, p.title);
+            count++;
+          });
+        }
       }
     }
 
     // Also process line-by-line IDs/URLs
     if (count === 0) {
       const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+      const itemsToAdd: Array<{ path: string; title: string; category?: 'post' | 'category' | 'page' }> = [];
       lines.forEach(line => {
         const parts = line.split('|');
         const rawUrlOrId = parts[0].trim();
         const rawTitle = parts[1]?.trim();
         if (rawUrlOrId) {
-          const { path, title } = parseListingInput(rawUrlOrId, rawTitle);
-          onAddCustomPage(path, title);
+          const { path, title, category } = parseListingInput(rawUrlOrId, rawTitle);
+          itemsToAdd.push({ path, title, category });
           count++;
         }
       });
+      if (onAddMultiplePages && itemsToAdd.length > 0) {
+        onAddMultiplePages(itemsToAdd);
+      } else {
+        itemsToAdd.forEach(item => onAddCustomPage(item.path, item.title));
+      }
     }
 
     setFeedbackMessage(`Imported ${count} listings/routes.`);
@@ -550,6 +645,161 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
           <span>Crawler notice: {crawlState.error}. Default and fallback navigation routes have been supplied.</span>
         </div>
       )}
+
+      {/* Direct Sitemap.xml & Raw URL Ingestion Card (Bypass / Supplement Automated Crawler) */}
+      <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-4 sm:p-5 shadow-xl transition-all space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+              <FileCode className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-semibold text-slate-100">
+                  Direct Sitemap.xml & URL List Importer
+                </h4>
+                <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/40">
+                  Direct Ingestion
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Paste a direct <code className="text-cyan-300 font-mono">sitemap.xml</code> URL (e.g. <code className="text-cyan-300 font-mono">https://eezor.com/post-sitemap.xml</code>), raw XML markup, or a list of specific post URLs to parse and merge directly into the route catalog.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-center">
+            <button
+              type="button"
+              onClick={() => setIsSitemapCardOpen(!isSitemapCardOpen)}
+              className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1 cursor-pointer"
+            >
+              <span>{isSitemapCardOpen ? 'Collapse' : 'Expand'}</span>
+              {isSitemapCardOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        </div>
+
+        {isSitemapCardOpen && (
+          <div className="space-y-3 animate-fadeIn">
+            {/* Quick Helper Presets */}
+            <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] uppercase font-bold text-slate-500">Quick Presets:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSitemapInput(`https://eezor.com/post-sitemap.xml
+https://eezor.com/category-sitemap.xml
+https://eezor.com/page-sitemap.xml`);
+                  }}
+                  className="text-[11px] px-2.5 py-1 rounded-lg bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 transition-colors font-mono cursor-pointer flex items-center gap-1"
+                >
+                  <Sparkles className="w-3 h-3 text-cyan-400" />
+                  <span>Eezor Sitemaps (Post + Cat + Page)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSitemapInput(`https://jobs.eezor.com/?job=job_1787164089747 | Male Barbecue sales person is urgently needed
+https://jobs.eezor.com/?job=job_1785681865131 | Urgent Commercial Solar & Inverter Installation Lead
+https://eezor.com/money-blogging/ | How to Make Money Blogging
+https://eezor.com/category/technology/ | Technology Hub
+/?job=job_105 | Full-Stack Next.js Engineer`);
+                  }}
+                  className="text-[11px] px-2.5 py-1 rounded-lg bg-indigo-950/70 hover:bg-indigo-900 border border-indigo-500/40 text-indigo-300 transition-colors font-mono cursor-pointer flex items-center gap-1"
+                >
+                  <ListPlus className="w-3 h-3 text-indigo-400" />
+                  <span>Sample URL List & Job IDs</span>
+                </button>
+              </div>
+
+              {sitemapInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSitemapInput('');
+                    setSitemapProgressMsg(null);
+                  }}
+                  className="text-[11px] text-slate-500 hover:text-rose-400 px-2 py-0.5 rounded transition-colors cursor-pointer"
+                >
+                  Clear Input
+                </button>
+              )}
+            </div>
+
+            {/* Textarea Input */}
+            <div className="relative">
+              <textarea
+                rows={5}
+                value={sitemapInput}
+                onChange={(e) => setSitemapInput(e.target.value)}
+                placeholder={`Paste a sitemap URL, raw XML, or list of URLs:
+https://eezor.com/post-sitemap.xml
+https://eezor.com/category-sitemap.xml
+https://jobs.eezor.com/?job=job_1787164089747 | Male Barbecue sales person
+/category/software-web-development | Software Development`}
+                className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-400 rounded-xl p-3 text-xs text-slate-100 placeholder:text-slate-600 font-mono focus:outline-none shadow-inner leading-relaxed"
+              />
+            </div>
+
+            {/* Progress / Status feedback while resolving */}
+            {isParsingSitemap && (
+              <div className="bg-cyan-950/60 border border-cyan-500/30 rounded-xl p-2.5 flex items-center gap-2 text-xs text-cyan-200">
+                <RefreshCw className="w-4 h-4 animate-spin text-cyan-400 shrink-0" />
+                <span className="font-mono">{sitemapProgressMsg || 'Fetching and parsing XML sitemap records...'}</span>
+              </div>
+            )}
+
+            {/* Ingestion Stats Breakdown Banner */}
+            {sitemapLastStats && (
+              <div className="bg-emerald-950/60 border border-emerald-500/30 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-200">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    Last Ingestion: <strong className="text-emerald-300 font-bold">{sitemapLastStats.total} total routes</strong> added to crawler catalog.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 font-mono text-[11px]">
+                  <span className="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30">
+                    {sitemapLastStats.postsCount} Posts
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-500/30">
+                    {sitemapLastStats.categoriesCount} Categories
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700">
+                    {sitemapLastStats.pagesCount} Pages
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <span className="text-[11px] text-slate-500">
+                Supports XML sitemaps, child sitemap indices, CDATA tags, RSS feeds, and query parameters.
+              </span>
+              <button
+                type="button"
+                disabled={isParsingSitemap || !sitemapInput.trim()}
+                onClick={() => handleParseAndMergeSitemapOrUrls()}
+                className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-40 text-white rounded-xl text-xs font-semibold flex items-center gap-2 cursor-pointer shadow-lg shadow-cyan-950/40 transition-all shrink-0"
+              >
+                {isParsingSitemap ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Parsing & Ingesting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Parse & Merge into Route Catalog</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Pages Discovery Table */}
       <div className="space-y-3">

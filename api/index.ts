@@ -555,6 +555,44 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
   }
 });
 
+// Direct XML Sitemap Fetcher Endpoint
+router.post('/crawler/fetch-sitemap', async (req: Request, res: Response) => {
+  try {
+    const rawUrl = req.body.url;
+    if (!rawUrl) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+
+    const response = await fetch(rawUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 TrafficPulse-Sitemap/2.5',
+        'Accept': 'application/xml,text/xml,application/xhtml+xml,text/html;q=0.9,*/*;q=0.8',
+      },
+      signal: controller.signal,
+      redirect: 'follow',
+    });
+    clearTimeout(timer);
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `Sitemap request failed with HTTP ${response.status}` });
+    }
+
+    const text = await response.text();
+    res.json({
+      success: true,
+      url: rawUrl,
+      status: response.status,
+      xml: text,
+      length: text.length,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch sitemap' });
+  }
+});
+
 // Single Dispatch Endpoint
 router.post('/traffic/dispatch-single', async (req: Request, res: Response) => {
   const startTime = performance.now();

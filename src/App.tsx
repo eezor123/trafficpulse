@@ -655,6 +655,90 @@ export default function App() {
     });
   };
 
+  const handleAddMultiplePages = (
+    newItems: Array<{ path: string; title: string; category?: 'post' | 'category' | 'page'; url?: string; weight?: number }>,
+    discoveredUrl?: string,
+    discoveredHostname?: string
+  ) => {
+    if (!newItems || newItems.length === 0) return;
+
+    let cleanOrigin = crawlState.targetUrl;
+    let targetHostname = crawlState.hostname;
+
+    if (discoveredUrl && (discoveredUrl.startsWith('http://') || discoveredUrl.startsWith('https://'))) {
+      cleanOrigin = discoveredUrl;
+    } else {
+      try {
+        const u = new URL(crawlState.targetUrl);
+        cleanOrigin = u.origin;
+        targetHostname = u.hostname;
+      } catch {}
+    }
+
+    if (discoveredHostname) {
+      targetHostname = discoveredHostname;
+    }
+
+    setCrawlState(prev => {
+      const existingMap = new Map<string, CrawledPage>();
+      prev.pages.forEach(p => existingMap.set(p.path, p));
+
+      newItems.forEach((item, index) => {
+        const isJobOrPost = item.category === 'post' || item.path.includes('job=') || item.path.includes('job_') || item.path.includes('/job/') || item.path.includes('post=') || item.path.includes('/post/') || item.path.includes('article=') || item.path.includes('/article/') || item.path.includes('listing=') || item.path.includes('/blog/');
+        const isCat = item.category === 'category' || item.path.includes('category') || item.path.includes('topics') || item.path.includes('section');
+        const category: 'post' | 'category' | 'page' = item.category || (isJobOrPost ? 'post' : isCat ? 'category' : 'page');
+        const visitWeight = item.weight || (isJobOrPost ? 95 : isCat ? 85 : 75);
+        const cleanPath = item.path.startsWith('/') ? item.path : `/${item.path}`;
+
+        if (existingMap.has(cleanPath)) {
+          const existing = existingMap.get(cleanPath)!;
+          existingMap.set(cleanPath, {
+            ...existing,
+            title: item.title || existing.title,
+            includedInVisits: true,
+            visitWeight: Math.max(existing.visitWeight, visitWeight),
+            category,
+          });
+        } else {
+          const newPage: CrawledPage = {
+            id: `manual_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 6)}`,
+            url: item.url || `${cleanOrigin}${cleanPath}`,
+            path: cleanPath,
+            title: item.title || (isJobOrPost ? `Listing: ${cleanPath}` : cleanPath),
+            description: isJobOrPost ? `Target content listing on ${targetHostname || prev.hostname}` : 'Custom imported route',
+            depth: 1,
+            status: 200,
+            includedInVisits: true,
+            visitWeight,
+            gaDetected: true,
+            category,
+          };
+          existingMap.set(cleanPath, newPage);
+        }
+      });
+
+      const mergedPages = Array.from(existingMap.values());
+      const recentItems = buildRecentDiscoveredItems(mergedPages);
+
+      return {
+        ...prev,
+        targetUrl: prev.targetUrl && prev.targetUrl !== 'https://9jajobs.vercel.app' ? prev.targetUrl : (discoveredUrl || prev.targetUrl),
+        hostname: prev.hostname && prev.hostname !== '9jajobs.vercel.app' ? prev.hostname : (targetHostname || prev.hostname),
+        origin: prev.origin && prev.origin !== 'https://9jajobs.vercel.app' ? prev.origin : (cleanOrigin || prev.origin),
+        pages: mergedPages,
+        realLinksCount: mergedPages.length,
+        visitedUrlsCount: Math.max(prev.visitedUrlsCount, mergedPages.length),
+        listingPatternsMatched: mergedPages.filter(p => p.category === 'post').length,
+        recentlyDiscoveredRoutes: recentItems,
+        crawlProgressPct: 100,
+        crawlPhase: 'Routes Synced • Sitemap & URLs Merged',
+      };
+    });
+
+    setSaveBannerMessage(`Successfully merged ${newItems.length} routes into crawl graph!`);
+    setTimeout(() => setSaveBannerMessage(null), 5000);
+  };
+
   const handleRemovePage = (pageId: string) => {
     setCrawlState(prev => ({
       ...prev,
@@ -1213,6 +1297,7 @@ export default function App() {
                 onTogglePageInclusion={handleTogglePageInclusion}
                 onUpdatePageWeight={handleUpdatePageWeight}
                 onAddCustomPage={handleAddCustomPage}
+                onAddMultiplePages={handleAddMultiplePages}
                 onRemovePage={handleRemovePage}
                 onAutoPopulateRoutes={handleAutoPopulateRoutes}
                 onClearAllPages={handleClearAllPages}
