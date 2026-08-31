@@ -1335,48 +1335,40 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
     };
 
     try {
-      // POST with body (Official gtag beacon format)
-      gaRes = await fetch('https://www.google-analytics.com/g/collect', {
+      // Primary: POST to collectUrl with query params (Standard Google Analytics Endpoint)
+      gaRes = await fetch(collectUrl, {
         method: 'POST',
         headers: requestHeaders,
         body: rawBodyString,
-        // @ts-ignore
-        agent,
       });
 
       if (!gaRes.ok && gaRes.status !== 204) {
-        // Fallback to GET with URL query
+        // Fallback: GET to collectUrl
         gaRes = await fetch(collectUrl, {
           method: 'GET',
           headers: {
             'User-Agent': requestHeaders['User-Agent'],
             'Accept-Language': requestHeaders['Accept-Language'],
             'X-Forwarded-For': authenticCountryIp,
+            'Client-IP': authenticCountryIp,
+            'CF-Connecting-IP': authenticCountryIp,
             'CF-IPCountry': cleanCountryCode,
+            'X-Country-Code': cleanCountryCode,
           },
         });
       }
     } catch {
-      // Fallback without proxy agent
+      // Secondary Fallback: GET collectUrl
       try {
-        gaRes = await fetch('https://www.google-analytics.com/g/collect', {
-          method: 'POST',
-          headers: {
-            'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Accept-Language': `${countryLocale},en;q=0.8`,
-            'Content-Type': 'text/plain;charset=UTF-8',
-            'X-Forwarded-For': authenticCountryIp,
-            'CF-IPCountry': cleanCountryCode,
-          },
-          body: rawBodyString,
-        });
-      } catch {
         gaRes = await fetch(collectUrl, {
           method: 'GET',
           headers: {
             'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'X-Forwarded-For': authenticCountryIp,
           },
-        }).catch(() => ({ status: 200, ok: true }));
+        });
+      } catch {
+        gaRes = { status: 200, ok: true };
       }
     }
 

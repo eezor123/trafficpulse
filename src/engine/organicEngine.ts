@@ -1573,7 +1573,7 @@ export class OrganicTrafficEngine {
     const pageLocation = `${this.config.targetUrl}${pagePath}`;
     const proxyRegion = visitor.country.region || visitor.proxyUsed?.region || 'Global';
 
-    // 1. Dispatch via Server-Side Proxy (with residential IP, authentic Geo headers, region, locale, and GA4 criteria ID)
+    // 1. Dispatch exclusively via Server-Side Proxy (Injects target country IP, geo headers, criteria ID, and locale)
     try {
       const proxyUrl = this.formatProxyNodeUrl(visitor.proxyUsed);
       const visitorIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';
@@ -1603,47 +1603,10 @@ export class OrganicTrafficEngine {
           campaignName: this.config.name || 'Organic Traffic Boost',
           proxyUrl,
         }),
-      }).catch(() => {});
+      }).catch((err) => {
+        console.warn('GA4 server proxy dispatch notice:', err);
+      });
     } catch {}
-
-    // 2. Direct browser-level beacon ping to Google Analytics (Guarantees 100% Realtime Dashboard Delivery on mobile & desktop)
-    if (measurementId && !measurementId.startsWith('G-SIMULATED') && typeof window !== 'undefined') {
-      try {
-        const gaParams = new URLSearchParams({
-          v: '2',
-          tid: measurementId,
-          cid: visitor.gaClientId,
-          sid: visitor.gaSessionId,
-          en: eventName,
-          dl: pageLocation,
-          dt: pageTitle,
-          dr: visitor.referrerUrl || '',
-          _s: '1',
-          seg: '1',
-          _ee: '1',
-          _et: `${effectiveEngagement}`,
-          'epn.engagement_time_msec': `${effectiveEngagement}`,
-          'ep.page_location': pageLocation,
-          'ep.page_title': pageTitle,
-          'ep.page_referrer': visitor.referrerUrl || '',
-          'ep.source': campaignSource,
-          'ep.medium': campaignMedium,
-          'ep.campaign': this.config.name || 'Organic Traffic Boost',
-          'ep.country_code': visitor.country.code,
-          'ep.visitor_country': visitor.country.code,
-          'up.geo_country': visitor.country.code,
-          ul: (visitor.country.locale?.split(',')[0] || 'en-GB').toLowerCase(),
-          sr: '1920x1080',
-        });
-        
-        const directGaUrl = `https://www.google-analytics.com/g/collect?${gaParams.toString()}`;
-        if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-          navigator.sendBeacon(directGaUrl);
-        } else {
-          fetch(directGaUrl, { method: 'POST', mode: 'no-cors' }).catch(() => {});
-        }
-      } catch {}
-    }
   }
 
   public generateSummary(): OrganicRunSummary {
