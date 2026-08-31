@@ -1317,7 +1317,8 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
 
   const params = new URLSearchParams(payloadParams);
   const rawBodyString = params.toString();
-  const collectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
+  const postEndpoint = 'https://www.google-analytics.com/g/collect';
+  const getEndpoint = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
 
   try {
     let gaRes: any;
@@ -1335,16 +1336,16 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
     };
 
     try {
-      // Primary: POST to collectUrl with query params (Standard Google Analytics Endpoint)
-      gaRes = await fetch(collectUrl, {
+      // 1. Primary Method: POST with body to clean /g/collect endpoint (Official gtag.js Beacon format)
+      gaRes = await fetch(postEndpoint, {
         method: 'POST',
         headers: requestHeaders,
         body: rawBodyString,
       });
 
+      // 2. Secondary Method: GET with full query string if POST returned non-success
       if (!gaRes.ok && gaRes.status !== 204) {
-        // Fallback: GET to collectUrl
-        gaRes = await fetch(collectUrl, {
+        gaRes = await fetch(getEndpoint, {
           method: 'GET',
           headers: {
             'User-Agent': requestHeaders['User-Agent'],
@@ -1358,13 +1359,12 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
         });
       }
     } catch {
-      // Secondary Fallback: GET collectUrl
+      // 3. Fallback without custom headers if network layer threw error
       try {
-        gaRes = await fetch(collectUrl, {
+        gaRes = await fetch(getEndpoint, {
           method: 'GET',
           headers: {
             'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'X-Forwarded-For': authenticCountryIp,
           },
         });
       } catch {

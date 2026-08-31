@@ -59,18 +59,23 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           measurementId: ga4.measurementId || 'G-TESTPING123',
+          apiSecret: ga4.apiSecret || undefined,
           eventName: 'page_view',
           pageTitle: 'TrafficPulse GA4 Validation Ping',
           pageLocation: 'https://example.com/test-ping',
           pagePath: '/test-ping',
-          referrer: 'https://www.google.com/search?q=test',
+          referrer: 'https://www.google.com/search?q=organic+traffic+boost',
           engagementTimeMs: 30000,
+          countryCode: 'US',
+          campaignSource: 'google',
+          campaignMedium: 'organic',
+          campaignName: 'Organic Traffic Test',
         }),
       });
       const data = await res.json();
       if (data.success) {
         setTestPingStatus('success');
-        setTimeout(() => setTestPingStatus('idle'), 3000);
+        setTimeout(() => setTestPingStatus('idle'), 4000);
       } else {
         setTestPingStatus('failed');
       }
@@ -1088,7 +1093,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
             </label>
           </div>
 
-          <div className="space-y-2 pt-1">
+          <div className="space-y-3 pt-1">
             <div>
               <label className="text-[11px] font-bold text-slate-400 uppercase">
                 GA4 Measurement ID (e.g. G-XXXXXXXXXX)
@@ -1113,10 +1118,33 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
               </div>
             </div>
 
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-slate-400 uppercase">
+                  Measurement Protocol API Secret (Optional)
+                </label>
+                <span className="text-[10px] text-slate-500 font-medium">GA4 Admin → Data Streams → API secrets</span>
+              </div>
+              <input
+                type="password"
+                value={ga4.apiSecret || ''}
+                onChange={(e) => onChangeGa4({ ...ga4, apiSecret: e.target.value.trim() })}
+                placeholder="Optional API Secret (for 100% verified server-side Measurement Protocol)"
+                className="w-full mt-1 bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none font-mono"
+              />
+            </div>
+
             {testPingStatus === 'success' && (
-              <div className="text-xs text-emerald-400 flex items-center gap-1.5 bg-emerald-950/40 p-2 rounded-lg border border-emerald-500/30">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Test GA4 collect beacon successfully received!</span>
+              <div className="text-xs text-emerald-400 flex items-center gap-1.5 bg-emerald-950/40 p-2.5 rounded-lg border border-emerald-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Test GA4 collect beacon successfully dispatched to Google Analytics servers!</span>
+              </div>
+            )}
+
+            {testPingStatus === 'failed' && (
+              <div className="text-xs text-rose-400 flex items-center gap-1.5 bg-rose-950/40 p-2.5 rounded-lg border border-rose-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                <span>Beacon delivery test encountered an error. Please verify your Measurement ID format (G-XXXXXXXXXX).</span>
               </div>
             )}
           </div>
