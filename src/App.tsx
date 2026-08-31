@@ -297,7 +297,48 @@ export default function App() {
     setIsAuthModalOpen(true);
   };
 
-  // ==================== AUTO-PERSISTENCE TO LOCALSTORAGE ====================
+  // ==================== AUTO-PERSISTENCE & SCREEN WAKE-LOCK ====================
+  const wakeLockRef = useRef<any>(null);
+
+  const acquireWakeLock = async () => {
+    if (typeof navigator !== 'undefined' && 'wakeLock' in navigator) {
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+      } catch (err) {
+        console.warn('Wake Lock request notice:', err);
+      }
+    }
+  };
+
+  const releaseWakeLock = async () => {
+    if (wakeLockRef.current) {
+      try {
+        await wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    const isEngineActive = organicStatus === 'running' || stressStatus === 'running';
+    if (isEngineActive) {
+      acquireWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && (organicStatus === 'running' || stressStatus === 'running')) {
+        acquireWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      releaseWakeLock();
+    };
+  }, [organicStatus, stressStatus]);
+
   // Save organicConfig automatically whenever any setting changes
   useEffect(() => {
     try {

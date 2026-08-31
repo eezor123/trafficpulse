@@ -1241,7 +1241,7 @@ async function startServer() {
             },
           };
 
-          const mpRes = await fetch(mpUrl, {
+          fetch(mpUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1255,20 +1255,7 @@ async function startServer() {
             body: JSON.stringify(mpBody),
             // @ts-ignore
             agent,
-          });
-
-          return res.json({
-            success: true,
-            status: mpRes.status,
-            protocol: 'GA4_Measurement_Protocol_API',
-            measurementId,
-            clientId,
-            eventName,
-            countryCode: cleanCountryCode,
-            resolvedIp: authenticCountryIp,
-            proxyUsed: !!proxyUrl,
-            timestamp: Date.now(),
-          });
+          }).catch(e => console.warn('GA4 MP notice:', e.message));
         } catch (e) {
           console.error('GA4 MP Error:', e);
         }

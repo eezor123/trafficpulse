@@ -1250,7 +1250,7 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
         },
       };
 
-      const gaRes = await fetch(endpoint, {
+      fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1262,22 +1262,13 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
         body: JSON.stringify(payload),
         // @ts-ignore
         agent,
-      });
-
-      return res.json({
-        success: gaRes.ok || gaRes.status === 204,
-        status: gaRes.status,
-        measurementId,
-        eventName,
-        delivered: true,
-        protocol: 'Measurement_Protocol',
-      });
+      }).catch(e => console.warn('GA4 MP notice:', e.message));
     } catch (err: any) {
       console.warn('GA4 MP Error:', err.message);
     }
   }
 
-  // B. Direct GA4 /g/collect Endpoint (Full Real GA4 Beacon Proxy)
+  // B. Direct GA4 /g/collect Endpoint (Full Real GA4 Beacon Proxy with exact criteria ID & IP)
   const validEngagementMs = Math.max(1200, Number(engagementTimeMs) || 2000);
   const params = new URLSearchParams({
     v: '2',
