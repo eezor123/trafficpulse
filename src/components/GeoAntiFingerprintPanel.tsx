@@ -147,6 +147,38 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
     });
   };
 
+  const handleIsolateRegion = (regionName: string) => {
+    if (regionName === 'all') {
+      const updated = countries.map(c => ({ ...c, enabled: true, weight: 50 }));
+      onChange({ ...fingerprintConfig, countries: updated });
+      return;
+    }
+
+    const updated = countries.map(c => 
+      c.region === regionName 
+        ? { ...c, enabled: true, weight: Math.max(c.weight || 50, 40) } 
+        : { ...c, enabled: false, weight: 0 }
+    );
+
+    let updatedProxyEngine = proxyEngine;
+    if (proxyEngine) {
+      const updatedProxies = proxyEngine.proxies.map(p => ({
+        ...p,
+        enabled: p.region === regionName,
+      }));
+      updatedProxyEngine = {
+        ...proxyEngine,
+        proxies: updatedProxies,
+      };
+    }
+
+    onChange({
+      ...fingerprintConfig,
+      countries: updated,
+      proxyEngine: updatedProxyEngine,
+    });
+  };
+
   const handleSelectPreset = (preset: typeof REGION_PRESETS[0]) => {
     let updated: GeoCountry[];
     const isGlobal = preset.countryCodes.length === 0;
@@ -671,12 +703,26 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
             </div>
           </div>
 
-          {/* Bulk Controls */}
-          <div className="flex items-center justify-between text-xs px-1 text-slate-400">
-            <span className="font-semibold text-slate-300">
-              Showing {filteredCountries.length} countries in {selectedRegionFilter === 'all' ? 'All Regions' : selectedRegionFilter}
-            </span>
+          {/* Bulk Controls & Region Isolation */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs px-1 text-slate-400 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
             <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-300">
+                {filteredCountries.length} countries in {selectedRegionFilter === 'all' ? 'All Regions' : selectedRegionFilter}
+              </span>
+              {selectedRegionFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => handleIsolateRegion(selectedRegionFilter)}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold border border-emerald-500/40 cursor-pointer flex items-center gap-1.5 transition-all text-[11px]"
+                  title={`Disable all other regions and isolate ${selectedRegionFilter}`}
+                >
+                  <span>🎯</span>
+                  <span>Target {selectedRegionFilter} Only</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={handleEnableAllInView}
@@ -702,6 +748,35 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
               >
                 Even 50% Weights
               </button>
+            </div>
+          </div>
+
+          {/* Active Traffic Pool Summary */}
+          <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 text-xs flex items-center justify-between gap-2 overflow-x-auto">
+            <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+              <span className="text-slate-400 font-semibold flex items-center gap-1">
+                <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Active Pool ({enabledCountriesCount}):</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 no-scrollbar">
+              {countries.filter(c => c.enabled !== false && (c.weight ?? 1) > 0).slice(0, 8).map(c => (
+                <span key={c.code} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-200 shrink-0">
+                  <span>{c.flag}</span>
+                  <span className="font-semibold">{c.code}</span>
+                  <span className="text-emerald-400 text-[10px]">({c.weight}%)</span>
+                </span>
+              ))}
+              {enabledCountriesCount > 8 && (
+                <span className="text-slate-500 text-[11px] font-mono shrink-0">
+                  +{enabledCountriesCount - 8} more
+                </span>
+              )}
+              {enabledCountriesCount === 0 && (
+                <span className="text-rose-400 text-[11px] font-semibold">
+                  ⚠️ No countries active! Click "Enable View" or choose a preset.
+                </span>
+              )}
             </div>
           </div>
 
