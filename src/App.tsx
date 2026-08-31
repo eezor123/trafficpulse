@@ -83,8 +83,19 @@ function loadInitialOrganicConfig(): OrganicVisitorConfig {
         ...parsed,
         organic: { ...DEFAULT_ORGANIC_CONFIG.organic, ...(parsed.organic || {}) },
         behavior: { ...DEFAULT_ORGANIC_CONFIG.behavior, ...(parsed.behavior || {}) },
-        fingerprint: { ...DEFAULT_ORGANIC_CONFIG.fingerprint, ...(parsed.fingerprint || {}) },
-        ga4: { ...DEFAULT_ORGANIC_CONFIG.ga4, ...(parsed.ga4 || {}) },
+        fingerprint: {
+          ...DEFAULT_ORGANIC_CONFIG.fingerprint,
+          ...(parsed.fingerprint || {}),
+          countries: Array.isArray(parsed.fingerprint?.countries) && parsed.fingerprint.countries.length > 0
+            ? parsed.fingerprint.countries
+            : DEFAULT_ORGANIC_CONFIG.fingerprint.countries,
+          proxyEngine: parsed.fingerprint?.proxyEngine || DEFAULT_ORGANIC_CONFIG.fingerprint.proxyEngine,
+        },
+        ga4: {
+          ...DEFAULT_ORGANIC_CONFIG.ga4,
+          ...(parsed.ga4 || {}),
+          measurementId: parsed.ga4?.measurementId || DEFAULT_ORGANIC_CONFIG.ga4.measurementId,
+        },
         crawlSettings: { ...DEFAULT_ORGANIC_CONFIG.crawlSettings, ...(parsed.crawlSettings || {}) },
       };
     }

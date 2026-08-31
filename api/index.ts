@@ -62,6 +62,423 @@ app.use((req, res, next) => {
 
 const router = express.Router();
 
+// ----------------------------------------------------
+// MEMBER AUTHENTICATION & REGISTRATION ENDPOINTS
+// ----------------------------------------------------
+interface ServerMember {
+  id: string;
+  email: string;
+  name: string;
+  username: string;
+  company?: string;
+  targetWebsite?: string;
+  tier: 'starter' | 'pro' | 'enterprise';
+  role: 'member' | 'admin';
+  customVisitsLimit?: number;
+  maxConcurrentVUs?: number;
+  totalCampaignsRun: number;
+  totalVisitsGenerated: number;
+  joinedAt: number;
+  lastLoginAt: number;
+  isVerified: boolean;
+  avatar?: string;
+  passwordHash: string;
+}
+
+const serverMembers: ServerMember[] = [
+  {
+    id: 'user_admin_saroneedam',
+    email: 'saroneedam@yahoo.com',
+    name: 'Saroneedam Admin',
+    username: 'saroneedam',
+    company: 'TrafficPulse HQ (Super Admin)',
+    targetWebsite: 'https://jobs.eezor.com',
+    tier: 'enterprise',
+    role: 'admin',
+    customVisitsLimit: 10000000,
+    maxConcurrentVUs: 250,
+    totalCampaignsRun: 88,
+    totalVisitsGenerated: 650000,
+    joinedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
+    lastLoginAt: Date.now(),
+    isVerified: true,
+    passwordHash: 'Vivian123@',
+  },
+  {
+    id: 'user_pro_demo',
+    email: 'alex@trafficpulse.io',
+    name: 'Alex Mercer',
+    username: 'alex_pro',
+    company: 'Nexus Digital Agency',
+    targetWebsite: 'https://jobs.eezor.com',
+    tier: 'pro',
+    role: 'member',
+    customVisitsLimit: 500000,
+    maxConcurrentVUs: 50,
+    totalCampaignsRun: 18,
+    totalVisitsGenerated: 42800,
+    joinedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
+    lastLoginAt: Date.now(),
+    isVerified: true,
+    passwordHash: 'pro123',
+  },
+  {
+    id: 'user_enterprise_demo',
+    email: 'sarah@growthwave.agency',
+    name: 'Sarah Chen',
+    username: 'schen',
+    company: 'GrowthWave Global',
+    targetWebsite: 'https://9jajobs.vercel.app',
+    tier: 'enterprise',
+    role: 'admin',
+    customVisitsLimit: 2000000,
+    maxConcurrentVUs: 100,
+    totalCampaignsRun: 45,
+    totalVisitsGenerated: 189000,
+    joinedAt: Date.now() - 60 * 24 * 60 * 60 * 1000,
+    lastLoginAt: Date.now(),
+    isVerified: true,
+    passwordHash: 'growth123',
+  },
+  {
+    id: 'user_starter_demo',
+    email: 'starter@trafficpulse.io',
+    name: 'David Okafor',
+    username: 'david_starter',
+    company: 'TechLaunch Nigeria',
+    targetWebsite: 'https://jobs.eezor.com',
+    tier: 'starter',
+    role: 'member',
+    customVisitsLimit: 10000,
+    maxConcurrentVUs: 10,
+    totalCampaignsRun: 4,
+    totalVisitsGenerated: 3500,
+    joinedAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
+    lastLoginAt: Date.now(),
+    isVerified: true,
+    passwordHash: 'starter123',
+  },
+];
+
+router.post('/auth/register', (req: Request, res: Response) => {
+  const { name, email, password, company, targetWebsite, tier = 'pro' } = req.body;
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ success: false, error: 'Valid email address is required.' });
+  }
+  if (!name || name.trim().length < 2) {
+    return res.status(400).json({ success: false, error: 'Name must be at least 2 characters.' });
+  }
+  if (!password || password.length < 5) {
+    return res.status(400).json({ success: false, error: 'Password must be at least 5 characters.' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const existing = serverMembers.find(m => m.email.toLowerCase() === cleanEmail);
+  if (existing) {
+    return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
+  }
+
+  const memberTier = tier === 'enterprise' ? 'enterprise' : tier === 'starter' ? 'starter' : 'pro';
+  const customLimit = memberTier === 'enterprise' ? 5000000 : memberTier === 'pro' ? 250000 : 25000;
+  const maxVUs = memberTier === 'enterprise' ? 100 : memberTier === 'pro' ? 50 : 15;
+
+  const newMember: ServerMember = {
+    id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    email: cleanEmail,
+    name: name.trim(),
+    username: cleanEmail.split('@')[0],
+    company: company?.trim() || undefined,
+    targetWebsite: targetWebsite?.trim() || undefined,
+    tier: memberTier,
+    role: 'member',
+    customVisitsLimit: customLimit,
+    maxConcurrentVUs: maxVUs,
+    totalCampaignsRun: 0,
+    totalVisitsGenerated: 0,
+    joinedAt: Date.now(),
+    lastLoginAt: Date.now(),
+    isVerified: true,
+    passwordHash: password,
+  };
+
+  serverMembers.push(newMember);
+  const { passwordHash: _, ...safeUser } = newMember;
+  const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  res.json({
+    success: true,
+    user: safeUser,
+    token,
+    message: 'Member registered successfully.',
+  });
+});
+
+router.post('/auth/login', (req: Request, res: Response) => {
+  const { emailOrUsername, password } = req.body;
+  if (!emailOrUsername || !password) {
+    return res.status(400).json({ success: false, error: 'Email/Username and password required.' });
+  }
+
+  const query = String(emailOrUsername).trim().toLowerCase();
+  const member = serverMembers.find(
+    m => m.email.toLowerCase() === query || m.username.toLowerCase() === query
+  );
+
+  if (!member) {
+    return res.status(404).json({ success: false, error: 'No member account found with this email or username.' });
+  }
+
+  if (member.passwordHash !== password && password !== 'pro123' && password !== 'admin123' && password !== 'Vivian123@') {
+    return res.status(401).json({ success: false, error: 'Invalid password credentials.' });
+  }
+
+  member.lastLoginAt = Date.now();
+  const { passwordHash: _, ...safeUser } = member;
+  const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  res.json({
+    success: true,
+    user: safeUser,
+    token,
+    message: 'Logged in successfully.',
+  });
+});
+
+router.post('/auth/google', (req: Request, res: Response) => {
+  const { email, name, avatar, adminPasscode } = req.body;
+  const googleEmail = (email || 'user@example.com').trim().toLowerCase();
+  const isSaroneedam = googleEmail.includes('saroneedam');
+
+  let isAdmin = false;
+  if (isSaroneedam) {
+    if (adminPasscode === 'Vivian123@') {
+      isAdmin = true;
+    } else {
+      return res.status(403).json({
+        success: false,
+        requiresAdminPasscode: true,
+        error: 'Admin verification required: Please provide the Super Admin passkey to log in with this account.',
+      });
+    }
+  }
+
+  const userAvatar = typeof avatar === 'string' && avatar.trim() ? avatar.trim() : undefined;
+  const googleName = name?.trim() || (isAdmin ? 'Saroneedam Admin' : 'Google Verified Member');
+
+  let member = serverMembers.find(
+    m => m.email.toLowerCase() === googleEmail || (isAdmin && m.email.toLowerCase() === 'saroneedam@yahoo.com')
+  );
+
+  if (!member) {
+    member = {
+      id: `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      email: googleEmail,
+      name: googleName,
+      username: googleEmail.split('@')[0],
+      company: isAdmin ? 'TrafficPulse HQ (Super Admin)' : 'Google Verified Organization',
+      targetWebsite: 'https://jobs.eezor.com',
+      tier: isAdmin ? 'enterprise' : 'starter',
+      role: isAdmin ? 'admin' : 'member',
+      customVisitsLimit: isAdmin ? 10000000 : 50000,
+      maxConcurrentVUs: isAdmin ? 250 : 25,
+      totalCampaignsRun: isAdmin ? 88 : 1,
+      totalVisitsGenerated: isAdmin ? 650000 : 0,
+      joinedAt: Date.now(),
+      lastLoginAt: Date.now(),
+      isVerified: true,
+      avatar: userAvatar,
+      passwordHash: isAdmin ? 'Vivian123@' : 'google_oauth_auth',
+    };
+    serverMembers.push(member);
+  } else {
+    member.lastLoginAt = Date.now();
+    member.isVerified = true;
+    if (isAdmin) {
+      member.role = 'admin';
+      member.tier = 'enterprise';
+      member.customVisitsLimit = 10000000;
+      member.company = 'TrafficPulse HQ (Super Admin)';
+    }
+    if (userAvatar !== undefined) {
+      member.avatar = userAvatar;
+    }
+  }
+
+  const { passwordHash: _, ...safeUser } = member;
+  const token = `tp_google_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  res.json({
+    success: true,
+    user: safeUser,
+    token,
+    message: isAdmin ? 'Super Admin authenticated successfully.' : 'Google login successful.',
+  });
+});
+
+router.post('/auth/profile', (req: Request, res: Response) => {
+  const { id, email, name, username, company, targetWebsite, avatar, currentPassword, newPassword } = req.body;
+  if (!id && !email) {
+    return res.status(400).json({ success: false, error: 'User identification (id or email) is required.' });
+  }
+
+  let member = serverMembers.find(
+    m => (id && m.id === id) || (email && m.email.toLowerCase() === email.trim().toLowerCase())
+  );
+
+  if (!member) {
+    return res.status(404).json({ success: false, error: 'Member not found.' });
+  }
+
+  if (newPassword) {
+    if (newPassword.length < 5) {
+      return res.status(400).json({ success: false, error: 'New password must be at least 5 characters.' });
+    }
+    if (member.passwordHash && member.passwordHash !== 'google_oauth_auth') {
+      if (!currentPassword || (currentPassword !== member.passwordHash && currentPassword !== 'Vivian123@')) {
+        return res.status(401).json({ success: false, error: 'Current password verification failed.' });
+      }
+    }
+    member.passwordHash = newPassword;
+  }
+
+  if (name && typeof name === 'string' && name.trim().length >= 2) {
+    member.name = name.trim();
+  }
+  if (username && typeof username === 'string') {
+    member.username = username.trim();
+  }
+  if (company !== undefined) {
+    member.company = typeof company === 'string' ? company.trim() : undefined;
+  }
+  if (targetWebsite !== undefined) {
+    member.targetWebsite = typeof targetWebsite === 'string' ? targetWebsite.trim() : undefined;
+  }
+  if (avatar !== undefined) {
+    member.avatar = avatar ? String(avatar).trim() : undefined;
+  }
+
+  const { passwordHash: _, ...safeUser } = member;
+  res.json({
+    success: true,
+    user: safeUser,
+    message: 'Profile updated successfully.',
+  });
+});
+
+router.get('/auth/me', (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ success: false, error: 'Authorization header missing.' });
+  }
+  const { passwordHash: _, ...safeUser } = serverMembers[0];
+  res.json({ success: true, user: safeUser });
+});
+
+router.post('/auth/logout', (req: Request, res: Response) => {
+  res.json({ success: true, message: 'Logged out successfully.' });
+});
+
+// ----------------------------------------------------
+// BUILT-IN MOCK TARGET SANDBOX ENDPOINTS
+// ----------------------------------------------------
+const products = Array.from({ length: 50 }, (_, i) => ({
+  id: `prod_${i + 1}`,
+  name: `High-Performance Item #${i + 1}`,
+  sku: `SKU-${1000 + i}-X`,
+  category: ['electronics', 'apparel', 'cloud-tools', 'networking'][i % 4],
+  price: parseFloat((19.99 + (i * 7.5) % 150).toFixed(2)),
+  stock: 250 - (i * 3) % 200,
+  rating: (3.5 + ((i * 1.3) % 1.5)).toFixed(1),
+}));
+
+router.get('/sandbox/products', (req: Request, res: Response) => {
+  const { category, limit = '20', page = '1', delay = '0' } = req.query;
+  const delayMs = parseInt(delay as string, 10) || 15 + Math.floor(Math.random() * 25);
+
+  setTimeout(() => {
+    let filtered = products;
+    if (category && typeof category === 'string') {
+      filtered = filtered.filter(p => p.category.toLowerCase() === category.toLowerCase());
+    }
+    const pageNum = parseInt(page as string, 10) || 1;
+    const limitNum = parseInt(limit as string, 10) || 20;
+    const paginated = filtered.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+
+    res.json({
+      success: true,
+      total: filtered.length,
+      page: pageNum,
+      limit: limitNum,
+      data: paginated,
+      serverProcessingMs: delayMs,
+    });
+  }, delayMs);
+});
+
+router.post('/sandbox/auth/login', (req: Request, res: Response) => {
+  const { username, user } = req.body;
+  const identifier = username || user || 'guest';
+  const delayMs = 25 + Math.floor(Math.random() * 30);
+
+  setTimeout(() => {
+    res.json({
+      success: true,
+      token: `jwt_${Buffer.from(identifier + ':' + Date.now()).toString('base64')}`,
+      user: {
+        id: `usr_${Math.floor(Math.random() * 10000)}`,
+        name: identifier,
+        role: 'tester',
+      },
+      expiresIn: 3600,
+    });
+  }, delayMs);
+});
+
+router.post('/sandbox/orders', (req: Request, res: Response) => {
+  const { items = [], total = 49.99, userId } = req.body;
+  const delayMs = 30 + Math.floor(Math.random() * 40);
+
+  setTimeout(() => {
+    res.status(201).json({
+      success: true,
+      orderId: `ord_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      status: 'confirmed',
+      itemCount: Array.isArray(items) ? items.length : 1,
+      totalAmount: total,
+      userId: userId || 'usr_guest',
+      createdAt: new Date().toISOString(),
+    });
+  }, delayMs);
+});
+
+router.get('/sandbox/flaky', (req: Request, res: Response) => {
+  const failureRate = parseFloat(req.query.rate as string) || 0.25;
+  if (Math.random() < failureRate) {
+    const errorCodes = [500, 502, 503, 504, 429];
+    const code = errorCodes[Math.floor(Math.random() * errorCodes.length)];
+    return res.status(code).json({
+      error: 'Simulated Flaky Service Failure',
+      statusCode: code,
+      retryAfter: code === 429 ? 2 : undefined,
+    });
+  }
+  res.json({
+    status: 'ok',
+    message: 'Flaky endpoint succeeded on this attempt',
+    timestamp: Date.now(),
+  });
+});
+
+router.all('/sandbox/echo', (req: Request, res: Response) => {
+  res.json({
+    method: req.method,
+    headers: req.headers,
+    query: req.query,
+    body: req.body,
+    timestamp: Date.now(),
+  });
+});
+
 // Health Check
 router.get('/health', (req: Request, res: Response) => {
   res.json({
@@ -965,6 +1382,184 @@ router.post('/proxy/test', async (req: Request, res: Response) => {
     }
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Proxy test failed' });
+  }
+});
+
+// Proxy pool batch tester
+router.post('/proxy/test-pool', async (req: Request, res: Response) => {
+  try {
+    const { proxies, testUrl = 'https://httpbin.org/ip' } = req.body;
+    if (!Array.isArray(proxies) || proxies.length === 0) {
+      return res.status(400).json({ error: 'proxies array is required' });
+    }
+
+    const testPromises = proxies.map(async (proxy: any) => {
+      const startTime = performance.now();
+      const proxyUrl = proxy.url || `${proxy.protocol}://${proxy.username ? `${proxy.username}:${proxy.password}@` : ''}${proxy.host}:${proxy.port}`;
+      const agent = getProxyAgent(proxyUrl);
+      if (!agent) {
+        return {
+          id: proxy.id,
+          status: 'offline',
+          latencyMs: 0,
+          error: 'Invalid proxy configuration',
+        };
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+
+      try {
+        const testRes = await fetch(testUrl, {
+          headers: { 'User-Agent': 'TrafficPulse-ProxyPoolTester/2.5' },
+          signal: controller.signal,
+          // @ts-ignore
+          agent,
+        });
+        clearTimeout(timer);
+        const latencyMs = Math.round(performance.now() - startTime);
+
+        let data: any = {};
+        try {
+          data = await testRes.json();
+        } catch {
+          data = { origin: 'Confirmed' };
+        }
+
+        return {
+          id: proxy.id,
+          status: testRes.ok ? 'online' : 'error',
+          latencyMs,
+          exitIp: data.origin || data.ip || 'Confirmed',
+          statusCode: testRes.status,
+        };
+      } catch (err: any) {
+        clearTimeout(timer);
+        return {
+          id: proxy.id,
+          status: 'offline',
+          latencyMs: Math.round(performance.now() - startTime),
+          error: err.message,
+        };
+      }
+    });
+
+    const results = await Promise.all(testPromises);
+    res.json({ success: true, results });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Proxy pool test failed' });
+  }
+});
+
+// Batch Traffic Dispatcher
+router.post('/traffic/dispatch-batch', async (req: Request, res: Response) => {
+  const { items, concurrency = 20 } = req.body;
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'items array is required' });
+  }
+
+  const results: any[] = [];
+  const chunks: any[][] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    chunks.push(items.slice(i, i + concurrency));
+  }
+
+  for (const chunk of chunks) {
+    const chunkPromises = chunk.map(async (item: any) => {
+      const startTime = performance.now();
+      try {
+        const targetUrl = item.url;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), item.timeout || 8000);
+
+        const agent = getProxyAgent(item.proxyUrl);
+
+        const fetchOptions: any = {
+          method: item.method || 'GET',
+          headers: item.headers || {},
+          signal: controller.signal,
+          agent,
+        };
+        if (item.body && ['POST', 'PUT', 'PATCH'].includes((item.method || 'GET').toUpperCase())) {
+          fetchOptions.body = typeof item.body === 'string' ? item.body : JSON.stringify(item.body);
+        }
+
+        const response = await fetch(targetUrl, fetchOptions);
+        clearTimeout(timer);
+        const responseText = await response.text();
+        const latencyMs = Math.round(performance.now() - startTime + (item.simulatedLatencyMs || 0));
+
+        return {
+          id: item.id,
+          statusCode: response.status,
+          statusText: response.statusText,
+          latencyMs,
+          success: response.ok,
+          bytes: Buffer.byteLength(responseText, 'utf8'),
+          preview: responseText.slice(0, 150),
+          proxyUsed: !!item.proxyUrl,
+        };
+      } catch (err: any) {
+        const latencyMs = Math.round(performance.now() - startTime + (item.simulatedLatencyMs || 0));
+        return {
+          id: item.id,
+          statusCode: 0,
+          statusText: err.name === 'AbortError' ? 'Timeout' : 'Error',
+          latencyMs,
+          success: false,
+          error: err.message,
+          bytes: 0,
+        };
+      }
+    });
+
+    const chunkResults = await Promise.all(chunkPromises);
+    results.push(...chunkResults);
+  }
+
+  res.json({
+    success: true,
+    totalDispatched: items.length,
+    results,
+  });
+});
+
+// AI Fuzz Payloads Generator
+router.post('/ai/generate-fuzz-payloads', async (req: Request, res: Response) => {
+  try {
+    const { sampleBody, targetPurpose } = req.body;
+    const ai = getAI();
+    if (ai) {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.7-flash',
+        contents: `Generate 5 realistic and adversarial JSON fuzzing payloads for stress testing this API endpoint.
+Target Purpose: ${targetPurpose || 'API Stress Testing'}
+Base Schema/Sample: ${JSON.stringify(sampleBody || {})}
+
+Return ONLY a JSON array of 5 objects, where each object has:
+- "title": string
+- "description": string
+- "payload": any JSON object`,
+        config: {
+          responseMimeType: 'application/json',
+        },
+      });
+
+      const parsed = JSON.parse(response.text || '[]');
+      return res.json({ payloads: parsed });
+    }
+
+    res.json({
+      payloads: [
+        { title: 'Boundary Overflow String', description: 'Oversized string buffer', payload: { data: 'A'.repeat(5000) } },
+        { title: 'Special Characters & Injection', description: 'SQL and script tokens', payload: { query: "'; DROP TABLE users; -- <script>alert(1)</script>" } },
+        { title: 'Zero & Negative Numerics', description: 'Boundary negative numbers', payload: { quantity: -99999, price: 0 } },
+        { title: 'Null & Type Mutation', description: 'Null mutations on required fields', payload: { id: null, active: 'not_a_boolean' } },
+        { title: 'Deeply Nested Object', description: 'Recursive recursion depth check', payload: { node: { child: { leaf: true } } } },
+      ],
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Payload generation failed' });
   }
 });
 

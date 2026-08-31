@@ -106,7 +106,11 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
   // Country handlers
   const handleCountryWeightChange = (indexInFullList: number, weight: number) => {
     const updated = [...countries];
-    updated[indexInFullList] = { ...updated[indexInFullList], weight };
+    updated[indexInFullList] = {
+      ...updated[indexInFullList],
+      weight,
+      enabled: weight > 0 ? true : false,
+    };
     onChange({
       ...fingerprintConfig,
       countries: updated,
