@@ -1288,7 +1288,7 @@ export class OrganicTrafficEngine {
     if (visitorRetentionMode === 'unique_only') {
       // 100% Brand-New Unique Visitors (Strict Non-Repetition)
       isReturning = false;
-      gaClientId = `GA1.1.${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`;
+      gaClientId = `${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`;
     } else {
       // Returning visitor mix allowed
       isReturning = Math.random() * 100 > (this.config.behavior.newVsReturningRatio || 75);
@@ -1296,7 +1296,7 @@ export class OrganicTrafficEngine {
         const saved = this.persistentProfiles[Math.floor(Math.random() * this.persistentProfiles.length)];
         gaClientId = saved.gaClientId;
       } else {
-        gaClientId = `GA1.1.${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000) - 86400 * 5}`;
+        gaClientId = `${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000) - 86400 * 5}`;
         // Store in persistent pool for future return visits
         if (this.persistentProfiles.length < 50) {
           this.persistentProfiles.push({

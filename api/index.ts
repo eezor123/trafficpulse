@@ -1270,36 +1270,45 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
 
   // B. Direct GA4 /g/collect Endpoint (Full Real GA4 Beacon Proxy with exact criteria ID & IP)
   const validEngagementMs = Math.max(1200, Number(engagementTimeMs) || 2000);
+  const cleanClientId = (clientId || '').replace(/^GA\d+\.\d+\./i, '') || `${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`;
+  const cleanSessionId = sessionId ? `${sessionId}` : `${Math.floor(Date.now() / 1000)}`;
+
+  let targetOrigin = 'https://example.com';
+  try {
+    if (pageLocation && (pageLocation.startsWith('http://') || pageLocation.startsWith('https://'))) {
+      targetOrigin = new URL(pageLocation).origin;
+    }
+  } catch {}
+
   const payloadParams: Record<string, string> = {
     v: '2',
     tid: measurementId,
-    cid: clientId || `GA1.1.${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`,
-    sid: sessionId || `${Math.floor(Date.now() / 1000)}`,
-    en: eventName || 'page_view',
-    dl: pageLocation || `https://example.com${pagePath || '/'}`,
-    dt: pageTitle || 'Page Title',
-    dr: referrer || '',
+    _p: `${Math.floor(Math.random() * 1000000000)}`,
     _s: '1',
-    _p: `${Math.floor(Math.random() * 1000000)}`,
-    seg: '1',
-    sct: '1',
+    cid: cleanClientId,
+    ul: countryLocale,
+    sr: '1920x1080',
+    _ss: '1',
+    _fv: '1',
     _ee: '1',
+    seg: '1',
+    sid: cleanSessionId,
+    sct: '1',
+    en: eventName || 'page_view',
     _et: `${validEngagementMs}`,
     'epn.engagement_time_msec': `${validEngagementMs}`,
-    'ep.page_location': pageLocation || `https://example.com${pagePath || '/'}`,
-    'ep.page_title': pageTitle || 'Page Title',
-    'ep.page_referrer': referrer || '',
+    dl: pageLocation || `${targetOrigin}${pagePath || '/'}`,
+    dt: pageTitle || 'Page Title',
+    dr: referrer || '',
+    uip: authenticCountryIp,
+    _uip: authenticCountryIp,
+    geoid: `${geoData.criteriaId}`,
     'ep.country_code': cleanCountryCode,
     'ep.visitor_country': cleanCountryCode,
     'ep.country': cleanCountryCode,
     'ep.region': proxyRegion,
     'ep.proxy_region': proxyRegion,
     'up.geo_country': cleanCountryCode,
-    uip: authenticCountryIp,
-    _uip: authenticCountryIp,
-    geoid: `${geoData.criteriaId}`,
-    ul: countryLocale,
-    sr: '1920x1080',
   };
 
   if (campaignSource) {
@@ -1317,8 +1326,7 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
 
   const params = new URLSearchParams(payloadParams);
   const rawBodyString = params.toString();
-  const postEndpoint = 'https://www.google-analytics.com/g/collect';
-  const getEndpoint = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
+  const collectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
 
   try {
     let gaRes: any;
@@ -1326,6 +1334,8 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
       'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
       'Accept-Language': `${countryLocale},en;q=0.8`,
       'Content-Type': 'text/plain;charset=UTF-8',
+      'Origin': targetOrigin,
+      'Referer': pageLocation || `${targetOrigin}/`,
       'X-Forwarded-For': authenticCountryIp,
       'Client-IP': authenticCountryIp,
       'CF-Connecting-IP': authenticCountryIp,
@@ -1336,36 +1346,48 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
     };
 
     try {
-      // 1. Primary Method: POST with body to clean /g/collect endpoint (Official gtag.js Beacon format)
-      gaRes = await fetch(postEndpoint, {
+      // 1. Primary: POST to collectUrl with query params + body (Standard Google Analytics Endpoint)
+      gaRes = await fetch(collectUrl, {
         method: 'POST',
         headers: requestHeaders,
         body: rawBodyString,
+        // @ts-ignore
+        agent,
       });
 
-      // 2. Secondary Method: GET with full query string if POST returned non-success
+      // 2. Secondary Fallback: GET request with all params encoded in URL
       if (!gaRes.ok && gaRes.status !== 204) {
-        gaRes = await fetch(getEndpoint, {
+        gaRes = await fetch(collectUrl, {
           method: 'GET',
           headers: {
             'User-Agent': requestHeaders['User-Agent'],
             'Accept-Language': requestHeaders['Accept-Language'],
+            'Origin': targetOrigin,
+            'Referer': pageLocation || `${targetOrigin}/`,
             'X-Forwarded-For': authenticCountryIp,
             'Client-IP': authenticCountryIp,
             'CF-Connecting-IP': authenticCountryIp,
             'CF-IPCountry': cleanCountryCode,
             'X-Country-Code': cleanCountryCode,
           },
+          // @ts-ignore
+          agent,
         });
       }
     } catch {
-      // 3. Fallback without custom headers if network layer threw error
+      // 3. Resilient Direct Fallback if proxy node network errored
       try {
-        gaRes = await fetch(getEndpoint, {
-          method: 'GET',
+        gaRes = await fetch(collectUrl, {
+          method: 'POST',
           headers: {
             'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Content-Type': 'text/plain;charset=UTF-8',
+            'Origin': targetOrigin,
+            'Referer': pageLocation || `${targetOrigin}/`,
+            'X-Forwarded-For': authenticCountryIp,
+            'CF-IPCountry': cleanCountryCode,
           },
+          body: rawBodyString,
         });
       } catch {
         gaRes = { status: 200, ok: true };
@@ -1376,20 +1398,19 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
       success: true,
       status: gaRes?.status || 200,
       measurementId,
-      eventName,
+      clientId: cleanClientId,
+      sessionId: cleanSessionId,
       countryCode: cleanCountryCode,
-      proxyRegion,
       resolvedIp: authenticCountryIp,
       proxyUsed: !!proxyUrl,
-      delivered: true,
       timestamp: Date.now(),
     });
   } catch (err: any) {
     res.json({
       success: true,
-      delivered: true,
-      simulated: true,
+      emulated: true,
       error: err.message,
+      message: 'GA4 collect ping simulated locally',
     });
   }
 });
