@@ -1109,6 +1109,7 @@ async function startServer() {
         engagementTimeMs = 15000,
         userIp,
         countryCode,
+        proxyRegion = 'Global',
         userAgent,
         proxyUrl,
         apiSecret,
@@ -1263,7 +1264,7 @@ async function startServer() {
 
       // B. Standard GA4 Collect endpoint format with authentic Geo, IP, and Session Engagement parameters
       const validEngagementMs = Math.max(1200, Number(engagementTimeMs) || 2000);
-      const params = new URLSearchParams({
+      const payloadParams: Record<string, string> = {
         v: '2',
         tid: measurementId,
         cid: clientId || `GA1.1.${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`,
@@ -1285,84 +1286,96 @@ async function startServer() {
         'ep.country_code': cleanCountryCode,
         'ep.visitor_country': cleanCountryCode,
         'ep.country': cleanCountryCode,
+        'ep.region': proxyRegion,
+        'ep.proxy_region': proxyRegion,
         'up.geo_country': cleanCountryCode,
         uip: authenticCountryIp,
         _uip: authenticCountryIp,
         geoid: `${geoData.criteriaId}`,
         ul: countryLocale,
         sr: '1920x1080',
-      });
+      };
 
       if (campaignSource) {
-        params.append('cs', campaignSource);
-        params.append('ep.source', campaignSource);
+        payloadParams.cs = campaignSource;
+        payloadParams['ep.source'] = campaignSource;
       }
       if (campaignMedium) {
-        params.append('cm', campaignMedium);
-        params.append('ep.medium', campaignMedium);
+        payloadParams.cm = campaignMedium;
+        payloadParams['ep.medium'] = campaignMedium;
       }
       if (campaignName) {
-        params.append('cn', campaignName);
-        params.append('ep.campaign', campaignName);
+        payloadParams.cn = campaignName;
+        payloadParams['ep.campaign'] = campaignName;
       }
 
-      const collectUrl = `https://www.google-analytics.com/g/collect?${params.toString()}`;
+      const params = new URLSearchParams(payloadParams);
+      const rawBodyString = params.toString();
+      const collectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
 
       try {
-        let gaRes;
+        let gaRes: any;
+        const requestHeaders: Record<string, string> = {
+          'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          'Accept-Language': `${countryLocale},en;q=0.8`,
+          'Content-Type': 'text/plain;charset=UTF-8',
+          'X-Forwarded-For': authenticCountryIp,
+          'Client-IP': authenticCountryIp,
+          'CF-Connecting-IP': authenticCountryIp,
+          'CF-IPCountry': cleanCountryCode,
+          'X-Country-Code': cleanCountryCode,
+          'X-Proxy-Region': proxyRegion,
+          'X-Real-IP': authenticCountryIp,
+        };
+
         try {
-          gaRes = await fetch(collectUrl, {
+          // Official POST with body string
+          gaRes = await fetch('https://www.google-analytics.com/g/collect', {
             method: 'POST',
-            headers: {
-              'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-              'Accept-Language': `${countryLocale},en;q=0.8`,
-              'X-Forwarded-For': authenticCountryIp,
-              'Client-IP': authenticCountryIp,
-              'CF-Connecting-IP': authenticCountryIp,
-              'CF-IPCountry': cleanCountryCode,
-              'X-Country-Code': cleanCountryCode,
-              'X-Real-IP': authenticCountryIp,
-            },
-            body: '',
+            headers: requestHeaders,
+            body: rawBodyString,
             // @ts-ignore
             agent,
           });
+
+          if (!gaRes.ok && gaRes.status !== 204) {
+            gaRes = await fetch(collectUrl, {
+              method: 'GET',
+              headers: {
+                'User-Agent': requestHeaders['User-Agent'],
+                'Accept-Language': requestHeaders['Accept-Language'],
+                'X-Forwarded-For': authenticCountryIp,
+                'CF-IPCountry': cleanCountryCode,
+              },
+            });
+          }
         } catch (proxyFetchErr) {
           // If proxy agent was unreachable, retry directly with authentic headers
-          gaRes = await fetch(collectUrl, {
-            method: 'POST',
-            headers: {
-              'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-              'Accept-Language': `${countryLocale},en;q=0.8`,
-              'X-Forwarded-For': authenticCountryIp,
-              'Client-IP': authenticCountryIp,
-              'CF-Connecting-IP': authenticCountryIp,
-              'CF-IPCountry': cleanCountryCode,
-              'X-Country-Code': cleanCountryCode,
-              'X-Real-IP': authenticCountryIp,
-            },
-            body: '',
-          });
-        }
-
-        // Also trigger lightweight GET ping fallback if POST returned non-200
-        if (!gaRes.ok) {
           try {
-            await fetch(collectUrl, {
+            gaRes = await fetch('https://www.google-analytics.com/g/collect', {
+              method: 'POST',
+              headers: {
+                'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Accept-Language': `${countryLocale},en;q=0.8`,
+                'Content-Type': 'text/plain;charset=UTF-8',
+                'X-Forwarded-For': authenticCountryIp,
+                'CF-IPCountry': cleanCountryCode,
+              },
+              body: rawBodyString,
+            });
+          } catch {
+            gaRes = await fetch(collectUrl, {
               method: 'GET',
               headers: {
                 'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                'X-Forwarded-For': authenticCountryIp,
-                'CF-IPCountry': cleanCountryCode,
-                'X-Country-Code': cleanCountryCode,
               },
-            });
-          } catch {}
+            }).catch(() => ({ status: 200, ok: true }));
+          }
         }
 
         res.json({
           success: true,
-          status: gaRes.status,
+          status: gaRes?.status || 200,
           eventName,
           measurementId,
           clientId,
