@@ -10,7 +10,11 @@
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
+      "source": "/api/:match*",
+      "destination": "/api?match=:match*"
+    },
+    {
+      "source": "/api",
       "destination": "/api"
     },
     {

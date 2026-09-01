@@ -62,15 +62,37 @@ app.use((req, res, next) => {
 
 // Normalize Vercel Serverless Function rewritten routes
 app.use((req, res, next) => {
-  // Handle Vercel rewrite parameter like /api?0=ga4/collect-beacon or /api?0=traffic/dispatch-single
-  if (req.query && typeof req.query['0'] === 'string') {
-    const subpath = req.query['0'];
-    req.url = subpath.startsWith('/') ? subpath : `/${subpath}`;
-  } else if (req.url.startsWith('/api/')) {
-    req.url = req.url.slice(4); // convert /api/xyz to /xyz
-  } else if (req.url === '/api') {
-    req.url = '/';
+  // 1. Check for x-matched-path or x-now-route-matches (Vercel edge headers)
+  const matchedPath = (req.headers['x-matched-path'] as string) || (req.headers['x-now-route-matches'] as string) || '';
+  
+  // 2. Check query params injected by Vercel rewrite
+  let subpath = '';
+  if (req.query && typeof req.query['match'] === 'string') {
+    subpath = req.query['match'];
+  } else if (req.query && typeof req.query['0'] === 'string') {
+    subpath = req.query['0'];
   }
+
+  let finalPath = req.url;
+  if (matchedPath && matchedPath.startsWith('/api/')) {
+    finalPath = matchedPath;
+  } else if (subpath) {
+    finalPath = subpath.startsWith('/') ? subpath : `/${subpath}`;
+  }
+
+  // Strip query string for path manipulation but preserve on req.url
+  const queryIndex = finalPath.indexOf('?');
+  const pathWithoutQuery = queryIndex !== -1 ? finalPath.slice(0, queryIndex) : finalPath;
+  const queryString = queryIndex !== -1 ? finalPath.slice(queryIndex) : '';
+
+  if (pathWithoutQuery.startsWith('/api/')) {
+    req.url = pathWithoutQuery.slice(4) + queryString;
+  } else if (pathWithoutQuery === '/api') {
+    req.url = '/' + queryString;
+  } else {
+    req.url = pathWithoutQuery + queryString;
+  }
+
   next();
 });
 
@@ -1980,17 +2002,11 @@ Return ONLY valid JSON matching this schema:
       trafficSources: { organicSearch: 55, socialMedia: 25, direct: 12, referral: 8 },
       searchEngines: { google: 82, bing: 12, duckduckgo: 4, yahoo: 2, baidu: 0, yandex: 0 },
       socialPlatforms: { twitter: 35, linkedin: 25, facebook: 20, instagram: 10, reddit: 8, youtube: 2, tiktok: 0, pinterest: 0 },
-      recommendedCountries: isNigerian ? [
-        { code: 'NG', name: 'Nigeria', weight: 75 },
+      recommendedCountries: [
+        { code: 'US', name: 'United States', weight: 55 },
+        { code: 'CA', name: 'Canada', weight: 25 },
         { code: 'GB', name: 'United Kingdom', weight: 12 },
-        { code: 'US', name: 'United States', weight: 8 },
-        { code: 'GH', name: 'Ghana', weight: 5 }
-      ] : [
-        { code: 'US', name: 'United States', weight: 45 },
-        { code: 'GB', name: 'United Kingdom', weight: 20 },
-        { code: 'DE', name: 'Germany', weight: 15 },
-        { code: 'CA', name: 'Canada', weight: 10 },
-        { code: 'FR', name: 'France', weight: 10 }
+        { code: 'DE', name: 'Germany', weight: 8 },
       ],
       behavior: {
         minDwellSeconds: 35,

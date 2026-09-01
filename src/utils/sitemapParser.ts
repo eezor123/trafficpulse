@@ -243,22 +243,7 @@ async function fetchXmlContent(targetUrl: string): Promise<string> {
     }
   } catch {}
 
-  // 2. Try direct fetch
-  try {
-    const res = await fetch(targetUrl, {
-      headers: {
-        'Accept': 'application/xml,text/xml,application/xhtml+xml,text/html;q=0.9,*/*;q=0.8',
-      },
-    });
-    if (res.ok) {
-      const text = await res.text();
-      if (text.includes('<loc>') || text.includes('<urlset') || text.includes('<sitemapindex') || text.includes('<rss')) {
-        return text;
-      }
-    }
-  } catch {}
-
-  // 3. Try CORS proxies
+  // 2. Try CORS proxies
   const proxies = [
     `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
     `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,

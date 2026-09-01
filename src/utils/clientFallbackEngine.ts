@@ -160,21 +160,7 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
   gtmId?: string;
 }> {
   const browserResilientFetch: FetchFunction = async (url: string, timeoutMs = 6000) => {
-    // 1. Direct browser fetch (for same-origin or CORS-enabled targets)
-    try {
-      const ctrl = new AbortController();
-      const tm = setTimeout(() => ctrl.abort(), timeoutMs);
-      const res = await fetch(url, { signal: ctrl.signal });
-      clearTimeout(tm);
-      if (res.ok) {
-        const text = await res.text();
-        if (text && text.length > 50) {
-          return { ok: true, status: res.status, text };
-        }
-      }
-    } catch {}
-
-    // 2. High-speed CORS proxy endpoints
+    // 1. High-speed CORS proxy endpoints (Keeps visitor physical IP hidden)
     const proxies = [
       `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
       `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
