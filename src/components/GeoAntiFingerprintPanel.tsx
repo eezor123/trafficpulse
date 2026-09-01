@@ -32,10 +32,153 @@ import {
   Check,
   AlertTriangle,
   Terminal,
-  ExternalLink
+  ExternalLink,
+  Target,
+  X,
+  ChevronRight,
+  Filter
 } from 'lucide-react';
 import { AntiFingerprintConfig, GeoCountry, ProxyNode, ProxyEngineConfig } from '../types';
 import { REGIONS_LIST, REGION_PRESETS, GLOBAL_COUNTRIES, DEFAULT_PROXIES } from '../data/organicPresets';
+
+export interface StrictLockdownPreset {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  badge: string;
+  region: string;
+  countryWeights: { code: string; weight: number }[];
+}
+
+export const STRICT_LOCKDOWN_PRESETS: StrictLockdownPreset[] = [
+  {
+    id: 'lock_na',
+    name: 'North America 100%',
+    icon: '🌎',
+    description: '100% United States, Canada & Mexico',
+    badge: 'Tier-1 Core',
+    region: 'North America',
+    countryWeights: [
+      { code: 'US', weight: 70 },
+      { code: 'CA', weight: 25 },
+      { code: 'MX', weight: 5 },
+    ],
+  },
+  {
+    id: 'lock_tier1_en',
+    name: 'English Tier-1 100%',
+    icon: '💎',
+    description: '100% US, UK, Canada, Australia & New Zealand',
+    badge: 'Max RPM',
+    region: 'Americas',
+    countryWeights: [
+      { code: 'US', weight: 45 },
+      { code: 'GB', weight: 25 },
+      { code: 'CA', weight: 15 },
+      { code: 'AU', weight: 10 },
+      { code: 'NZ', weight: 5 },
+    ],
+  },
+  {
+    id: 'lock_weur',
+    name: 'Western Europe 100%',
+    icon: '🇪🇺',
+    description: '100% UK, Germany, France, Netherlands & Italy',
+    badge: 'EU Tier-1',
+    region: 'Europe',
+    countryWeights: [
+      { code: 'GB', weight: 30 },
+      { code: 'DE', weight: 25 },
+      { code: 'FR', weight: 20 },
+      { code: 'NL', weight: 15 },
+      { code: 'IT', weight: 10 },
+    ],
+  },
+  {
+    id: 'lock_dach',
+    name: 'Central Europe / DACH 100%',
+    icon: '🇩🇪',
+    description: '100% Germany, Austria & Switzerland',
+    badge: 'DACH High-CPC',
+    region: 'Europe',
+    countryWeights: [
+      { code: 'DE', weight: 60 },
+      { code: 'AT', weight: 20 },
+      { code: 'CH', weight: 20 },
+    ],
+  },
+  {
+    id: 'lock_apac',
+    name: 'Asia-Pacific Tech 100%',
+    icon: '🌏',
+    description: '100% Japan, South Korea, Singapore, Australia & India',
+    badge: 'APAC Tech',
+    region: 'Asia',
+    countryWeights: [
+      { code: 'JP', weight: 35 },
+      { code: 'KR', weight: 25 },
+      { code: 'AU', weight: 20 },
+      { code: 'SG', weight: 10 },
+      { code: 'IN', weight: 10 },
+    ],
+  },
+  {
+    id: 'lock_oceania',
+    name: 'Oceania 100%',
+    icon: '🇦🇺',
+    description: '100% Australia & New Zealand',
+    badge: 'Oceania',
+    region: 'Oceania',
+    countryWeights: [
+      { code: 'AU', weight: 75 },
+      { code: 'NZ', weight: 25 },
+    ],
+  },
+  {
+    id: 'lock_latam',
+    name: 'Latin America 100%',
+    icon: '🇧🇷',
+    description: '100% Brazil, Mexico, Argentina, Colombia & Chile',
+    badge: 'LATAM Growth',
+    region: 'South America',
+    countryWeights: [
+      { code: 'BR', weight: 35 },
+      { code: 'MX', weight: 30 },
+      { code: 'AR', weight: 15 },
+      { code: 'CO', weight: 10 },
+      { code: 'CL', weight: 10 },
+    ],
+  },
+  {
+    id: 'lock_mideast',
+    name: 'Middle East & Gulf 100%',
+    icon: '🕌',
+    description: '100% UAE, Saudi Arabia, Qatar & Kuwait',
+    badge: 'Gulf Commercial',
+    region: 'Middle East',
+    countryWeights: [
+      { code: 'AE', weight: 45 },
+      { code: 'SA', weight: 35 },
+      { code: 'QA', weight: 10 },
+      { code: 'KW', weight: 10 },
+    ],
+  },
+  {
+    id: 'lock_africa',
+    name: 'Africa Tech 100%',
+    icon: '🌍',
+    description: '100% South Africa, Egypt, Kenya & Morocco',
+    badge: 'Africa Tech',
+    region: 'Africa',
+    countryWeights: [
+      { code: 'ZA', weight: 45 },
+      { code: 'EG', weight: 25 },
+      { code: 'KE', weight: 15 },
+      { code: 'MA', weight: 15 },
+    ],
+  },
+];
 
 interface GeoAntiFingerprintPanelProps {
   fingerprintConfig: AntiFingerprintConfig;
@@ -57,6 +200,9 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
   const [proxySearchQuery, setProxySearchQuery] = useState<string>('');
   const [proxyRegionFilter, setProxyRegionFilter] = useState<string>('all');
   
+  // Custom multi-country checkboxes selection for 100% batch lockdown
+  const [selectedCheckboxCountries, setSelectedCheckboxCountries] = useState<string[]>([]);
+
   // Real-time Geo-IP Verification State
   const [verifyingGeo, setVerifyingGeo] = useState(false);
   const [geoVerifyTargetCountry, setGeoVerifyTargetCountry] = useState('US');
