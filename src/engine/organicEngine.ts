@@ -1382,14 +1382,10 @@ export class OrganicTrafficEngine {
       device: fingerprint.deviceType,
     });
 
-    // GA4 session_start and first landing page_view
-    this.dispatchGa4Beacon(session, 'session_start', landingPage.path, landingPage.title);
-    if (!isReturning && this.config.ga4.sendSessionEvents) {
-      this.dispatchGa4Beacon(session, 'first_visit', landingPage.path, landingPage.title);
-    }
+    // GA4 canonical page_view with session initialization (_ss=1, _fv=1, _ee=1)
     this.dispatchGa4Beacon(session, 'page_view', landingPage.path, landingPage.title);
 
-    // Dispatch REAL HTTP request to target server for landing page
+    // Dispatch REAL HTTP request asynchronously in background
     this.dispatchRealHttpRequest(session, landingPage.url, landingPage.path, landingPage.title);
   }
 
@@ -1572,12 +1568,66 @@ export class OrganicTrafficEngine {
     const campaignMedium = visitor.trafficSource === 'Organic Search' ? 'organic' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource === 'Direct' ? '(none)' : 'referral';
     const pageLocation = `${this.config.targetUrl}${pagePath}`;
     const proxyRegion = visitor.country.region || visitor.proxyUsed?.region || 'Global';
+    const visitorLocale = visitor.country.locale?.split(',')[0]?.trim() || 'en-GB';
+    const visitorIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';
 
-    // 1. Dispatch exclusively via Server-Side Proxy (Injects target country IP, geo headers, criteria ID, and locale)
+    // 1. Direct Edge Beacon (Zero-latency direct ping to Google Analytics Realtime endpoint)
+    if (measurementId && measurementId.startsWith('G-')) {
+      try {
+        const directParams = new URLSearchParams({
+          v: '2',
+          tid: measurementId,
+          _p: `${Math.floor(Math.random() * 1000000000)}`,
+          _s: '1',
+          cid: visitor.gaClientId,
+          ul: visitorLocale.toLowerCase(),
+          sr: visitor.screenResolution || '1920x1080',
+          _ss: '1',
+          _fv: '1',
+          _ee: '1',
+          seg: '1',
+          sid: visitor.gaSessionId,
+          sct: '1',
+          en: eventName || 'page_view',
+          _et: `${effectiveEngagement}`,
+          'epn.engagement_time_msec': `${effectiveEngagement}`,
+          dl: pageLocation,
+          dt: pageTitle,
+          dr: visitor.referrerUrl || '',
+          'ep.country_code': visitor.country.code,
+          'ep.visitor_country': visitor.country.code,
+          'ep.country': visitor.country.code,
+          'ep.region': proxyRegion,
+          'ep.proxy_region': proxyRegion,
+          'up.geo_country': visitor.country.code,
+        });
+
+        if (campaignSource) {
+          directParams.set('cs', campaignSource);
+          directParams.set('ep.source', campaignSource);
+        }
+        if (campaignMedium) {
+          directParams.set('cm', campaignMedium);
+          directParams.set('ep.medium', campaignMedium);
+        }
+        if (this.config.name) {
+          directParams.set('cn', this.config.name);
+          directParams.set('ep.campaign', this.config.name);
+        }
+
+        const directUrl = `https://www.google-analytics.com/g/collect?${directParams.toString()}`;
+        if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+          navigator.sendBeacon(directUrl);
+        } else {
+          fetch(directUrl, { method: 'POST', mode: 'no-cors', keepalive: true }).catch(() => {});
+        }
+      } catch {}
+    }
+
+    // 2. Server-Side Proxy (Injects target country residential IP, geo headers, criteria ID, and proxy node)
     try {
       const proxyUrl = this.formatProxyNodeUrl(visitor.proxyUsed);
       const visitorIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';
-      const visitorLocale = visitor.country.locale?.split(',')[0]?.trim() || 'en-GB';
 
       fetch('/api/ga4/collect-beacon', {
         method: 'POST',
