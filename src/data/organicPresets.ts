@@ -375,6 +375,9 @@ export const DEFAULT_ORGANIC_CONFIG: OrganicVisitorConfig = {
     realTimeSpeedMultiplier: 5, // default 5x acceleration for rich telemetry
     activeConcurrentVisitors: 8,
     sessionPacingJitter: 30,
+    mobileFirstMode: true, // Enable mobile-first execution mode by default for reliable lightweight delivery
+    lightweightPayloads: true, // Compact GA4 query payloads for ultra-low latency mobile delivery
+    reduceMobileThreadUsage: true, // Throttles heavy animations to preserve mobile battery & JS execution thread
   },
   fingerprint: {
     enableAntiFingerprint: true,

@@ -59,6 +59,11 @@ export class OrganicTrafficEngine {
   private topKeywordVisits: Record<string, number> = {};
   private ga4EventsCount: number = 0;
 
+  // Mobile-First execution optimization
+  private isMobileExecution: boolean = false;
+  private tickIntervalMs: number = 500;
+  private lastTelemetryBroadcast: number = 0;
+
   // Catalog unvisited queue & country history for repetition / non-repetition
   private catalogUnvisitedQueue: CrawledPage[] = [];
   private lastUsedCountryCodes: string[] = [];
@@ -79,6 +84,8 @@ export class OrganicTrafficEngine {
     callbacks: OrganicEngineCallbacks
   ) {
     this.config = config;
+    this.isMobileExecution = this.detectMobileExecutionMode();
+    this.tickIntervalMs = this.isMobileExecution || config.behavior.reduceMobileThreadUsage ? 1000 : 500;
     
     let targetOrigin = config.targetUrl;
     try {
@@ -118,6 +125,26 @@ export class OrganicTrafficEngine {
     this.callbacks = callbacks;
   }
 
+  public isMobile(): boolean {
+    return this.isMobileExecution;
+  }
+
+  public detectMobileExecutionMode(): boolean {
+    if (this.config.behavior.mobileFirstMode !== undefined) {
+      return Boolean(this.config.behavior.mobileFirstMode);
+    }
+    if (typeof navigator !== 'undefined') {
+      const ua = navigator.userAgent || '';
+      if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) {
+        return true;
+      }
+      if (typeof window !== 'undefined' && window.innerWidth < 768) {
+        return true;
+      }
+    }
+    return true; // Default to mobile-optimized execution for maximum reliability across devices
+  }
+
   public start() {
     if (this.isRunning) return;
     this.isRunning = true;
@@ -138,16 +165,20 @@ export class OrganicTrafficEngine {
     this.countryRotationIndex = 0;
     this.persistentProfiles = [];
 
+    // Re-evaluate mobile optimization on start
+    this.isMobileExecution = this.detectMobileExecutionMode();
+    this.tickIntervalMs = this.isMobileExecution || this.config.behavior.reduceMobileThreadUsage ? 1000 : 500;
+
     // Fill initial concurrent visitor pool
     const targetConcurrent = Math.max(1, this.config.behavior.activeConcurrentVisitors || 5);
     for (let i = 0; i < targetConcurrent; i++) {
       this.spawnVisitor();
     }
 
-    // Engine Main Loop Ticker (runs every 500ms)
+    // Engine Main Loop Ticker (adaptive pacing: 1000ms for Mobile-First, 500ms for Desktop)
     this.timer = setInterval(() => {
       this.tick();
-    }, 500);
+    }, this.tickIntervalMs);
   }
 
   public pause() {
@@ -286,7 +317,8 @@ export class OrganicTrafficEngine {
       badgeColor: badgeColor || '#38bdf8',
     };
     visitor.liveActionLogs.unshift(log);
-    if (visitor.liveActionLogs.length > 50) {
+    const maxLogs = this.isMobileExecution ? 8 : 35;
+    if (visitor.liveActionLogs.length > maxLogs) {
       visitor.liveActionLogs.pop();
     }
   }
@@ -295,7 +327,8 @@ export class OrganicTrafficEngine {
     if (!this.isRunning || this.isPaused) return;
 
     const speed = Math.max(1, this.config.behavior.realTimeSpeedMultiplier || 1);
-    const tickDeltaSeconds = 0.5 * speed;
+    const baseDelta = this.tickIntervalMs / 1000;
+    const tickDeltaSeconds = baseDelta * speed;
 
     const targetVisits = this.config.behavior.targetTotalVisits || 0;
     const targetPageViews = this.config.behavior.targetTotalPageViews || 0;
@@ -1574,6 +1607,7 @@ export class OrganicTrafficEngine {
     // 1. Direct Edge Beacon (Zero-latency direct ping to Google Analytics Realtime endpoint)
     if (measurementId && measurementId.startsWith('G-')) {
       try {
+        const isLightweight = this.isMobileExecution || this.config.behavior.lightweightPayloads;
         const directParams = new URLSearchParams({
           v: '2',
           tid: measurementId,
@@ -1581,7 +1615,7 @@ export class OrganicTrafficEngine {
           _s: '1',
           cid: visitor.gaClientId,
           ul: visitorLocale.toLowerCase(),
-          sr: visitor.screenResolution || '1920x1080',
+          sr: visitor.screenResolution || (this.isMobileExecution ? '390x844' : '1920x1080'),
           _ss: '1',
           _fv: '1',
           _ee: '1',
@@ -1595,12 +1629,15 @@ export class OrganicTrafficEngine {
           dt: pageTitle,
           dr: visitor.referrerUrl || '',
           'ep.country_code': visitor.country.code,
-          'ep.visitor_country': visitor.country.code,
-          'ep.country': visitor.country.code,
-          'ep.region': proxyRegion,
-          'ep.proxy_region': proxyRegion,
           'up.geo_country': visitor.country.code,
         });
+
+        if (!isLightweight) {
+          directParams.set('ep.visitor_country', visitor.country.code);
+          directParams.set('ep.country', visitor.country.code);
+          directParams.set('ep.region', proxyRegion);
+          directParams.set('ep.proxy_region', proxyRegion);
+        }
 
         if (campaignSource) {
           directParams.set('cs', campaignSource);
@@ -1610,12 +1647,13 @@ export class OrganicTrafficEngine {
           directParams.set('cm', campaignMedium);
           directParams.set('ep.medium', campaignMedium);
         }
-        if (this.config.name) {
+        if (this.config.name && !isLightweight) {
           directParams.set('cn', this.config.name);
           directParams.set('ep.campaign', this.config.name);
         }
 
         const directUrl = `https://www.google-analytics.com/g/collect?${directParams.toString()}`;
+        // Prioritize sendBeacon for zero-thread-blocking OS level transmission on mobile & modern browsers
         if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
           navigator.sendBeacon(directUrl);
         } else {
@@ -1628,10 +1666,17 @@ export class OrganicTrafficEngine {
     try {
       const proxyUrl = this.formatProxyNodeUrl(visitor.proxyUsed);
       const visitorIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';
+      const isLightweight = this.isMobileExecution || this.config.behavior.lightweightPayloads;
+
+      // Use AbortController timeout to prevent socket starvation on mobile
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 4000) : null;
 
       fetch('/api/ga4/collect-beacon', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller?.signal,
+        keepalive: true,
         body: JSON.stringify({
           measurementId: measurementId || 'G-SIMULATED',
           apiSecret: this.config.ga4.apiSecret || undefined,
@@ -1652,9 +1697,12 @@ export class OrganicTrafficEngine {
           campaignMedium,
           campaignName: this.config.name || 'Organic Traffic Boost',
           proxyUrl,
+          isLightweight,
         }),
+      }).then(() => {
+        if (timeoutId) clearTimeout(timeoutId);
       }).catch((err) => {
-        console.warn('GA4 server proxy dispatch notice:', err);
+        if (timeoutId) clearTimeout(timeoutId);
       });
     } catch {}
   }

@@ -7,16 +7,19 @@ import {
   Layers, 
   ArrowDownUp, 
   ShieldCheck, 
-  Sliders,
-  Send,
-  Sparkles,
-  CheckCircle2,
-  Users,
-  Link2,
-  Megaphone,
-  FileText,
-  MousePointerClick,
-  Sparkle
+  Sliders, 
+  Send, 
+  Sparkles, 
+  CheckCircle2, 
+  Users, 
+  Link2, 
+  Megaphone, 
+  FileText, 
+  MousePointerClick, 
+  Sparkle,
+  Smartphone,
+  Cpu,
+  Wifi
 } from 'lucide-react';
 import { Ga4TrackerConfig, VisitorBehaviorConfig, MemberUser } from '../types';
 
@@ -949,6 +952,98 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
               {behavior.visitorRetentionMode === 'mixed_returning' 
                 ? `Simulates returning visitors (~${100 - (behavior.newVsReturningRatio || 75)}% returning with persistent cookies/GA IDs)` 
                 : 'Generates fresh GA Client IDs, browser cookies, and IPs for every visitor session'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* MOBILE-FIRST PERFORMANCE & LIGHTWEIGHT BEACON PAYLOADS */}
+      <div className="bg-slate-950/90 border border-emerald-500/30 rounded-xl p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <Smartphone className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                  Mobile-First Execution & Lightweight Beacon Engine
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 font-mono text-[9px] font-bold border border-emerald-500/30 flex items-center gap-1">
+                  <Cpu className="w-2.5 h-2.5" />
+                  <span>Ultra-Low Latency</span>
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Prioritizes non-blocking OS sendBeacon delivery, reduces JavaScript CPU loop overhead, and trims beacon query payloads for mobile Safari & Chrome.
+              </p>
+            </div>
+          </div>
+          <span className={`px-2.5 py-1 rounded-full font-mono text-[10px] font-bold border flex items-center gap-1.5 self-start sm:self-auto ${
+            behavior.mobileFirstMode !== false
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+              : 'bg-slate-800 text-slate-400 border-slate-700'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${behavior.mobileFirstMode !== false ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+            <span>{behavior.mobileFirstMode !== false ? 'Mobile-First Active' : 'Standard Mode'}</span>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
+          {/* 1. Mobile-First Mode Toggle */}
+          <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-xs font-bold text-slate-200">Mobile-First Priority</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={behavior.mobileFirstMode !== false}
+                onChange={(e) => onChangeBehavior({ ...behavior, mobileFirstMode: e.target.checked })}
+                className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
+              />
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Enables adaptive pacing (1000ms ticker), prioritizing OS-level <code className="text-emerald-300 font-mono text-[10px]">navigator.sendBeacon</code> transmission even when mobile users switch browser tabs.
+            </p>
+          </div>
+
+          {/* 2. Lightweight Query Payloads */}
+          <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-xs font-bold text-slate-200">Lightweight Payloads</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={behavior.lightweightPayloads !== false}
+                onChange={(e) => onChangeBehavior({ ...behavior, lightweightPayloads: e.target.checked })}
+                className="w-4 h-4 rounded accent-cyan-500 cursor-pointer"
+              />
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Trims redundant query string bloat, packing essential GA4 session indicators (<code className="text-cyan-300 font-mono text-[10px]">_ss=1</code>, <code className="text-cyan-300 font-mono text-[10px]">_fv=1</code>, <code className="text-cyan-300 font-mono text-[10px]">_ee=1</code>) for fast packet arrival on 4G/5G mobile connections.
+            </p>
+          </div>
+
+          {/* 3. Reduce Mobile Thread Usage */}
+          <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-xs font-bold text-slate-200">CPU & Thread Shield</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={behavior.reduceMobileThreadUsage !== false}
+                onChange={(e) => onChangeBehavior({ ...behavior, reduceMobileThreadUsage: e.target.checked })}
+                className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
+              />
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Throttles high-frequency cursor trajectory calculations and limits in-memory action logs, preventing mobile garbage collection pauses and battery drain.
             </p>
           </div>
         </div>

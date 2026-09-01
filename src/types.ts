@@ -188,6 +188,11 @@ export interface VisitorBehaviorConfig {
   realTimeSpeedMultiplier: number; // 1 = 1x real-time dwell (ideal for live GA4), 5 = 5x accelerated
   activeConcurrentVisitors: number; // e.g. 5 to 50 concurrent visitors
   sessionPacingJitter: number; // 0-100% variance in dwell pace
+
+  // MOBILE-FIRST EXECUTION & LIGHTWEIGHT BEACON MODE
+  mobileFirstMode?: boolean; // Prioritizes lightweight beacon payloads, optimized ticker, and reduced JS execution complexity
+  lightweightPayloads?: boolean; // Compact GA4 query payloads for ultra-low latency mobile delivery
+  reduceMobileThreadUsage?: boolean; // Throttles non-essential DOM animations & React state dispatches on mobile devices
 }
 
 // ==========================================

@@ -253,7 +253,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
             )}
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base font-bold text-white tracking-wide">Live Autonomous Visitor Stream & Simulator</h2>
               {status === 'running' && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 flex items-center gap-1">
@@ -261,6 +261,10 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                   <span>DISPATCHING LIVE</span>
                 </span>
               )}
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 flex items-center gap-1">
+                <Smartphone className="w-2.5 h-2.5 text-emerald-400" />
+                <span>Mobile-First Engine</span>
+              </span>
             </div>
             <p className="text-xs text-slate-400">
               Monitoring simulated human visitors exploring target domain pages with live cursor trajectory, smooth scrolling, link/ad interactions, and real-time progress logging.
