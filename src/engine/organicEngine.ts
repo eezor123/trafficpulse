@@ -1654,122 +1654,71 @@ export class OrganicTrafficEngine {
     const visitorLocale = visitor.country.locale?.split(',')[0]?.trim() || 'en-GB';
     const visitorIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';
 
-    // 1. Direct Edge Beacon (Zero-latency direct ping to Google Analytics Realtime endpoint)
-    if (measurementId && measurementId.startsWith('G-')) {
-      try {
-        const isLightweight = this.isMobileExecution || this.config.behavior.lightweightPayloads;
-        const directParams = new URLSearchParams({
-          v: '2',
-          tid: measurementId,
-          _p: `${Math.floor(Math.random() * 1000000000)}`,
-          _s: '1',
-          cid: visitor.gaClientId,
-          ul: visitorLocale.toLowerCase(),
-          sr: visitor.screenResolution || (this.isMobileExecution ? '390x844' : '1920x1080'),
-          _ss: '1',
-          _fv: '1',
-          _ee: '1',
-          seg: '1',
-          sid: visitor.gaSessionId,
-          sct: '1',
-          en: eventName || 'page_view',
-          _et: `${effectiveEngagement}`,
-          'epn.engagement_time_msec': `${effectiveEngagement}`,
-          dl: pageLocation,
-          dt: pageTitle,
-          dr: visitor.referrerUrl || '',
-          'ep.country_code': visitor.country.code,
-          'up.geo_country': visitor.country.code,
-        });
-
-        // Add standard GA4 Enhanced Measurement Click parameters
-        if (eventName === 'click' || clickParams) {
-          const lUrl = clickParams?.linkUrl || `${this.config.targetUrl}/out/${encodeURIComponent(pageTitle)}`;
-          const lText = clickParams?.linkText || pageTitle;
-          const lDomain = clickParams?.linkDomain || 'external-partner.com';
-          directParams.set('ep.link_url', lUrl);
-          directParams.set('ep.link_text', lText);
-          directParams.set('ep.outbound', clickParams?.outbound !== false ? 'true' : 'false');
-          directParams.set('ep.link_domain', lDomain);
-          directParams.set('ep.link_classes', clickParams?.linkClasses || 'cta-btn external-link');
-          if (clickParams?.linkId) {
-            directParams.set('ep.link_id', clickParams.linkId);
-          }
-        }
-
-        if (!isLightweight) {
-          directParams.set('ep.visitor_country', visitor.country.code);
-          directParams.set('ep.country', visitor.country.code);
-          directParams.set('ep.region', proxyRegion);
-          directParams.set('ep.proxy_region', proxyRegion);
-        }
-
-        if (campaignSource) {
-          directParams.set('cs', campaignSource);
-          directParams.set('ep.source', campaignSource);
-        }
-        if (campaignMedium) {
-          directParams.set('cm', campaignMedium);
-          directParams.set('ep.medium', campaignMedium);
-        }
-        if (this.config.name && !isLightweight) {
-          directParams.set('cn', this.config.name);
-          directParams.set('ep.campaign', this.config.name);
-        }
-
-        const directUrl = `https://www.google-analytics.com/g/collect?${directParams.toString()}`;
-        // Prioritize sendBeacon for zero-thread-blocking OS level transmission on mobile & modern browsers
-        if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-          navigator.sendBeacon(directUrl);
-        } else {
-          fetch(directUrl, { method: 'POST', mode: 'no-cors', keepalive: true }).catch(() => {});
-        }
-      } catch {}
-    }
-
-    // 2. Server-Side Proxy (Injects target country residential IP, geo headers, criteria ID, and proxy node)
+    // =========================================================================
+    // DISPATCH GA4 MEASUREMENT BEACON THROUGH RESIDENTIAL GEO-PROXY PIPELINE
+    // Routes exclusively through /api/ga4/collect-beacon to ensure Google Analytics
+    // receives authentic Target-Country Residential IPs (US/CA/etc.) and criteria IDs
+    // rather than the user's local physical ISP IP.
+    // =========================================================================
     try {
       const proxyUrl = this.formatProxyNodeUrl(visitor.proxyUsed);
-      const visitorIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';
       const isLightweight = this.isMobileExecution || this.config.behavior.lightweightPayloads;
+      const cleanCountryCode = (visitor.country.code || 'US').toUpperCase();
 
-      // Use AbortController timeout to prevent socket starvation on mobile
-      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timeoutId = controller ? setTimeout(() => controller.abort(), 4000) : null;
+      const beaconPayload = {
+        measurementId: measurementId || 'G-SIMULATED',
+        apiSecret: this.config.ga4.apiSecret || undefined,
+        clientId: visitor.gaClientId,
+        sessionId: visitor.gaSessionId,
+        eventName: eventName || 'page_view',
+        pageTitle: pageTitle || 'Page Title',
+        pagePath: pagePath || '/',
+        pageLocation,
+        referrer: visitor.referrerUrl || '',
+        engagementTimeMs: effectiveEngagement,
+        userIp: visitorIp,
+        countryCode: cleanCountryCode,
+        locale: visitorLocale,
+        proxyRegion,
+        userAgent: visitor.userAgent,
+        campaignSource,
+        campaignMedium,
+        campaignName: this.config.name || 'Organic Traffic Boost',
+        proxyUrl,
+        isLightweight,
+        clickParams,
+      };
 
-      fetch('/api/ga4/collect-beacon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller?.signal,
-        keepalive: true,
-        body: JSON.stringify({
-          measurementId: measurementId || 'G-SIMULATED',
-          apiSecret: this.config.ga4.apiSecret || undefined,
-          clientId: visitor.gaClientId,
-          sessionId: visitor.gaSessionId,
-          eventName,
-          pageTitle,
-          pagePath,
-          pageLocation,
-          referrer: visitor.referrerUrl,
-          engagementTimeMs: effectiveEngagement,
-          userIp: visitorIp,
-          countryCode: visitor.country.code,
-          locale: visitorLocale,
-          proxyRegion,
-          userAgent: visitor.userAgent,
-          campaignSource,
-          campaignMedium,
-          campaignName: this.config.name || 'Organic Traffic Boost',
-          proxyUrl,
-          isLightweight,
-          clickParams,
-        }),
-      }).then(() => {
-        if (timeoutId) clearTimeout(timeoutId);
-      }).catch((err) => {
-        if (timeoutId) clearTimeout(timeoutId);
-      });
+      const payloadJson = JSON.stringify(beaconPayload);
+
+      // 1. Use navigator.sendBeacon with local proxy endpoint for zero-blocking background delivery on mobile
+      let beaconSent = false;
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        try {
+          const blob = new Blob([payloadJson], { type: 'application/json' });
+          beaconSent = navigator.sendBeacon('/api/ga4/collect-beacon', blob);
+        } catch {
+          beaconSent = false;
+        }
+      }
+
+      // 2. Use fetch fallback with keepalive if sendBeacon is unavailable or failed
+      if (!beaconSent) {
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 6000) : null;
+
+        fetch('/api/ga4/collect-beacon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller?.signal,
+          keepalive: true,
+          body: payloadJson,
+        }).then(() => {
+          if (timeoutId) clearTimeout(timeoutId);
+        }).catch(() => {
+          if (timeoutId) clearTimeout(timeoutId);
+        });
+      }
     } catch {}
   }
 

@@ -1114,6 +1114,11 @@ router.post('/traffic/dispatch-single', async (req: Request, res: Response) => {
 
 // GA4 Measurement Protocol and Direct Collect proxy
 router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
+  let bodyData = req.body || {};
+  if (typeof bodyData === 'string') {
+    try { bodyData = JSON.parse(bodyData); } catch {}
+  }
+
   const {
     measurementId,
     apiSecret,
@@ -1134,7 +1139,7 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
     campaignMedium = 'organic',
     campaignName,
     campaignTerm,
-  } = req.body;
+  } = bodyData;
 
   if (!measurementId || measurementId.startsWith('G-SIMULATED')) {
     return res.json({
@@ -1150,11 +1155,18 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
   const cleanCountryCode = (countryCode || 'US').toUpperCase();
   const COUNTRY_GEO_REGISTRY: Record<string, { criteriaId: number; ipSubnets: string[]; locale: string }> = {
     // North America
-    US: { criteriaId: 2840, ipSubnets: ['24.120', '73.180', '98.210', '108.45', '174.60', '67.160', '76.100', '24.105', '68.192'], locale: 'en-US' },
-    CA: { criteriaId: 2124, ipSubnets: ['24.200', '70.24', '99.230', '142.112', '174.112', '198.53', '207.161'], locale: 'en-CA' },
+    US: { criteriaId: 2840, ipSubnets: ['24.120', '73.180', '98.210', '108.45', '174.60', '67.160', '76.100', '24.105', '68.192', '71.198', '75.140'], locale: 'en-US' },
+    CA: { criteriaId: 2124, ipSubnets: ['24.200', '70.24', '99.230', '142.112', '174.112', '198.53', '207.161', '142.250'], locale: 'en-CA' },
     MX: { criteriaId: 2484, ipSubnets: ['132.248', '187.188', '201.140', '189.200', '200.68'], locale: 'es-MX' },
-    CR: { criteriaId: 2188, ipSubnets: ['186.15', '190.113', '201.192'], locale: 'es-CR' },
-    PA: { criteriaId: 2591, ipSubnets: ['200.46', '190.216'], locale: 'es-PA' },
+    CR: { criteriaId: 2188, ipSubnets: ['186.15', '190.113', '201.192', '196.40'], locale: 'es-CR' },
+    PA: { criteriaId: 2591, ipSubnets: ['200.46', '190.216', '186.188'], locale: 'es-PA' },
+    DO: { criteriaId: 2214, ipSubnets: ['200.88', '190.166', '186.6'], locale: 'es-DO' },
+    JM: { criteriaId: 2388, ipSubnets: ['196.3', '190.213', '208.131'], locale: 'en-JM' },
+    GT: { criteriaId: 2320, ipSubnets: ['200.30', '190.148', '186.151'], locale: 'es-GT' },
+    PR: { criteriaId: 2630, ipSubnets: ['196.12', '208.80', '192.171'], locale: 'es-PR' },
+    SV: { criteriaId: 2222, ipSubnets: ['200.31', '190.86', '186.182'], locale: 'es-SV' },
+    HN: { criteriaId: 2340, ipSubnets: ['190.92', '190.4', '186.2'], locale: 'es-HN' },
+    BS: { criteriaId: 2044, ipSubnets: ['196.196', '199.167'], locale: 'en-BS' },
 
     // Europe (All Major & Regional European Countries)
     GB: { criteriaId: 2826, ipSubnets: ['82.35', '86.150', '90.200', '92.238', '151.224', '185.120', '2.24', '81.130'], locale: 'en-GB' },
