@@ -1024,7 +1024,9 @@ export class OrganicTrafficEngine {
       enabledCountries = allConfigured.filter(c => c.enabled !== false);
     }
     if (enabledCountries.length === 0) {
-      enabledCountries = allConfigured;
+      // If user explicitly disabled all, default to US/CA rather than un-filtering global pool
+      const usFallback = allConfigured.filter(c => c.code === 'US' || c.code === 'CA');
+      enabledCountries = usFallback.length > 0 ? usFallback : [allConfigured[0]];
     }
 
     // Check if Proxy Engine has specific region filters (applied ONLY within enabled countries)
