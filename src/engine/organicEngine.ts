@@ -619,7 +619,21 @@ export class OrganicTrafficEngine {
 
           // Dispatch GA4 in-article click beacon
           if (this.config.ga4.sendEngagementEvents) {
-            this.dispatchGa4Beacon(visitor, 'click', currentPage.path, chosenLink);
+            this.dispatchGa4Beacon(
+              visitor, 
+              'click', 
+              currentPage.path, 
+              chosenLink, 
+              1500, 
+              {
+                linkUrl: `${this.config.targetUrl}/link/${encodeURIComponent(chosenLink.replace(/[^a-zA-Z0-9]/g, '-'))}`,
+                linkText: chosenLink,
+                outbound: true,
+                linkDomain: 'outbound.partner.com',
+                linkClasses: 'article-link in-content',
+                linkId: `lnk_${Date.now()}`
+              }
+            );
           }
 
           this.callbacks.onTelemetryEvent({
@@ -686,9 +700,23 @@ export class OrganicTrafficEngine {
               '#f59e0b'
             );
 
-            // Dispatch GA4 ad click beacon
+            // Dispatch GA4 ad click beacon (select_content + click event)
             if (this.config.ga4.sendEngagementEvents) {
-              this.dispatchGa4Beacon(visitor, 'select_content', currentPage.path, `Ad - ${pickedAd.name}`);
+              this.dispatchGa4Beacon(
+                visitor, 
+                'select_content', 
+                currentPage.path, 
+                `Ad - ${pickedAd.name}`,
+                1200,
+                {
+                  linkUrl: `https://googleads.g.doubleclick.net/pagead/ads?client=ca-pub-${Math.floor(1000000000000000 + Math.random() * 9000000000000000)}&slotname=${pickedAd.slot}`,
+                  linkText: pickedAd.name,
+                  outbound: true,
+                  linkDomain: 'googleads.g.doubleclick.net',
+                  linkClasses: 'ad-banner-slot external-ad-link',
+                  linkId: `ad_${pickedAd.slot}`
+                }
+              );
             }
 
             this.callbacks.onTelemetryEvent({
@@ -751,7 +779,21 @@ export class OrganicTrafficEngine {
 
           // Dispatch GA4 click interaction event
           if (this.config.ga4.sendEngagementEvents) {
-            this.dispatchGa4Beacon(visitor, 'click', currentPage.path, `${currentPage.title} - ${targetName}`);
+            this.dispatchGa4Beacon(
+              visitor, 
+              'click', 
+              currentPage.path, 
+              `${currentPage.title} - ${targetName}`,
+              1200,
+              {
+                linkUrl: `${this.config.targetUrl}${currentPage.path}#${targetName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+                linkText: targetName,
+                outbound: false,
+                linkDomain: this.config.targetUrl ? new URL(this.config.targetUrl).hostname : 'mysite.com',
+                linkClasses: 'interactive-ui-element btn-click',
+                linkId: `btn_${Math.random().toString(36).substr(2, 6)}`
+              }
+            );
           }
 
           // Emit Live Telemetry Event
@@ -1587,7 +1629,15 @@ export class OrganicTrafficEngine {
     eventName: string,
     pagePath: string,
     pageTitle: string,
-    engagementTimeMs: number = 0
+    engagementTimeMs: number = 0,
+    clickParams?: {
+      linkUrl?: string;
+      linkText?: string;
+      outbound?: boolean;
+      linkDomain?: string;
+      linkClasses?: string;
+      linkId?: string;
+    }
   ) {
     this.ga4EventsCount += 1;
     if (!this.config.ga4.autoSendMeasurementProtocol) return;
@@ -1631,6 +1681,21 @@ export class OrganicTrafficEngine {
           'ep.country_code': visitor.country.code,
           'up.geo_country': visitor.country.code,
         });
+
+        // Add standard GA4 Enhanced Measurement Click parameters
+        if (eventName === 'click' || clickParams) {
+          const lUrl = clickParams?.linkUrl || `${this.config.targetUrl}/out/${encodeURIComponent(pageTitle)}`;
+          const lText = clickParams?.linkText || pageTitle;
+          const lDomain = clickParams?.linkDomain || 'external-partner.com';
+          directParams.set('ep.link_url', lUrl);
+          directParams.set('ep.link_text', lText);
+          directParams.set('ep.outbound', clickParams?.outbound !== false ? 'true' : 'false');
+          directParams.set('ep.link_domain', lDomain);
+          directParams.set('ep.link_classes', clickParams?.linkClasses || 'cta-btn external-link');
+          if (clickParams?.linkId) {
+            directParams.set('ep.link_id', clickParams.linkId);
+          }
+        }
 
         if (!isLightweight) {
           directParams.set('ep.visitor_country', visitor.country.code);
@@ -1698,6 +1763,7 @@ export class OrganicTrafficEngine {
           campaignName: this.config.name || 'Organic Traffic Boost',
           proxyUrl,
           isLightweight,
+          clickParams,
         }),
       }).then(() => {
         if (timeoutId) clearTimeout(timeoutId);

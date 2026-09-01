@@ -1338,6 +1338,16 @@ async function startServer() {
         payloadParams['ep.campaign'] = campaignName;
       }
 
+      if (eventName === 'click' || req.body.clickParams) {
+        const cp = req.body.clickParams || {};
+        payloadParams['ep.link_url'] = cp.linkUrl || `${pageLocation || targetOrigin}/out/link`;
+        payloadParams['ep.link_text'] = cp.linkText || pageTitle || 'Click';
+        payloadParams['ep.outbound'] = cp.outbound !== false ? 'true' : 'false';
+        payloadParams['ep.link_domain'] = cp.linkDomain || 'external-partner.com';
+        payloadParams['ep.link_classes'] = cp.linkClasses || 'cta-button';
+        if (cp.linkId) payloadParams['ep.link_id'] = cp.linkId;
+      }
+
       const params = new URLSearchParams(payloadParams);
       const rawBodyString = params.toString();
       const collectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
