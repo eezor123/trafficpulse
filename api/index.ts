@@ -60,6 +60,20 @@ app.use((req, res, next) => {
   next();
 });
 
+// Normalize Vercel Serverless Function rewritten routes
+app.use((req, res, next) => {
+  // Handle Vercel rewrite parameter like /api?0=ga4/collect-beacon or /api?0=traffic/dispatch-single
+  if (req.query && typeof req.query['0'] === 'string') {
+    const subpath = req.query['0'];
+    req.url = subpath.startsWith('/') ? subpath : `/${subpath}`;
+  } else if (req.url.startsWith('/api/')) {
+    req.url = req.url.slice(4); // convert /api/xyz to /xyz
+  } else if (req.url === '/api') {
+    req.url = '/';
+  }
+  next();
+});
+
 const router = express.Router();
 
 // ----------------------------------------------------

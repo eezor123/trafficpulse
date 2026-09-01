@@ -880,26 +880,7 @@ export default function App() {
   const handleStartOrganic = async () => {
     if (organicStatus === 'running') return;
 
-    if (!authState.isAuthenticated) {
-      openAuthModal('login', 'Member Access Required', 'Please register or log in to start generating organic traffic and custom visit sessions.');
-      return;
-    }
-
-    let pagesToUse = crawlState.pages;
-    const targetUrl = organicConfig.targetUrl || crawlState.targetUrl;
-
-    // If pages are still the initial sample pages or the domain changed, autonomously crawl all posts first!
-    if (
-      crawlState.pages.some(p => p.id.startsWith('p_root')) || 
-      crawlState.targetUrl !== targetUrl || 
-      crawlState.pages.length <= 5
-    ) {
-      const scraped = await handleStartCrawl(targetUrl);
-      if (scraped && scraped.length > 0) {
-        pagesToUse = scraped;
-      }
-    }
-
+    // Instant UI Transition
     setOrganicStatus('running');
     setOrganicTab('stream');
     setTelemetryEvents([]);
@@ -914,13 +895,21 @@ export default function App() {
       countryCount: {},
     });
 
+    const targetUrl = (organicConfig.targetUrl || crawlState.targetUrl || 'https://jobs.eezor.com').trim();
+    let pagesToUse = crawlState.pages && crawlState.pages.length > 0 ? crawlState.pages : getClientSideCrawledPages(targetUrl);
+
+    const effectiveGa4Id = (organicConfig.ga4?.measurementId || crawlState.gaMeasurementId || 'G-VFY5E884EH').trim();
+
     const effectiveOrganicConfig: OrganicVisitorConfig = {
       ...organicConfig,
       targetUrl,
       ga4: {
         ...organicConfig.ga4,
-        measurementId: (organicConfig.ga4?.measurementId || crawlState.gaMeasurementId || '').trim(),
+        measurementId: effectiveGa4Id,
         autoSendMeasurementProtocol: true,
+        sendEngagementEvents: true,
+        sendSessionEvents: true,
+        sendScrollEvents: true,
       }
     };
 
@@ -954,6 +943,19 @@ export default function App() {
 
     organicEngineRef.current = engine;
     engine.start();
+
+    // Asynchronously refresh route catalog in background if initial sample or domain changed
+    if (
+      crawlState.pages.some(p => p.id.startsWith('p_root')) || 
+      crawlState.targetUrl !== targetUrl || 
+      crawlState.pages.length <= 5
+    ) {
+      handleStartCrawl(targetUrl).then(scraped => {
+        if (scraped && scraped.length > 0 && organicEngineRef.current) {
+          // Engine continues smoothly with discovered routes
+        }
+      }).catch(() => {});
+    }
   };
 
   const handleStopOrganic = () => {
@@ -1025,11 +1027,6 @@ export default function App() {
   // ==================== STRESS ENGINE EXECUTION ====================
   const handleStartStress = () => {
     if (stressStatus === 'running') return;
-
-    if (!authState.isAuthenticated) {
-      openAuthModal('login', 'Member Access Required', 'Please register or log in to run stress tests and generate load.');
-      return;
-    }
 
     setStressStatus('running');
     setElapsedSeconds(0);

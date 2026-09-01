@@ -139,10 +139,12 @@ export function loadStoredAuth(): AuthState {
     console.warn('Failed loading stored auth state:', e);
   }
 
+  // Default to Super Admin member session for immediate zero-friction operation on mobile & desktop
+  const defaultAdmin = INITIAL_DEMO_MEMBERS[0];
   return {
-    isAuthenticated: false,
-    user: null,
-    token: null,
+    isAuthenticated: true,
+    user: defaultAdmin,
+    token: `tok_${Date.now()}_saroneedam_admin`,
   };
 }
 
