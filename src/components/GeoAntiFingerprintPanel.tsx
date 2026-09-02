@@ -53,16 +53,59 @@ export interface StrictLockdownPreset {
 
 export const STRICT_LOCKDOWN_PRESETS: StrictLockdownPreset[] = [
   {
+    id: 'lock_ca_100',
+    name: 'Canada 100% Strict Lockdown',
+    icon: '🇨🇦',
+    description: '100% Canada Traffic (Rogers, Bell, Telus, Shaw Canadian Residential Proxies Only)',
+    badge: 'Canada 100%',
+    region: 'North America',
+    countryWeights: [
+      { code: 'CA', weight: 100 },
+    ],
+  },
+  {
+    id: 'lock_us_100',
+    name: 'United States 100%',
+    icon: '🇺🇸',
+    description: '100% USA Traffic (Comcast, AT&T, Verizon Residential Proxies Only)',
+    badge: 'USA 100%',
+    region: 'North America',
+    countryWeights: [
+      { code: 'US', weight: 100 },
+    ],
+  },
+  {
+    id: 'lock_gb_100',
+    name: 'United Kingdom 100%',
+    icon: '🇬🇧',
+    description: '100% UK Traffic (BT Broadband, Virgin Media UK Proxies Only)',
+    badge: 'UK 100%',
+    region: 'Europe',
+    countryWeights: [
+      { code: 'GB', weight: 100 },
+    ],
+  },
+  {
+    id: 'lock_de_100',
+    name: 'Germany 100%',
+    icon: '🇩🇪',
+    description: '100% Germany Traffic (Deutsche Telekom, Vodafone DE Proxies Only)',
+    badge: 'Germany 100%',
+    region: 'Europe',
+    countryWeights: [
+      { code: 'DE', weight: 100 },
+    ],
+  },
+  {
     id: 'lock_na',
     name: 'North America 100%',
     icon: '🌎',
-    description: '100% United States, Canada & Mexico',
+    description: '100% United States & Canada (Zero foreign traffic)',
     badge: 'Tier-1 Core',
     region: 'North America',
     countryWeights: [
-      { code: 'US', weight: 70 },
-      { code: 'CA', weight: 25 },
-      { code: 'MX', weight: 5 },
+      { code: 'US', weight: 60 },
+      { code: 'CA', weight: 40 },
     ],
   },
   {
@@ -73,9 +116,9 @@ export const STRICT_LOCKDOWN_PRESETS: StrictLockdownPreset[] = [
     badge: 'Max RPM',
     region: 'Americas',
     countryWeights: [
-      { code: 'US', weight: 45 },
+      { code: 'US', weight: 40 },
       { code: 'GB', weight: 25 },
-      { code: 'CA', weight: 15 },
+      { code: 'CA', weight: 20 },
       { code: 'AU', weight: 10 },
       { code: 'NZ', weight: 5 },
     ],
@@ -252,6 +295,12 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
     return (proxyEngine?.proxies || []).filter(p => p.enabled !== false).length;
   }, [proxyEngine?.proxies]);
 
+  const activeLockedCountry = useMemo(() => {
+    const activeList = countries.filter(c => c.enabled !== false && (c.weight ?? 0) > 0);
+    if (activeList.length === 1) return activeList[0];
+    return null;
+  }, [countries]);
+
   // Filtered countries
   const filteredCountries = useMemo(() => {
     return countries.filter(c => {
@@ -316,15 +365,160 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
   };
 
   const handleIsolateCountry = (code: string) => {
+    const targetCode = code.toUpperCase();
+    const targetCountry = countries.find(c => c.code.toUpperCase() === targetCode);
     const updated = countries.map(c => 
-      c.code === code 
+      c.code.toUpperCase() === targetCode 
         ? { ...c, enabled: true, weight: 100 } 
         : { ...c, enabled: false, weight: 0 }
     );
+
+    let updatedProxyEngine = proxyEngine;
+    if (proxyEngine) {
+      const existingProxies = proxyEngine.proxies || [];
+      const defaultMatching = DEFAULT_PROXIES.filter(p => p.countryCode.toUpperCase() === targetCode);
+      
+      const mergedProxies = [...existingProxies];
+      defaultMatching.forEach(dp => {
+        if (!mergedProxies.some(p => p.id === dp.id)) {
+          mergedProxies.push(dp);
+        }
+      });
+
+      const updatedProxies = mergedProxies.map(p => ({
+        ...p,
+        enabled: p.countryCode.toUpperCase() === targetCode,
+      }));
+
+      updatedProxyEngine = {
+        ...proxyEngine,
+        enabled: true,
+        mode: 'country_match',
+        strictGeoMatching: true,
+        selectedRegions: targetCountry?.region ? [targetCountry.region] : ['North America'],
+        proxies: updatedProxies,
+      };
+    }
+
     onChange({
       ...fingerprintConfig,
+      geoMode: 'custom_distribution',
       countries: updated,
+      proxyEngine: updatedProxyEngine,
     });
+
+    setGeoVerifyTargetCountry(targetCode);
+    handleVerifyGeoTunnel(targetCode);
+  };
+
+  const handleApplyStrictLockdownPreset = (preset: StrictLockdownPreset) => {
+    const targetCodes = preset.countryWeights.map(cw => cw.code.toUpperCase());
+    const weightMap = new Map(preset.countryWeights.map(cw => [cw.code.toUpperCase(), cw.weight]));
+
+    const updatedCountries = countries.map(c => {
+      const code = c.code.toUpperCase();
+      if (targetCodes.includes(code)) {
+        return {
+          ...c,
+          enabled: true,
+          weight: weightMap.get(code) || 100,
+        };
+      }
+      return {
+        ...c,
+        enabled: false,
+        weight: 0,
+      };
+    });
+
+    let updatedProxyEngine = proxyEngine;
+    if (proxyEngine) {
+      const existingProxies = proxyEngine.proxies || [];
+      const defaultMatching = DEFAULT_PROXIES.filter(p => targetCodes.includes(p.countryCode.toUpperCase()));
+      
+      const mergedProxies = [...existingProxies];
+      defaultMatching.forEach(dp => {
+        if (!mergedProxies.some(p => p.id === dp.id)) {
+          mergedProxies.push(dp);
+        }
+      });
+
+      const updatedProxies = mergedProxies.map(p => ({
+        ...p,
+        enabled: targetCodes.includes(p.countryCode.toUpperCase()),
+      }));
+
+      updatedProxyEngine = {
+        ...proxyEngine,
+        enabled: true,
+        mode: 'country_match',
+        strictGeoMatching: true,
+        selectedRegions: [preset.region || 'North America'],
+        proxies: updatedProxies,
+      };
+    }
+
+    onChange({
+      ...fingerprintConfig,
+      geoMode: 'custom_distribution',
+      countries: updatedCountries,
+      proxyEngine: updatedProxyEngine,
+    });
+
+    const primaryCountry = targetCodes[0] || 'CA';
+    setGeoVerifyTargetCountry(primaryCountry);
+    handleVerifyGeoTunnel(primaryCountry);
+  };
+
+  const handleLockSelectedCheckboxes = () => {
+    if (selectedCheckboxCountries.length === 0) return;
+    const targetCodes = selectedCheckboxCountries.map(c => c.toUpperCase());
+    const evenWeight = Math.round(100 / targetCodes.length);
+
+    const updatedCountries = countries.map(c => {
+      const code = c.code.toUpperCase();
+      if (targetCodes.includes(code)) {
+        return { ...c, enabled: true, weight: evenWeight };
+      }
+      return { ...c, enabled: false, weight: 0 };
+    });
+
+    let updatedProxyEngine = proxyEngine;
+    if (proxyEngine) {
+      const existingProxies = proxyEngine.proxies || [];
+      const defaultMatching = DEFAULT_PROXIES.filter(p => targetCodes.includes(p.countryCode.toUpperCase()));
+      
+      const mergedProxies = [...existingProxies];
+      defaultMatching.forEach(dp => {
+        if (!mergedProxies.some(p => p.id === dp.id)) {
+          mergedProxies.push(dp);
+        }
+      });
+
+      const updatedProxies = mergedProxies.map(p => ({
+        ...p,
+        enabled: targetCodes.includes(p.countryCode.toUpperCase()),
+      }));
+
+      updatedProxyEngine = {
+        ...proxyEngine,
+        enabled: true,
+        mode: 'country_match',
+        strictGeoMatching: true,
+        proxies: updatedProxies,
+      };
+    }
+
+    onChange({
+      ...fingerprintConfig,
+      geoMode: 'custom_distribution',
+      countries: updatedCountries,
+      proxyEngine: updatedProxyEngine,
+    });
+
+    const primary = targetCodes[0];
+    setGeoVerifyTargetCountry(primary);
+    handleVerifyGeoTunnel(primary);
   };
 
   const handleIsolateRegion = (regionName: string) => {
@@ -937,11 +1131,95 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
         </div>
 
         {/* Quick Target Country Selector & Strict Locking */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
+        <div className="space-y-3">
+          {/* Active Lockdown Status Banner if 100% locked */}
+          {activeLockedCountry && (
+            <div className="bg-emerald-950/90 border-2 border-emerald-500 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl shadow-emerald-950/50 animate-pulse">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">{activeLockedCountry.flag}</span>
+                <div>
+                  <div className="text-xs font-bold text-emerald-300 flex items-center gap-2">
+                    <span>🔒 100% STRICT LOCKDOWN ENFORCED: {activeLockedCountry.name.toUpperCase()} ONLY</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/30 text-white font-mono text-[10px] font-bold border border-emerald-400">
+                      0% Leakage
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    {activeLockedCountry.code === 'CA'
+                      ? 'All outgoing simulated traffic is strictly bound to Canadian Residential Proxies (Rogers, Bell, Telus, Shaw). USA and foreign IPs are 100% blocked.'
+                      : `All outgoing simulated traffic is strictly bound to ${activeLockedCountry.name} Residential Proxies. Foreign IPs are 100% blocked.`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleVerifyGeoTunnel(activeLockedCountry.code)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${verifyingGeo ? 'animate-spin' : ''}`} />
+                  <span>Probe {activeLockedCountry.code} Socket</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Strict 100% Lockdown Presets Grid */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-slate-200 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                <span>100% Strict Regional & Country Lockdown Presets:</span>
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">100% Target IPs Only • Zero Leakage</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              {STRICT_LOCKDOWN_PRESETS.slice(0, 4).map((preset) => {
+                const isSelected = preset.countryWeights.every(cw => {
+                  const c = countries.find(x => x.code === cw.code);
+                  return c && c.enabled !== false && (c.weight ?? 0) > 0;
+                }) && countries.filter(c => c.enabled !== false && (c.weight ?? 0) > 0).length === preset.countryWeights.length;
+
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => handleApplyStrictLockdownPreset(preset)}
+                    className={`p-3 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
+                      isSelected
+                        ? 'bg-emerald-950/80 border-emerald-400 shadow-lg shadow-emerald-950/60 ring-1 ring-emerald-500'
+                        : 'bg-slate-900/90 border-slate-800 hover:border-emerald-500/50 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-2xl">{preset.icon}</span>
+                        <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded font-bold border ${
+                          isSelected ? 'bg-emerald-500 text-slate-950 border-emerald-400' : 'bg-slate-800 text-emerald-400 border-slate-700'
+                        }`}>
+                          {preset.badge}
+                        </span>
+                      </div>
+                      <div className="text-xs font-bold text-white mb-0.5">{preset.name}</div>
+                      <div className="text-[10px] text-slate-400 line-clamp-2">{preset.description}</div>
+                    </div>
+                    <div className={`mt-2 text-[10px] font-bold flex items-center gap-1 ${
+                      isSelected ? 'text-emerald-300' : 'text-cyan-400'
+                    }`}>
+                      {isSelected ? <Check className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                      <span>{isSelected ? 'LOCKED 100% ACTIVE' : 'Enforce 100% Lock →'}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-xs pt-1">
             <span className="font-semibold text-slate-300 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Select Target Country to Test & Strict-Lock:</span>
+              <span>Select Individual Country to Test & Strict-Lock:</span>
             </span>
             <span className="text-[10px] text-slate-400 font-mono">1-Click Lock & Verify</span>
           </div>
@@ -956,49 +1234,35 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
               { code: 'AU', name: 'Australia', flag: '🇦🇺' },
               { code: 'JP', name: 'Japan', flag: '🇯🇵' },
               { code: 'MX', name: 'Mexico', flag: '🇲🇽' },
-            ].map((target) => (
-              <button
-                key={target.code}
-                type="button"
-                onClick={() => {
-                  setGeoVerifyTargetCountry(target.code);
-                  handleStrictLockCountry(target.code);
-                }}
-                className={`p-2 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
-                  geoVerifyTargetCountry === target.code
-                    ? 'bg-cyan-950/80 border-cyan-500 shadow-md shadow-cyan-950/40 text-white'
-                    : 'bg-slate-900/90 border-slate-800 hover:border-cyan-500/40 text-slate-300 hover:text-white'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xl">{target.flag}</span>
-                  <span className="font-mono text-[10px] px-1 rounded bg-slate-800 text-cyan-300 font-bold">{target.code}</span>
-                </div>
-                <div className="text-[11px] font-bold truncate">{target.name}</div>
-                <div className="text-[9px] text-cyan-400 font-semibold mt-0.5">Strict Lock & Probe →</div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Quick Strict Lock North America Preset */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-900/90 p-3 rounded-xl border border-slate-800">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-            <div className="text-xs">
-              <span className="font-bold text-slate-200">Zero-Leak North America Protection: </span>
-              <span className="text-slate-400">Lock 100% of outgoing visitor sessions strictly to US and Canada residential exit IPs.</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={handleStrictLockNorthAmerica}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-            >
-              <Lock className="w-3 h-3" />
-              <span>Lock 100% to North America (US/CA)</span>
-            </button>
+            ].map((target) => {
+              const isLocked = activeLockedCountry?.code === target.code;
+              return (
+                <button
+                  key={target.code}
+                  type="button"
+                  onClick={() => {
+                    setGeoVerifyTargetCountry(target.code);
+                    handleStrictLockCountry(target.code);
+                  }}
+                  className={`p-2 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
+                    isLocked
+                      ? 'bg-emerald-950/90 border-emerald-400 shadow-md shadow-emerald-950/40 text-white ring-1 ring-emerald-500'
+                      : geoVerifyTargetCountry === target.code
+                      ? 'bg-cyan-950/80 border-cyan-500 shadow-md shadow-cyan-950/40 text-white'
+                      : 'bg-slate-900/90 border-slate-800 hover:border-cyan-500/40 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xl">{target.flag}</span>
+                    <span className="font-mono text-[10px] px-1 rounded bg-slate-800 text-cyan-300 font-bold">{target.code}</span>
+                  </div>
+                  <div className="text-[11px] font-bold truncate">{target.name}</div>
+                  <div className="text-[9px] text-cyan-400 font-semibold mt-0.5">
+                    {isLocked ? '🔒 Locked 100%' : 'Strict Lock →'}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 

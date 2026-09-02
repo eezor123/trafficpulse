@@ -10,7 +10,7 @@ import {
   SimulatorActionLog,
   VisitedPageStep,
 } from '../types';
-import { GLOBAL_COUNTRIES } from '../data/organicPresets';
+import { GLOBAL_COUNTRIES, DEFAULT_PROXIES } from '../data/organicPresets';
 import {
   buildOrganicReferrer,
   generateVisitorFingerprint,
@@ -209,33 +209,32 @@ export class OrganicTrafficEngine {
 
     const proxiesList = proxyEngine.proxies || [];
     const activeProxies = proxiesList.filter(p => p.enabled !== false && p.status !== 'failed');
+    const targetCountryCode = country.code.toUpperCase();
 
     // 1. Check if an active proxy node matches this exact country code
-    const matchingCountry = activeProxies.filter(p => p.countryCode.toUpperCase() === country.code.toUpperCase());
+    const matchingCountry = activeProxies.filter(p => p.countryCode && p.countryCode.toUpperCase() === targetCountryCode);
     if (matchingCountry.length > 0) {
       return matchingCountry[Math.floor(Math.random() * matchingCountry.length)];
     }
 
-    // 2. Check if an active proxy matches the country region
-    if (country.region) {
-      const matchingRegion = activeProxies.filter(p => p.region && p.region.toLowerCase() === country.region?.toLowerCase());
-      if (matchingRegion.length > 0 && !proxyEngine.strictGeoMatching) {
-        return matchingRegion[Math.floor(Math.random() * matchingRegion.length)];
-      }
+    // 2. Check if default/preset proxies list has matching proxies for this exact country
+    const defaultMatching = DEFAULT_PROXIES.filter(p => p.countryCode && p.countryCode.toUpperCase() === targetCountryCode);
+    if (defaultMatching.length > 0) {
+      return defaultMatching[Math.floor(Math.random() * defaultMatching.length)];
     }
 
     // 3. Synthesize an authentic verified residential proxy exit node specifically for this country
-    // so traffic NEVER gets diverted or locked into an unwanted foreign country!
-    const countryCity = country.city?.split('/')[0]?.trim() || country.name;
-    const countryIsp = country.isp?.split('/')[0]?.trim() || 'Residential Broadband';
+    // so traffic NEVER gets diverted or locked into an unwanted foreign country (e.g. US when CA is selected)!
+    const countryCity = country.city?.split('/')[0]?.trim() || (country.code === 'CA' ? 'Toronto, ON' : country.name);
+    const countryIsp = country.isp?.split('/')[0]?.trim() || (country.code === 'CA' ? 'Rogers Communications' : 'Residential Broadband');
     
     // Generate realistic residential IP if sample is missing or placeholder
     let cleanIp = country.ipSample;
-    if (!cleanIp || cleanIp.startsWith('198.51') || cleanIp === '127.0.0.1') {
+    if (!cleanIp || cleanIp.startsWith('198.51') || cleanIp === '127.0.0.1' || (country.code === 'CA' && cleanIp.startsWith('24.120'))) {
       const SUBNETS: Record<string, string[]> = {
         US: ['24.120', '73.180', '98.210', '108.45', '174.60', '67.160', '76.100'],
         GB: ['82.35', '86.150', '90.200', '92.238', '151.224', '185.120'],
-        CA: ['24.200', '70.24', '99.230', '142.112', '174.112'],
+        CA: ['24.200', '70.24', '99.230', '142.112', '174.112', '198.53', '207.161', '142.250'],
         DE: ['84.116', '91.64', '178.200', '217.80', '92.247'],
         FR: ['82.224', '86.200', '90.50', '176.130', '51.15'],
         NL: ['84.80', '145.220', '213.124', '77.160'],
@@ -264,7 +263,7 @@ export class OrganicTrafficEngine {
         KR: ['147.46', '121.130', '211.200'],
         NZ: ['118.148', '122.56', '202.180'],
       };
-      const sub = SUBNETS[country.code] || SUBNETS['US'];
+      const sub = SUBNETS[country.code] || (country.code === 'CA' ? SUBNETS['CA'] : SUBNETS['US']);
       const pfx = sub[Math.floor(Math.random() * sub.length)];
       cleanIp = `${pfx}.${Math.floor(Math.random() * 200 + 10)}.${Math.floor(Math.random() * 250 + 2)}`;
     }
@@ -281,7 +280,7 @@ export class OrganicTrafficEngine {
       region: country.region || 'Global',
       city: countryCity,
       isp: countryIsp,
-      asn: country.asn || 'AS15169',
+      asn: country.asn || (country.code === 'CA' ? 'AS812' : 'AS15169'),
       status: 'active',
       latencyMs: Math.floor(Math.random() * 45) + 30,
       realExitIp: cleanIp,
