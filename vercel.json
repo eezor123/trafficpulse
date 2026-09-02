@@ -10,15 +10,15 @@
   },
   "rewrites": [
     {
-      "source": "/api/:match*",
-      "destination": "/api?match=:match*"
+      "source": "/api/(.*)",
+      "destination": "/api"
     },
     {
       "source": "/api",
       "destination": "/api"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|assets/|favicon|robots\\.txt).*)",
       "destination": "/index.html"
     }
   ]

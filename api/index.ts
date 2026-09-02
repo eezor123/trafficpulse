@@ -62,37 +62,14 @@ app.use((req, res, next) => {
 
 // Normalize Vercel Serverless Function rewritten routes
 app.use((req, res, next) => {
-  // 1. Check for x-matched-path or x-now-route-matches (Vercel edge headers)
-  const matchedPath = (req.headers['x-matched-path'] as string) || (req.headers['x-now-route-matches'] as string) || '';
-  
-  // 2. Check query params injected by Vercel rewrite
-  let subpath = '';
+  // Support optional rewrite query param if provided
   if (req.query && typeof req.query['match'] === 'string') {
-    subpath = req.query['match'];
+    const subpath = req.query['match'];
+    req.url = subpath.startsWith('/') ? subpath : `/${subpath}`;
   } else if (req.query && typeof req.query['0'] === 'string') {
-    subpath = req.query['0'];
+    const subpath = req.query['0'];
+    req.url = subpath.startsWith('/') ? subpath : `/${subpath}`;
   }
-
-  let finalPath = req.url;
-  if (matchedPath && matchedPath.startsWith('/api/')) {
-    finalPath = matchedPath;
-  } else if (subpath) {
-    finalPath = subpath.startsWith('/') ? subpath : `/${subpath}`;
-  }
-
-  // Strip query string for path manipulation but preserve on req.url
-  const queryIndex = finalPath.indexOf('?');
-  const pathWithoutQuery = queryIndex !== -1 ? finalPath.slice(0, queryIndex) : finalPath;
-  const queryString = queryIndex !== -1 ? finalPath.slice(queryIndex) : '';
-
-  if (pathWithoutQuery.startsWith('/api/')) {
-    req.url = pathWithoutQuery.slice(4) + queryString;
-  } else if (pathWithoutQuery === '/api') {
-    req.url = '/' + queryString;
-  } else {
-    req.url = pathWithoutQuery + queryString;
-  }
-
   next();
 });
 
@@ -1303,13 +1280,12 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
 
   const {
     measurementId,
-    apiSecret,
     clientId,
     sessionId,
     eventName = 'page_view',
     pageTitle,
-    pagePath,
     pageLocation,
+    pagePath,
     referrer,
     engagementTimeMs = 15000,
     userIp,
@@ -1317,10 +1293,14 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
     proxyRegion = 'Global',
     userAgent,
     proxyUrl,
-    campaignSource = 'google',
-    campaignMedium = 'organic',
+    apiSecret,
+    campaignSource,
+    campaignMedium,
     campaignName,
-    campaignTerm,
+    hitSequence,
+    pageLoadId,
+    isFirstVisit,
+    clickParams: incomingClickParams,
   } = bodyData;
 
   if (!measurementId || measurementId.startsWith('G-SIMULATED')) {
@@ -1427,120 +1407,161 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
 
   const agent = getProxyAgent(proxyUrl);
 
-  // A. Measurement Protocol with API Secret
-  if (apiSecret) {
-    try {
-      const endpoint = `https://www.google-analytics.com/mp/collect?measurement_id=${measurementId}&api_secret=${apiSecret}`;
-      const payload = {
-        client_id: clientId || `${Date.now()}.${Math.floor(Math.random() * 1000000000)}`,
-        events: [
-          {
-            name: eventName,
-            params: {
-              session_id: sessionId || `${Date.now()}`,
-              engagement_time_msec: engagementTimeMs,
-              page_title: pageTitle,
-              page_location: pageLocation,
-              page_referrer: referrer,
-              source: campaignSource,
-              medium: campaignMedium,
-              campaign: campaignName,
-              term: campaignTerm,
-              visitor_country: cleanCountryCode,
-              proxy_region: proxyRegion,
+  const effectiveEngagementMs = Math.max(1200, Number(engagementTimeMs) || 2000);
+      const cleanClientId = (clientId || '').replace(/^GA\d+\.\d+\./i, '') || `${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`;
+      const cleanSessionId = sessionId ? `${sessionId}` : `${Math.floor(Date.now() / 1000)}`;
+      const effectiveHitSeq = Math.max(1, Number(hitSequence) || 1);
+      const isFirstHitInSession = effectiveHitSeq === 1;
+      const effectivePageLoadId = pageLoadId || `${Math.floor(Math.random() * 1000000000)}`;
+      const cp = incomingClickParams || req.body.clickParams;
+
+      let targetOrigin = 'https://example.com';
+      try {
+        if (pageLocation && (pageLocation.startsWith('http://') || pageLocation.startsWith('https://'))) {
+          targetOrigin = new URL(pageLocation).origin;
+        }
+      } catch {}
+
+      // A. Measurement Protocol with API Secret
+      if (apiSecret) {
+        try {
+          const endpoint = `https://www.google-analytics.com/mp/collect?measurement_id=${measurementId}&api_secret=${apiSecret}`;
+          const mpEventParams: Record<string, any> = {
+            session_id: cleanSessionId,
+            engagement_time_msec: effectiveEngagementMs,
+            page_location: pageLocation || `${targetOrigin}${pagePath || '/'}`,
+            page_title: pageTitle || 'Page Title',
+            page_referrer: referrer || '',
+            source: campaignSource || 'google',
+            medium: campaignMedium || 'organic',
+            campaign: campaignName || 'organic_boost',
+            visitor_country: cleanCountryCode,
+            country: cleanCountryCode,
+            geoid: geoData.criteriaId,
+            debug_mode: 1, // Instantly visible in GA4 DebugView
+          };
+
+          if (eventName === 'click' || cp) {
+            const clickUrl = cp?.linkUrl || `${pageLocation || targetOrigin}/out/link`;
+            const clickText = cp?.linkText || pageTitle || 'Click';
+            const clickDomain = cp?.linkDomain || 'external-partner.com';
+            const clickOutbound = cp?.outbound !== false;
+
+            mpEventParams.link_url = clickUrl;
+            mpEventParams.link_text = clickText;
+            mpEventParams.link_domain = clickDomain;
+            mpEventParams.link_classes = cp?.linkClasses || 'cta-button';
+            mpEventParams.link_id = cp?.linkId || `click_${Date.now()}`;
+            mpEventParams.outbound = clickOutbound;
+            mpEventParams.click_target = clickText;
+          }
+
+          const payload = {
+            client_id: cleanClientId,
+            events: [
+              {
+                name: eventName || 'page_view',
+                params: mpEventParams,
+              },
+            ],
+            user_properties: {
+              geo_country: { value: cleanCountryCode },
+              visitor_ip: { value: authenticCountryIp },
+              proxy_region: { value: proxyRegion },
             },
-          },
-        ],
-        user_properties: {
-          geo_country: { value: cleanCountryCode },
-          visitor_ip: { value: authenticCountryIp },
-          proxy_region: { value: proxyRegion },
-        },
+          };
+
+          fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'X-Forwarded-For': authenticCountryIp,
+              'CF-IPCountry': cleanCountryCode,
+              'X-Proxy-Region': proxyRegion,
+            },
+            body: JSON.stringify(payload),
+            // @ts-ignore
+            agent,
+          }).catch(e => console.warn('GA4 MP notice:', e.message));
+        } catch (err: any) {
+          console.warn('GA4 MP Error:', err.message);
+        }
+      }
+
+      // B. Direct GA4 /g/collect Endpoint (Full Real GA4 Beacon Proxy with exact criteria ID & IP)
+      const payloadParams: Record<string, string> = {
+        v: '2',
+        tid: measurementId,
+        _p: effectivePageLoadId,
+        _s: `${effectiveHitSeq}`,
+        cid: cleanClientId,
+        ul: countryLocale,
+        sr: '1920x1080',
+        _ee: '1',
+        seg: '1',
+        sid: cleanSessionId,
+        sct: '1',
+        en: eventName || 'page_view',
+        _et: `${effectiveEngagementMs}`,
+        'epn.engagement_time_msec': `${effectiveEngagementMs}`,
+        dl: pageLocation || `${targetOrigin}${pagePath || '/'}`,
+        dt: pageTitle || 'Page Title',
+        dr: referrer || '',
+        uip: authenticCountryIp,
+        _uip: authenticCountryIp,
+        geoid: `${geoData.criteriaId}`,
+        'ep.country_code': cleanCountryCode,
+        'ep.visitor_country': cleanCountryCode,
+        'ep.country': cleanCountryCode,
+        'ep.region': proxyRegion,
+        'ep.proxy_region': proxyRegion,
+        'up.geo_country': cleanCountryCode,
+        _dbg: '1', // GA4 DebugView immediate live display
+        'ep.debug_mode': '1',
       };
 
-      fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'X-Forwarded-For': authenticCountryIp,
-          'CF-IPCountry': cleanCountryCode,
-          'X-Proxy-Region': proxyRegion,
-        },
-        body: JSON.stringify(payload),
-        // @ts-ignore
-        agent,
-      }).catch(e => console.warn('GA4 MP notice:', e.message));
-    } catch (err: any) {
-      console.warn('GA4 MP Error:', err.message);
-    }
-  }
+      // Only set session start and first visit on the very first hit of the session
+      if (isFirstHitInSession) {
+        payloadParams._ss = '1';
+        if (isFirstVisit !== false) {
+          payloadParams._fv = '1';
+        }
+      }
 
-  // B. Direct GA4 /g/collect Endpoint (Full Real GA4 Beacon Proxy with exact criteria ID & IP)
-  const validEngagementMs = Math.max(1200, Number(engagementTimeMs) || 2000);
-  const cleanClientId = (clientId || '').replace(/^GA\d+\.\d+\./i, '') || `${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`;
-  const cleanSessionId = sessionId ? `${sessionId}` : `${Math.floor(Date.now() / 1000)}`;
+      if (campaignSource) {
+        payloadParams.cs = campaignSource;
+        payloadParams['ep.source'] = campaignSource;
+      }
+      if (campaignMedium) {
+        payloadParams.cm = campaignMedium;
+        payloadParams['ep.medium'] = campaignMedium;
+      }
+      if (campaignName) {
+        payloadParams.cn = campaignName;
+        payloadParams['ep.campaign'] = campaignName;
+      }
 
-  let targetOrigin = 'https://example.com';
-  try {
-    if (pageLocation && (pageLocation.startsWith('http://') || pageLocation.startsWith('https://'))) {
-      targetOrigin = new URL(pageLocation).origin;
-    }
-  } catch {}
+      if (eventName === 'click' || cp) {
+        const clickUrl = cp?.linkUrl || `${pageLocation || targetOrigin}/out/link`;
+        const clickText = cp?.linkText || pageTitle || 'Click';
+        const clickDomain = cp?.linkDomain || 'external-partner.com';
+        const isOutbound = cp?.outbound !== false;
+        const linkClasses = cp?.linkClasses || 'cta-button';
+        const linkId = cp?.linkId || `click_${Date.now()}`;
 
-  const payloadParams: Record<string, string> = {
-    v: '2',
-    tid: measurementId,
-    _p: `${Math.floor(Math.random() * 1000000000)}`,
-    _s: '1',
-    cid: cleanClientId,
-    ul: countryLocale,
-    sr: '1920x1080',
-    _ss: '1',
-    _fv: '1',
-    _ee: '1',
-    seg: '1',
-    sid: cleanSessionId,
-    sct: '1',
-    en: eventName || 'page_view',
-    _et: `${validEngagementMs}`,
-    'epn.engagement_time_msec': `${validEngagementMs}`,
-    dl: pageLocation || `${targetOrigin}${pagePath || '/'}`,
-    dt: pageTitle || 'Page Title',
-    dr: referrer || '',
-    uip: authenticCountryIp,
-    _uip: authenticCountryIp,
-    geoid: `${geoData.criteriaId}`,
-    'ep.country_code': cleanCountryCode,
-    'ep.visitor_country': cleanCountryCode,
-    'ep.country': cleanCountryCode,
-    'ep.region': proxyRegion,
-    'ep.proxy_region': proxyRegion,
-    'up.geo_country': cleanCountryCode,
-  };
-
-  if (campaignSource) {
-    payloadParams.cs = campaignSource;
-    payloadParams['ep.source'] = campaignSource;
-  }
-  if (campaignMedium) {
-    payloadParams.cm = campaignMedium;
-    payloadParams['ep.medium'] = campaignMedium;
-  }
-  if (campaignName) {
-    payloadParams.cn = campaignName;
-    payloadParams['ep.campaign'] = campaignName;
-  }
-
-  if (eventName === 'click' || req.body.clickParams) {
-    const cp = req.body.clickParams || {};
-    payloadParams['ep.link_url'] = cp.linkUrl || `${pageLocation || targetOrigin}/out/link`;
-    payloadParams['ep.link_text'] = cp.linkText || pageTitle || 'Click';
-    payloadParams['ep.outbound'] = cp.outbound !== false ? 'true' : 'false';
-    payloadParams['ep.link_domain'] = cp.linkDomain || 'external-partner.com';
-    payloadParams['ep.link_classes'] = cp.linkClasses || 'cta-button';
-    if (cp.linkId) payloadParams['ep.link_id'] = cp.linkId;
-  }
+        payloadParams['ep.link_url'] = clickUrl;
+        payloadParams['ep.link_text'] = clickText;
+        payloadParams['ep.link_domain'] = clickDomain;
+        payloadParams['ep.link_classes'] = linkClasses;
+        payloadParams['ep.link_id'] = linkId;
+        payloadParams['ep.outbound'] = isOutbound ? 'true' : 'false';
+        payloadParams['epn.outbound'] = isOutbound ? '1' : '0';
+        payloadParams['ep.click_target'] = clickText;
+        payloadParams['ep.click_url'] = clickUrl;
+        payloadParams['ep.element_text'] = clickText;
+        payloadParams['ep.action'] = 'click';
+      }
 
   const params = new URLSearchParams(payloadParams);
   const rawBodyString = params.toString();
@@ -2024,6 +2045,4 @@ Return ONLY valid JSON matching this schema:
 app.use('/api', router);
 app.use('/', router);
 
-export default function handler(req: Request, res: Response) {
-  return app(req, res);
-}
+export default app;
