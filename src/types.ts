@@ -379,6 +379,8 @@ export interface ActiveVisitorSession {
   startedAt: number;
   totalSessionDwellSeconds: number;
   lastEventLog: string;
+  hitSequence?: number;
+  pageLoadId?: string;
   
   // Aggregate session interactions
   totalArticleLinksClicked?: number;

@@ -45,6 +45,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
   onOpenAuth,
 }) => {
   const [testPingStatus, setTestPingStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
+  const [testClickPingStatus, setTestClickPingStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [customVisitsMode, setCustomVisitsMode] = useState<'slider' | 'custom' | 'presets'>('custom');
   const [customVisitsInput, setCustomVisitsInput] = useState<string>(
@@ -84,6 +85,48 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
       }
     } catch {
       setTestPingStatus('failed');
+    }
+  };
+
+  const handleTestGa4ClickPing = async () => {
+    setTestClickPingStatus('testing');
+    try {
+      const res = await fetch('/api/ga4/collect-beacon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          measurementId: ga4.measurementId || 'G-TESTPING123',
+          apiSecret: ga4.apiSecret || undefined,
+          eventName: 'click',
+          pageTitle: 'TrafficPulse GA4 Click Event Validation',
+          pageLocation: 'https://example.com/job/sample-posting',
+          pagePath: '/job/sample-posting',
+          referrer: 'https://www.google.com/search?q=jobs',
+          engagementTimeMs: 15000,
+          hitSequence: 2,
+          countryCode: 'US',
+          campaignSource: 'google',
+          campaignMedium: 'organic',
+          campaignName: 'Organic Traffic Test',
+          clickParams: {
+            linkUrl: 'https://jobs.partner.com/apply/101',
+            linkText: 'Apply Now (Simulated Click Test)',
+            outbound: true,
+            linkDomain: 'jobs.partner.com',
+            linkClasses: 'btn-apply-job cta-outbound',
+            linkId: 'btn_apply_test_101',
+          },
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTestClickPingStatus('success');
+        setTimeout(() => setTestClickPingStatus('idle'), 4000);
+      } else {
+        setTestClickPingStatus('failed');
+      }
+    } catch {
+      setTestClickPingStatus('failed');
     }
   };
 
@@ -1206,9 +1249,20 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
                   onClick={handleTestGa4Ping}
                   disabled={testPingStatus === 'testing'}
                   className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer shrink-0 transition-all"
+                  title="Send a sample page_view hit to Google Analytics"
                 >
                   <Send className="w-3 h-3" />
-                  <span>{testPingStatus === 'testing' ? 'Pinging...' : 'Test Beacon'}</span>
+                  <span>{testPingStatus === 'testing' ? 'Pinging...' : 'Test Page View'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTestGa4ClickPing}
+                  disabled={testClickPingStatus === 'testing'}
+                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer shrink-0 transition-all shadow-md shadow-indigo-950"
+                  title="Send a sample click event with link URL and outbound parameters to Google Analytics"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>{testClickPingStatus === 'testing' ? 'Clicking...' : 'Test Click Beacon'}</span>
                 </button>
               </div>
             </div>
@@ -1232,16 +1286,33 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
             {testPingStatus === 'success' && (
               <div className="text-xs text-emerald-400 flex items-center gap-1.5 bg-emerald-950/40 p-2.5 rounded-lg border border-emerald-500/30">
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>Test GA4 collect beacon successfully dispatched to Google Analytics servers!</span>
+                <span>Test GA4 page_view beacon successfully dispatched to Google Analytics servers!</span>
               </div>
             )}
 
-            {testPingStatus === 'failed' && (
-              <div className="text-xs text-rose-400 flex items-center gap-1.5 bg-rose-950/40 p-2.5 rounded-lg border border-rose-500/30">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-rose-400" />
-                <span>Beacon delivery test encountered an error. Please verify your Measurement ID format (G-XXXXXXXXXX).</span>
+            {testClickPingStatus === 'success' && (
+              <div className="text-xs text-cyan-400 flex items-center gap-1.5 bg-cyan-950/40 p-2.5 rounded-lg border border-cyan-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Test GA4 click beacon successfully recorded! Check GA4 Realtime → "Event count by Event name" (click) or Admin → DebugView.</span>
               </div>
             )}
+
+            {testClickPingStatus === 'failed' && (
+              <div className="text-xs text-rose-400 flex items-center gap-1.5 bg-rose-950/40 p-2.5 rounded-lg border border-rose-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                <span>Click beacon test encountered an error. Check Measurement ID format (G-XXXXXXXXXX).</span>
+              </div>
+            )}
+
+            <div className="text-[11px] text-slate-400 bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80 space-y-1">
+              <span className="text-slate-300 font-semibold block">💡 How Google Analytics Records Simulated Clicks:</span>
+              <p>
+                All simulated article link clicks, ad clicks, and navigation link clicks dispatch standard GA4 <code className="text-cyan-300">click</code> events with authentic parameters (<code className="text-cyan-300">link_url</code>, <code className="text-cyan-300">link_text</code>, <code className="text-cyan-300">link_domain</code>, <code className="text-cyan-300">outbound: true</code>, and <code className="text-cyan-300">_dbg: 1</code>).
+              </p>
+              <p className="text-slate-500">
+                To view them live: Open <strong className="text-slate-400">Google Analytics → Admin → DebugView</strong> (shows every click immediately) or <strong className="text-slate-400">Reports → Realtime → Event count by Event name</strong>.
+              </p>
+            </div>
           </div>
         </div>
       </div>

@@ -533,9 +533,27 @@ export class OrganicTrafficEngine {
           '#c084fc'
         );
 
-        // Dispatch GA4 ad engagement beacon
+        // Dispatch GA4 ad engagement beacon or click
         if (this.config.ga4.sendEngagementEvents) {
-          this.dispatchGa4Beacon(visitor, 'select_promotion', currentPage.path, `Popup - ${popupName}`);
+          if (actionLabel.includes('Click')) {
+            this.dispatchGa4Beacon(
+              visitor, 
+              'click', 
+              currentPage.path, 
+              `Popup CTA - ${popupName}`,
+              1500,
+              {
+                linkUrl: `${this.config.targetUrl}/promo/${popupName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+                linkText: `${popupName} CTA`,
+                outbound: true,
+                linkDomain: 'offers.partner.com',
+                linkClasses: 'popup-modal-cta-btn',
+                linkId: `modal_cta_${Date.now()}`
+              }
+            );
+          } else {
+            this.dispatchGa4Beacon(visitor, 'select_promotion', currentPage.path, `Popup - ${popupName}`);
+          }
         }
 
         this.callbacks.onTelemetryEvent({
@@ -731,11 +749,11 @@ export class OrganicTrafficEngine {
               '#f59e0b'
             );
 
-            // Dispatch GA4 ad click beacon (select_content + click event)
+            // Dispatch GA4 ad click beacon (standard click event with outbound ad destination)
             if (this.config.ga4.sendEngagementEvents) {
               this.dispatchGa4Beacon(
                 visitor, 
-                'select_content', 
+                'click', 
                 currentPage.path, 
                 `Ad - ${pickedAd.name}`,
                 1200,
@@ -808,6 +826,14 @@ export class OrganicTrafficEngine {
             '#10b981'
           );
 
+          const isOutboundClick = /apply|external|share|partner|contact|portal|linkedin|twitter|mail/i.test(targetName) || Math.random() < 0.45;
+          const targetDomain = isOutboundClick 
+            ? 'careers.partner-network.com' 
+            : (this.config.targetUrl ? new URL(this.config.targetUrl).hostname : 'mysite.com');
+          const targetLinkUrl = isOutboundClick
+            ? `https://${targetDomain}/job/view?ref=organic&id=${Math.floor(Math.random() * 100000)}`
+            : `${this.config.targetUrl}${currentPage.path}#${targetName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+
           // Dispatch GA4 click interaction event
           if (this.config.ga4.sendEngagementEvents) {
             this.dispatchGa4Beacon(
@@ -817,10 +843,10 @@ export class OrganicTrafficEngine {
               `${currentPage.title} - ${targetName}`,
               1200,
               {
-                linkUrl: `${this.config.targetUrl}${currentPage.path}#${targetName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+                linkUrl: targetLinkUrl,
                 linkText: targetName,
-                outbound: false,
-                linkDomain: this.config.targetUrl ? new URL(this.config.targetUrl).hostname : 'mysite.com',
+                outbound: isOutboundClick,
+                linkDomain: targetDomain,
                 linkClasses: 'interactive-ui-element btn-click',
                 linkId: `btn_${Math.random().toString(36).substr(2, 6)}`
               }
@@ -927,6 +953,31 @@ export class OrganicTrafficEngine {
             visitor.referrerUrl = `${this.config.targetUrl}${currentPage.path}`;
             visitor.referrerName = `Internal Link (${currentPage.title || currentPage.path})`;
           }
+
+          // Dispatch GA4 click beacon representing the user clicking the navigation link
+          let siteHost = 'mysite.com';
+          try {
+            if (this.config.targetUrl) siteHost = new URL(this.config.targetUrl).hostname;
+          } catch {}
+
+          this.dispatchGa4Beacon(
+            visitor,
+            'click',
+            currentPage.path,
+            `Navigate: ${nextPage.title}`,
+            1200,
+            {
+              linkUrl: nextPage.url,
+              linkText: nextPage.title,
+              outbound: false,
+              linkDomain: siteHost,
+              linkClasses: 'nav-link internal-page-route',
+              linkId: `nav_${nextPage.path.replace(/[^a-zA-Z0-9]/g, '_')}`
+            }
+          );
+
+          // Update page load ID for new page document
+          visitor.pageLoadId = `${Math.floor(Math.random() * 1000000000)}`;
 
           // Dispatch GA4 page_view for internal transition
           this.dispatchGa4Beacon(visitor, 'page_view', nextPage.path, nextPage.title);
@@ -1442,6 +1493,8 @@ export class OrganicTrafficEngine {
       searchKeyword: chosenSource === 'Organic Search' ? chosenKeyword : undefined,
       gaClientId,
       gaSessionId,
+      hitSequence: 0,
+      pageLoadId: `${Math.floor(Math.random() * 1000000000)}`,
       isReturning,
       isBounced,
       totalPlannedPages: plannedPageCount,
@@ -1678,6 +1731,12 @@ export class OrganicTrafficEngine {
     // Validate that proxy node and IP country match before firing GA4 beacon
     this.validateProxyRegionAndCountry(visitor);
 
+    // Advance session hit sequence number
+    visitor.hitSequence = (visitor.hitSequence || 0) + 1;
+    if (!visitor.pageLoadId) {
+      visitor.pageLoadId = `${Math.floor(Math.random() * 1000000000)}`;
+    }
+
     const measurementId = this.config.ga4.measurementId?.trim();
     const effectiveEngagement = Math.max(1200, engagementTimeMs || 2000);
     const campaignSource = visitor.trafficSource === 'Organic Search' ? 'google' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource.toLowerCase();
@@ -1703,6 +1762,9 @@ export class OrganicTrafficEngine {
         apiSecret: this.config.ga4.apiSecret || undefined,
         clientId: visitor.gaClientId,
         sessionId: visitor.gaSessionId,
+        hitSequence: visitor.hitSequence,
+        pageLoadId: visitor.pageLoadId,
+        isFirstVisit: !visitor.isReturning,
         eventName: eventName || 'page_view',
         pageTitle: pageTitle || 'Page Title',
         pagePath: pagePath || '/',
@@ -1724,33 +1786,27 @@ export class OrganicTrafficEngine {
 
       const payloadJson = JSON.stringify(beaconPayload);
 
-      // 1. Use navigator.sendBeacon with local proxy endpoint for zero-blocking background delivery on mobile
-      let beaconSent = false;
-      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-        try {
-          const blob = new Blob([payloadJson], { type: 'application/json' });
-          beaconSent = navigator.sendBeacon('/api/ga4/collect-beacon', blob);
-        } catch {
-          beaconSent = false;
-        }
-      }
-
-      // 2. Use fetch fallback with keepalive if sendBeacon is unavailable or failed
-      if (!beaconSent) {
-        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        const timeoutId = controller ? setTimeout(() => controller.abort(), 6000) : null;
-
+      // Reliable POST dispatch to local beacon proxy with keepalive
+      if (typeof fetch === 'function') {
         fetch('/api/ga4/collect-beacon', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          signal: controller?.signal,
           keepalive: true,
           body: payloadJson,
-        }).then(() => {
-          if (timeoutId) clearTimeout(timeoutId);
         }).catch(() => {
-          if (timeoutId) clearTimeout(timeoutId);
+          // Fallback to sendBeacon if fetch errors
+          if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+            try {
+              const blob = new Blob([payloadJson], { type: 'application/json' });
+              navigator.sendBeacon('/api/ga4/collect-beacon', blob);
+            } catch {}
+          }
         });
+      } else if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        try {
+          const blob = new Blob([payloadJson], { type: 'application/json' });
+          navigator.sendBeacon('/api/ga4/collect-beacon', blob);
+        } catch {}
       }
     } catch {}
   }
