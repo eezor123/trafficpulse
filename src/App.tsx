@@ -159,7 +159,7 @@ function loadInitialCrawlState(): SiteCrawlState {
       if (
         parsed && 
         Array.isArray(parsed.pages) && 
-        parsed.pages.length > 0 &&
+        parsed.pages.length > 1 &&
         parsed.hostname !== 'example.com' &&
         !parsed.pages.some((p: any) => p.id === 'p_root' || p.id === 'p_features')
       ) {
@@ -534,6 +534,10 @@ export default function App() {
           recentlyDiscoveredRoutes: recentItems,
         });
 
+        if (organicEngineRef.current) {
+          organicEngineRef.current.updatePagesPool(mergedPages);
+        }
+
         setSaveBannerMessage(`Crawl complete! Discovered ${mergedPages.length} active routes on ${data.hostname || urlToCrawl}.`);
         setTimeout(() => setSaveBannerMessage(null), 6000);
 
@@ -606,6 +610,10 @@ export default function App() {
           }));
         }
 
+        if (organicEngineRef.current) {
+          organicEngineRef.current.updatePagesPool(fallbackPages);
+        }
+
         return fallbackPages;
       } catch (clientErr: any) {
         console.error('Client crawl fallback error:', clientErr);
@@ -637,6 +645,11 @@ export default function App() {
           currentScanningUrl: urlToCrawl,
           recentlyDiscoveredRoutes: recentItems,
         });
+
+        if (organicEngineRef.current) {
+          organicEngineRef.current.updatePagesPool(fallbackPages);
+        }
+
         setSaveBannerMessage(`Loaded ${fallbackPages.length} routes for ${hostname}.`);
         setTimeout(() => setSaveBannerMessage(null), 6000);
         return fallbackPages;

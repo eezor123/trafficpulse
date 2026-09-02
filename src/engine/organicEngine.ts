@@ -125,6 +125,38 @@ export class OrganicTrafficEngine {
     this.callbacks = callbacks;
   }
 
+  /**
+   * Dynamically updates the pool of visited pages during a live run
+   * when crawler discovery completes or new routes are synchronized.
+   */
+  public updatePagesPool(newPages: CrawledPage[]): void {
+    let targetOrigin = this.config.targetUrl;
+    try {
+      if (this.config.targetUrl.startsWith('http://') || this.config.targetUrl.startsWith('https://')) {
+        targetOrigin = new URL(this.config.targetUrl).origin;
+      }
+    } catch {}
+
+    const validPages = newPages.filter(p => p.includedInVisits).map(p => {
+      let fullUrl = p.url;
+      try {
+        if (targetOrigin.startsWith('http')) {
+          const pagePath = p.path.startsWith('/') ? p.path : `/${p.path}`;
+          fullUrl = `${targetOrigin}${pagePath}`;
+        }
+      } catch {}
+      return {
+        ...p,
+        url: fullUrl,
+      };
+    });
+
+    if (validPages.length > 0) {
+      this.pagesPool = validPages;
+      this.catalogUnvisitedQueue = [];
+    }
+  }
+
   public isMobile(): boolean {
     return this.isMobileExecution;
   }
