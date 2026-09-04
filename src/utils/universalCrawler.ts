@@ -1,5 +1,4 @@
-import type { CrawledPage } from '../types';
-import { ALL_VERIFIED_NAIJA_JOBS, VERIFIED_NAIJA_ARTICLES, buildCrawledPagesFromListings } from '../data/allNaijaJobListings';
+import type { CrawledPage } from '../types.ts';
 
 export interface CrawlEngineResult {
   targetUrl: string;
@@ -294,24 +293,57 @@ export function generateDomainAdaptivePages(
   hostname: string,
   origin: string,
   gaMeasurementId?: string,
-  gtmId?: string
+  gtmId?: string,
+  siteTitle?: string,
+  siteDesc?: string
 ): CrawledPage[] {
   const lowerHost = hostname.toLowerCase();
   const lowerUrl = targetUrl.toLowerCase();
   const gaDetected = !!gaMeasurementId || !!gtmId;
 
-  // 1. Escrow / Job Board / Career / Naija Marketplace
+  const rawBrand = (siteTitle && siteTitle.length < 35 && !siteTitle.includes('|') && !siteTitle.includes('-'))
+    ? siteTitle.trim()
+    : hostname.replace(/^(?:www\.|jobs\.|careers\.|blog\.|app\.|shop\.)/i, '').replace(/\.[a-z.]+$/i, '');
+  const brandName = rawBrand ? (rawBrand.charAt(0).toUpperCase() + rawBrand.slice(1)) : 'Platform';
+
+  // 1. Career / Job Board / Talent Marketplace
   if (
     lowerHost.includes('job') ||
     lowerHost.includes('career') ||
     lowerHost.includes('work') ||
     lowerHost.includes('vacancy') ||
     lowerHost.includes('hire') ||
-    lowerHost.includes('eezor') ||
-    lowerHost.includes('naija') ||
+    lowerHost.includes('talent') ||
     lowerUrl.includes('job')
   ) {
-    return buildCrawledPagesFromListings(origin);
+    const jobPaths = [
+      { path: '/jobs', title: `All Open Vacancies | ${brandName}`, cat: 'category' as const, weight: 95 },
+      { path: '/jobs/remote', title: 'Remote & Hybrid Opportunities', cat: 'category' as const, weight: 94 },
+      { path: '/jobs/engineering', title: 'Software & Technology Roles', cat: 'category' as const, weight: 90 },
+      { path: '/jobs/product', title: 'Product & Design Positions', cat: 'category' as const, weight: 88 },
+      { path: '/jobs/marketing', title: 'Marketing & Sales Opportunities', cat: 'category' as const, weight: 86 },
+      { path: '/companies', title: 'Hiring Companies & Employers', cat: 'page' as const, weight: 85 },
+      { path: '/salaries', title: 'Compensation Benchmarks & Salaries', cat: 'page' as const, weight: 82 },
+      { path: '/post-job', title: 'Post a Job Opening', cat: 'page' as const, weight: 85 },
+      { path: '/about', title: `About ${brandName}`, cat: 'page' as const, weight: 75 },
+      { path: '/contact', title: 'Candidate & Employer Support', cat: 'page' as const, weight: 70 },
+      { path: '/faq', title: 'Frequently Asked Questions', cat: 'page' as const, weight: 70 },
+      { path: '/terms', title: 'Terms of Service', cat: 'page' as const, weight: 60 },
+      { path: '/privacy', title: 'Privacy Policy', cat: 'page' as const, weight: 60 },
+    ];
+    return jobPaths.map((item, idx) => ({
+      id: `synth_job_${idx + 1}`,
+      url: `${origin}${item.path}`,
+      path: item.path,
+      title: item.title,
+      description: `[Career Portal] ${item.title}`,
+      depth: item.path.split('/').filter(Boolean).length || 1,
+      status: 200,
+      includedInVisits: true,
+      visitWeight: item.weight,
+      gaDetected,
+      category: item.cat,
+    }));
   }
 
   // 2. E-Commerce / Online Store / Shop
@@ -421,6 +453,76 @@ export function generateDomainAdaptivePages(
     gaDetected,
     category: item.cat,
   }));
+}
+
+/**
+ * Recursively inspects parsed JSON hydration objects (Next.js, Nuxt, Redux, Remix, Pinia)
+ * to discover genuine content paths and real titles on dynamic SPAs.
+ */
+export function extractRoutesFromDeepObject(
+  obj: any,
+  origin: string,
+  hostname: string,
+  discoveredPaths: Set<string>,
+  discoveredPages: CrawledPage[],
+  maxLinks: number,
+  gaMeasurementId?: string,
+  gtmId?: string,
+  currentDepth = 0
+): void {
+  if (!obj || currentDepth > 5 || discoveredPages.length >= maxLinks) return;
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      if (discoveredPages.length >= maxLinks) break;
+      extractRoutesFromDeepObject(item, origin, hostname, discoveredPaths, discoveredPages, maxLinks, gaMeasurementId, gtmId, currentDepth + 1);
+    }
+    return;
+  }
+  if (typeof obj === 'object') {
+    const candidatePath = obj.slug || obj.path || obj.url || obj.href || obj.permalink || obj.route || obj.uri;
+    const candidateTitle = obj.title || obj.headline || obj.name || obj.label;
+
+    if (candidatePath && typeof candidatePath === 'string' && candidatePath.length >= 2) {
+      try {
+        const resolved = candidatePath.startsWith('http')
+          ? new URL(candidatePath)
+          : new URL(candidatePath.startsWith('/') ? candidatePath : `/${candidatePath}`, origin);
+
+        if (isSameApexDomain(resolved.hostname, hostname)) {
+          const normPath = normalizePathWithQuery(resolved);
+          const cleanTitle = (typeof candidateTitle === 'string' && candidateTitle.length > 2)
+            ? candidateTitle.trim()
+            : slugToTitle(normPath);
+
+          if (isCleanPublicPage(normPath, cleanTitle) && !discoveredPaths.has(normPath) && discoveredPages.length < maxLinks) {
+            discoveredPaths.add(normPath);
+            const cat = classifyPageCategory(normPath, cleanTitle);
+            discoveredPages.push({
+              id: `hyd_${discoveredPages.length + 1}`,
+              url: resolved.toString(),
+              path: normPath,
+              title: cleanTitle.length > 75 ? cleanTitle.slice(0, 75) + '...' : cleanTitle,
+              description: `[State Catalog] ${cleanTitle}`,
+              depth: normPath === '/' ? 0 : normPath.split('/').filter(Boolean).length || 1,
+              status: 200,
+              includedInVisits: true,
+              visitWeight: cat === 'post' ? 95 : cat === 'category' ? 88 : cat === 'product' ? 85 : 75,
+              gaDetected: !!gaMeasurementId || !!gtmId,
+              category: cat,
+            });
+          }
+        }
+      } catch {}
+    }
+
+    // Traverse interesting child keys
+    for (const key of Object.keys(obj)) {
+      if (discoveredPages.length >= maxLinks) break;
+      if (['props', 'pageProps', 'items', 'nodes', 'edges', 'posts', 'articles', 'products', 'categories', 'data', 'content', 'children', 'results', 'entries', 'routes', 'links'].includes(key)) {
+        extractRoutesFromDeepObject(obj[key], origin, hostname, discoveredPaths, discoveredPages, maxLinks, gaMeasurementId, gtmId, currentDepth + 1);
+      }
+    }
+  }
 }
 
 /**
@@ -788,6 +890,45 @@ export async function executeUniversalCrawl(
       }
     } catch {}
 
+    // 3A-1. Next.js Hydration State (__NEXT_DATA__)
+    try {
+      const nextDataMatch = primaryHtml.match(/<script\b[^>]*\bid=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+      if (nextDataMatch) {
+        const nextJson = JSON.parse(nextDataMatch[1]);
+        if (nextJson.page && typeof nextJson.page === 'string' && nextJson.page !== '/') {
+          const np = nextJson.page;
+          if (isCleanPublicPage(np) && !discoveredPaths.has(np)) {
+            discoveredPaths.add(np);
+            const nTitle = slugToTitle(np);
+            const nCat = classifyPageCategory(np, nTitle);
+            discoveredPages.push({
+              id: `next_${discoveredPages.length + 1}`,
+              url: `${origin}${np}`,
+              path: np,
+              title: nTitle.length > 75 ? nTitle.slice(0, 75) + '...' : nTitle,
+              description: `[Next.js Route] ${nTitle}`,
+              depth: np.split('/').filter(Boolean).length || 1,
+              status: 200,
+              includedInVisits: true,
+              visitWeight: 92,
+              gaDetected: !!gaMeasurementId || !!gtmId,
+              category: nCat,
+            });
+          }
+        }
+        extractRoutesFromDeepObject(nextJson.props, origin, hostname, discoveredPaths, discoveredPages, maxLinks, gaMeasurementId, gtmId);
+      }
+    } catch {}
+
+    // 3A-2. Nuxt Hydration State (__NUXT_DATA__ or window.__NUXT__)
+    try {
+      const nuxtDataMatch = primaryHtml.match(/<script\b[^>]*\bid=["']__NUXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+      if (nuxtDataMatch) {
+        const nuxtJson = JSON.parse(nuxtDataMatch[1]);
+        extractRoutesFromDeepObject(nuxtJson, origin, hostname, discoveredPaths, discoveredPages, maxLinks, gaMeasurementId, gtmId);
+      }
+    } catch {}
+
     // 3B. HTML Anchor links (<a href="...">)
     const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
     let match: RegExpExecArray | null;
@@ -826,6 +967,74 @@ export async function executeUniversalCrawl(
           }
         }
       } catch {}
+    }
+
+    // 3B-2. Navigation Menus (<nav>, <header>, <footer>)
+    const navBlockRegex = /<(?:nav|header|footer)\b[^>]*>([\s\S]*?)<\/(?:nav|header|footer)>/gi;
+    let nbm: RegExpExecArray | null;
+    while ((nbm = navBlockRegex.exec(primaryHtml)) !== null && discoveredPages.length < maxLinks) {
+      const navHtml = nbm[1];
+      const navLinkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
+      let nlm: RegExpExecArray | null;
+      while ((nlm = navLinkRegex.exec(navHtml)) !== null && discoveredPages.length < maxLinks) {
+        const rawNavHref = (nlm[1] || nlm[2] || nlm[3] || '').trim();
+        const navLinkText = (nlm[4] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+        if (!rawNavHref || rawNavHref.startsWith('javascript:') || rawNavHref.startsWith('mailto:') || rawNavHref.startsWith('tel:')) continue;
+
+        try {
+          const resolved = new URL(rawNavHref, origin);
+          if (isSameApexDomain(resolved.hostname, hostname)) {
+            const navPath = normalizePathWithQuery(resolved);
+            if (!discoveredPaths.has(navPath) && isCleanPublicPage(navPath, navLinkText)) {
+              discoveredPaths.add(navPath);
+              const cat = classifyPageCategory(navPath, navLinkText);
+              const cleanTitle = navLinkText || slugToTitle(navPath);
+              discoveredPages.push({
+                id: `nav_${discoveredPages.length + 1}`,
+                url: resolved.toString(),
+                path: navPath,
+                title: cleanTitle.length > 75 ? cleanTitle.slice(0, 75) + '...' : cleanTitle,
+                description: `[Site Nav] ${cleanTitle}`,
+                depth: navPath === '/' ? 0 : navPath.split('/').filter(Boolean).length || 1,
+                status: 200,
+                includedInVisits: true,
+                visitWeight: 96,
+                gaDetected: !!gaMeasurementId || !!gtmId,
+                category: cat,
+              });
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // 3B-3. Single-Page App Section Anchors (e.g. #features, #pricing, #about, #contact)
+    if (discoveredPages.length < 15) {
+      const hashLinkRegex = /<a\b[^>]*\bhref\s*=\s*["']#(?:!|\/)?([a-zA-Z0-9_\-]{3,30})["'][^>]*>([\s\S]*?)<\/a>/gi;
+      let hlm: RegExpExecArray | null;
+      while ((hlm = hashLinkRegex.exec(primaryHtml)) !== null && discoveredPages.length < maxLinks) {
+        const sectionId = hlm[1].trim();
+        const sectionText = (hlm[2] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+        const sectionPath = `/#${sectionId}`;
+        if (!discoveredPaths.has(sectionPath) && !['top', 'bottom', 'main', 'header', 'nav', 'menu'].includes(sectionId.toLowerCase())) {
+          discoveredPaths.add(sectionPath);
+          const sTitle = sectionText || slugToTitle(sectionId);
+          const cat = classifyPageCategory(sectionId, sTitle);
+          discoveredPages.push({
+            id: `sec_${discoveredPages.length + 1}`,
+            url: `${origin}${sectionPath}`,
+            path: sectionPath,
+            title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
+            description: `[Section] ${sTitle}`,
+            depth: 1,
+            status: 200,
+            includedInVisits: true,
+            visitWeight: 85,
+            gaDetected: !!gaMeasurementId || !!gtmId,
+            category: cat,
+          });
+        }
+      }
     }
 
     // 3C. SPA & JavaScript Bundle Decompilation (React, Vue, Vite, Next.js, Nuxt, Angular)
@@ -892,8 +1101,7 @@ export async function executeUniversalCrawl(
             // Ingest Job Routes (both ?job= and /job/ query and path formats supported by SPAs)
             for (const jId of uniqueJobIds.slice(0, 45)) {
               if (discoveredPages.length >= maxLinks) break;
-              const matchedPredefined = ALL_VERIFIED_NAIJA_JOBS.find(j => j.id === jId);
-              const jobTitle = titleMap.get(jId) || (matchedPredefined ? matchedPredefined.title : slugToTitle(jId, 'Listing Position'));
+              const jobTitle = titleMap.get(jId) || slugToTitle(jId, 'Listing Position');
 
               for (const p of [`/?job=${jId}`, `/job/${jId}`]) {
                 if (!discoveredPaths.has(p) && discoveredPages.length < maxLinks) {
@@ -918,8 +1126,7 @@ export async function executeUniversalCrawl(
             // Ingest Article Routes (both ?article= and /article/)
             for (const aId of uniqueArtIds.slice(0, 25)) {
               if (discoveredPages.length >= maxLinks) break;
-              const matchedArt = VERIFIED_NAIJA_ARTICLES.find(a => a.id === aId);
-              const artTitle = titleMap.get(aId) || (matchedArt ? matchedArt.title : slugToTitle(aId, 'Publication Article'));
+              const artTitle = titleMap.get(aId) || slugToTitle(aId, 'Publication Article');
 
               for (const p of [`/?article=${aId}`, `/article/${aId}`]) {
                 if (!discoveredPaths.has(p) && discoveredPages.length < maxLinks) {
@@ -1085,12 +1292,24 @@ export async function executeUniversalCrawl(
   }
 
   // ----------------------------------------------------
-  // STEP 4: WORDPRESS REST API PROBING (Real JSON only)
+  // STEP 4: WORDPRESS & GENERIC REST API PROBING (Real JSON only)
   // ----------------------------------------------------
   if (discoveredPages.length < maxLinks) {
     const wpEndpoints = [
       `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug`,
       `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug`,
+    ];
+
+    const genericApiEndpoints = [
+      `${origin}/api/jobs`,
+      `${origin}/api/posts`,
+      `${origin}/api/articles`,
+      `${origin}/api/listings`,
+      `${origin}/api/products`,
+      `${origin}/api/items`,
+      `${origin}/api/v1/jobs`,
+      `${origin}/api/v1/posts`,
+      `${origin}/api/v1/listings`,
     ];
 
     const wpTasks = wpEndpoints.map(async (wpUrl) => {
@@ -1132,7 +1351,67 @@ export async function executeUniversalCrawl(
       } catch {}
     });
 
-    await Promise.allSettled(wpTasks);
+    const apiTasks = genericApiEndpoints.map(async (apiUrl) => {
+      try {
+        const apiRes = await fetchFn(apiUrl, 3500);
+        if (apiRes.ok && apiRes.text && (apiRes.text.startsWith('[') || apiRes.text.startsWith('{'))) {
+          let parsed: any;
+          try {
+            parsed = JSON.parse(apiRes.text);
+          } catch {
+            return;
+          }
+          const rawItems = Array.isArray(parsed)
+            ? parsed
+            : (Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed.items) ? parsed.items : (Array.isArray(parsed.results) ? parsed.results : (Array.isArray(parsed.jobs) ? parsed.jobs : (Array.isArray(parsed.posts) ? parsed.posts : [])))));
+
+          if (Array.isArray(rawItems) && rawItems.length > 0) {
+            for (const item of rawItems) {
+              if (discoveredPages.length >= maxLinks) break;
+              if (!item || typeof item !== 'object') continue;
+
+              const candidateLink = item.url || item.link || item.permalink || item.path || '';
+              const candidateSlug = item.slug || item.id || item._id;
+              const candidateTitle = item.title || item.name || item.heading || item.jobTitle || item.position || candidateSlug || 'Listing';
+
+              let itemPath = '';
+              if (candidateLink && typeof candidateLink === 'string') {
+                try {
+                  const resolved = new URL(candidateLink, origin);
+                  itemPath = normalizePathWithQuery(resolved);
+                } catch {
+                  itemPath = candidateLink.startsWith('/') ? candidateLink : `/${candidateLink}`;
+                }
+              } else if (candidateSlug) {
+                const endpointName = apiUrl.split('/').pop() || 'item';
+                itemPath = `/${endpointName}/${candidateSlug}`;
+              }
+
+              if (itemPath && isCleanPublicPage(itemPath) && !discoveredPaths.has(itemPath)) {
+                discoveredPaths.add(itemPath);
+                const cleanT = String(candidateTitle).replace(/<[^>]*>/g, '').trim();
+                const cat = classifyPageCategory(itemPath, cleanT);
+                discoveredPages.push({
+                  id: `api_${item.id || discoveredPages.length + 1}`,
+                  url: `${origin}${itemPath}`,
+                  path: itemPath,
+                  title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
+                  description: `[REST API Catalog] ${cleanT}`,
+                  depth: itemPath.split('/').filter(Boolean).length || 1,
+                  status: 200,
+                  includedInVisits: true,
+                  visitWeight: 95,
+                  gaDetected: !!gaMeasurementId || !!gtmId,
+                  category: cat,
+                });
+              }
+            }
+          }
+        }
+      } catch {}
+    });
+
+    await Promise.allSettled([...wpTasks, ...apiTasks]);
   }
 
   // ----------------------------------------------------
@@ -1207,7 +1486,7 @@ export async function executeUniversalCrawl(
   // only 1 page (the root) exists, synthesize an authentic catalog of domain routes
   // so the user's graph is never stuck on just the main domain given.
   if (discoveredPages.length <= 1) {
-    const synthPages = generateDomainAdaptivePages(targetUrl, hostname, origin, gaMeasurementId, gtmId);
+    const synthPages = generateDomainAdaptivePages(targetUrl, hostname, origin, gaMeasurementId, gtmId, title, description);
     for (const sp of synthPages) {
       if (!discoveredPaths.has(sp.path) && discoveredPages.length < maxLinks) {
         discoveredPaths.add(sp.path);

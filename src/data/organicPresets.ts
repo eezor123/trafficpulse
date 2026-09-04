@@ -274,7 +274,7 @@ export const GLOBAL_COUNTRIES: GeoCountry[] = [
 export const DEFAULT_ORGANIC_CONFIG: OrganicVisitorConfig = {
   id: 'organic_default',
   name: 'Organic Search & Social Traffic Campaign',
-  targetUrl: 'https://9jajobs.vercel.app',
+  targetUrl: 'https://jobs.eezor.com',
   crawlSettings: {
     maxDepth: 4,
     maxLinks: 500,

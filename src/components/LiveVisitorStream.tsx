@@ -54,7 +54,6 @@ import {
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { ActiveVisitorSession, LiveTelemetryEvent, RealHttpTrafficHit, SimulatorActionLog } from '../types';
-import { ALL_VERIFIED_NAIJA_JOBS, VERIFIED_NAIJA_ARTICLES } from '../data/allNaijaJobListings';
 
 interface LiveVisitorStreamProps {
   status: 'idle' | 'running' | 'paused' | 'completed';
@@ -126,7 +125,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
 
   // Helper to compute full absolute URL
   const computeFullUrl = (path: string = '/'): string => {
-    const rawTarget = targetUrl && targetUrl.trim() ? targetUrl.trim() : 'https://9jajobs.vercel.app';
+    const rawTarget = targetUrl && targetUrl.trim() ? targetUrl.trim() : 'https://example.com';
     const base = rawTarget.startsWith('http') ? rawTarget.replace(/\/$/, '') : `https://${rawTarget.replace(/\/$/, '')}`;
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
     return `${base}${cleanPath}`;
@@ -195,17 +194,41 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
     }
   }, [selectedVisitor?.liveActionLogs?.length, autoScrollLogs]);
 
-  // Extract or match job / article data for high-fidelity DOM rendering
-  const matchedJob = ALL_VERIFIED_NAIJA_JOBS.find(j => 
-    currentPath.includes(j.id) || currentPath.includes(j.path) || (currentPath.includes('job=') && currentPath.includes(j.id))
-  ) || ALL_VERIFIED_NAIJA_JOBS[0];
+  // Dynamic domain, brand, and page metadata derivation for high-fidelity DOM rendering
+  const parsedHostname = useMemo(() => {
+    try {
+      const raw = targetUrl && targetUrl.trim() ? targetUrl.trim() : 'example.com';
+      return raw.startsWith('http') ? new URL(raw).hostname : raw.replace(/\/.*$/, '');
+    } catch {
+      return 'example.com';
+    }
+  }, [targetUrl]);
 
-  const matchedArticle = VERIFIED_NAIJA_ARTICLES.find(a => 
-    currentPath.includes(a.id) || currentPath.includes(a.path) || (currentPath.includes('article=') && currentPath.includes(a.id))
+  const brandName = useMemo(() => {
+    const clean = parsedHostname.replace(/^(www\.|jobs\.|blog\.|app\.|shop\.)/, '').replace(/\.[a-z.]+$/, '');
+    return clean ? clean.charAt(0).toUpperCase() + clean.slice(1) : 'Website';
+  }, [parsedHostname]);
+
+  const initials = useMemo(() => {
+    return brandName.slice(0, 2).toUpperCase() || 'WS';
+  }, [brandName]);
+
+  const activePage = selectedVisitor?.visitedPages[selectedVisitor.currentPageIndex];
+  const pageTitle = activePage?.title || (currentPath === '/' ? `${brandName} - Home` : currentPath.replace(/[-_/]/g, ' ').trim());
+  const pageDesc = activePage?.description || `Explore verified content, documentation, and live pages on ${parsedHostname}.`;
+  const pageCategory = activePage?.category || (
+    currentPath.includes('blog') || currentPath.includes('post') || currentPath.includes('article') || currentPath.includes('guide') 
+      ? 'post' 
+      : currentPath.includes('product') || currentPath.includes('shop') || currentPath.includes('item')
+      ? 'product'
+      : currentPath.includes('category') || currentPath.includes('tag') || currentPath.includes('archive')
+      ? 'category'
+      : 'page'
   );
 
-  const isArticleView = !!matchedArticle || currentPath.includes('article') || currentPath.includes('guide');
-  const isJobView = !isArticleView && (currentPath.includes('job') || currentPath.includes('post') || !currentPath.includes('category'));
+  const isArticleView = pageCategory === 'post';
+  const isProductView = pageCategory === 'product';
+  const isCategoryView = pageCategory === 'category';
 
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(fullLiveUrl);
@@ -930,19 +953,19 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                         <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
-                              9J
+                              {initials}
                             </div>
                             <div>
                               <div className="text-sm font-bold text-white tracking-wide flex items-center gap-1.5">
-                                <span>NaijaJobs</span>
-                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-500/30">Verified</span>
+                                <span>{brandName}</span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-500/30">Verified Live</span>
                               </div>
-                              <div className="text-[11px] text-slate-400">Nigeria's Escrow Job Marketplace & Career Hub</div>
+                              <div className="text-[11px] text-slate-400 font-mono">{parsedHostname}</div>
                             </div>
                           </div>
                           <div className="flex items-center gap-2 text-xs">
-                            <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-medium">Browse Jobs</span>
-                            <span className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-medium">Post a Job</span>
+                            <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-medium">Explore</span>
+                            <span className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-medium">Contact / Docs</span>
                           </div>
                         </div>
 
@@ -957,8 +980,8 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                               <Megaphone className={`w-4 h-4 ${selectedVisitor.status === 'clicking_ad' ? 'animate-bounce' : ''}`} />
                             </div>
                             <div>
-                              <div className="font-bold text-slate-200 text-xs">Monnify & Paystack Escrow Payment Gateway 2026</div>
-                              <div className="text-[11px] text-slate-400">Google AdSense • Leaderboard Responsive Banner (728x90)</div>
+                              <div className="font-bold text-slate-200 text-xs">Cloud Infrastructure & CDN Acceleration 2026</div>
+                              <div className="text-[11px] text-slate-400">Google AdSense • Responsive Banner (728x90)</div>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
@@ -986,10 +1009,10 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                               </button>
                             </div>
                             <h4 className="text-base font-bold text-white">
-                              Get Instant WhatsApp Alerts for High-Paying Nigerian Jobs
+                              Subscribe to the Official {brandName} Updates
                             </h4>
                             <p className="text-xs text-slate-300">
-                              Join over 65,000 Nigerian professionals receiving daily vetted listings in Lagos, Abuja, and Port Harcourt.
+                              Receive daily announcements, tutorials, and featured resources from {parsedHostname}.
                             </p>
                             <div className="flex items-center gap-2 pt-1">
                               <button type="button" className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-lg">
@@ -1003,91 +1026,66 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                           </div>
                         )}
 
-                        {/* MAIN CONTENT CARD: Detailed Single Job Listing View */}
-                        {isJobView && matchedJob && (
+                        {/* PRODUCT VIEW */}
+                        {isProductView && (
                           <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
-                            {/* Job Listing Top Banner */}
                             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-800 pb-5">
                               <div className="space-y-2">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/30">
-                                    {matchedJob.categoryName}
+                                    Product / Service
                                   </span>
                                   <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                                    <Lock className="w-3 h-3" />
-                                    <span>Escrow Protected</span>
+                                    <ShieldCheck className="w-3 h-3" />
+                                    <span>Verified Offering</span>
                                   </span>
                                 </div>
                                 <h1 className="text-xl font-extrabold text-white leading-snug">
-                                  {matchedJob.title}
+                                  {pageTitle}
                                 </h1>
-                                <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
-                                  <div className="flex items-center gap-1 text-slate-300">
-                                    <Briefcase className="w-3.5 h-3.5 text-indigo-400" />
-                                    <span>{matchedJob.contactOrEmployer || 'Verified Nigerian Employer'}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1 text-slate-300">
-                                    <MapPin className="w-3.5 h-3.5 text-rose-400" />
-                                    <span>{matchedJob.location}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1 text-emerald-400 font-bold">
-                                    <DollarSign className="w-3.5 h-3.5" />
-                                    <span>{matchedJob.salaryRange}</span>
-                                  </div>
-                                </div>
+                                <div className="text-xs text-slate-400 font-mono">{currentPath}</div>
                               </div>
-
-                              {/* Quick Action Buttons */}
                               <div className="flex items-center gap-2 shrink-0">
-                                <button
-                                  type="button"
-                                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 text-white font-bold text-xs shadow-lg flex items-center gap-1.5"
-                                >
+                                <button type="button" className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg flex items-center gap-1.5">
                                   <Send className="w-3.5 h-3.5" />
-                                  <span>Apply Now</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700"
-                                >
-                                  <Bookmark className="w-4 h-4" />
+                                  <span>Order Now</span>
                                 </button>
                               </div>
                             </div>
+                            <div className="text-xs text-slate-300 leading-relaxed space-y-3 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
+                              <p className="text-slate-200 font-medium">{pageDesc}</p>
+                              <p>Active visitor #{selectedVisitor.visitorNumber} from {selectedVisitor.country.name} is evaluating product specifications and pricing tiers on {parsedHostname}.</p>
+                            </div>
+                          </div>
+                        )}
 
-                            {/* Escrow Milestone Security Breakdown */}
-                            <div className="bg-slate-950/80 border border-emerald-500/30 rounded-xl p-4 space-y-2.5">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
-                                  <ShieldCheck className="w-4 h-4" />
-                                  <span>Escrow Milestone Protection Guarantee</span>
-                                </div>
-                                <span className="text-[10px] text-emerald-300 font-mono bg-emerald-950 px-2 py-0.5 rounded border border-emerald-500/30">
-                                  100% Funds Locked
+                        {/* ARTICLE / POST / BLOG VIEW */}
+                        {isArticleView && (
+                          <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+                            <div className="space-y-2 border-b border-slate-800 pb-4">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/30">
+                                  Article / Guide
                                 </span>
+                                <span className="text-xs text-slate-400 font-mono">{currentPath}</span>
                               </div>
-                              <p className="text-xs text-slate-400 leading-relaxed">
-                                Employer has deposited the full project budget in 9jaJobs Escrow. Payment is automatically released only upon your milestone completion and client sign-off.
+                              <h1 className="text-xl font-bold text-white leading-snug">
+                                {pageTitle}
+                              </h1>
+                              <div className="text-xs text-slate-400 font-mono">
+                                Published by {brandName} Editorial • 4 min read • Verified
+                              </div>
+                            </div>
+                            <div className="text-xs text-slate-300 leading-relaxed space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
+                              <p className="text-slate-200 font-medium">{pageDesc}</p>
+                              <p>
+                                When exploring content on {parsedHostname}, human visitors engage through randomized vertical viewport scrolling, micro-pauses at key headers, and contextual anchor link interactions.
                               </p>
                             </div>
-
-                            {/* Full Job Description & Scope */}
-                            <div className="space-y-3">
-                              <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
-                                Job Description & Requirements
-                              </h3>
-                              <div className="text-xs text-slate-300 leading-relaxed space-y-3 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-                                <p>{matchedJob.description}</p>
-                                <p>
-                                  Interested candidates must provide a proven track record, portfolio repository, and availability for immediate milestone-based contract delivery.
-                                </p>
-                              </div>
-                            </div>
-
                             {/* In-Article Contextual Resource Links */}
                             <div className="space-y-2">
                               <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                Related Career Resources & Guides
+                                In-Article Contextual Links
                               </div>
                               <div className="flex flex-wrap gap-2">
                                 <span className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-all ${
@@ -1096,76 +1094,51 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                                     : 'bg-slate-950 text-blue-400 border-blue-500/30'
                                 }`}>
                                   <Link2 className="w-3 h-3" />
-                                  <span>10 Proven Tips to Ace High-Paying Job Interviews in Nigeria</span>
+                                  <span>{pageTitle}</span>
                                 </span>
-                                <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-950 text-cyan-400 border border-cyan-500/30 flex items-center gap-1.5">
-                                  <Link2 className="w-3 h-3" />
-                                  <span>Salary Negotiation Guide for Nigerian Tech</span>
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Verified Applicant Feedback & Reviews */}
-                            <div className="space-y-3 pt-3 border-t border-slate-800">
-                              <div className="flex items-center justify-between">
-                                <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                                  <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
-                                  <span>Applicant Inquiries & Employer Verification</span>
-                                </h4>
-                                <span className="text-[10px] text-slate-500 font-mono">3 Verified Comments</span>
-                              </div>
-                              <div className="space-y-2">
-                                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/80 text-xs space-y-1">
-                                  <div className="flex items-center justify-between text-slate-400">
-                                    <span className="font-bold text-slate-200">Emeka O. (Senior React Developer)</span>
-                                    <span className="text-[10px] text-slate-500">2 hours ago</span>
-                                  </div>
-                                  <p className="text-slate-300">
-                                    Milestone proposal submitted. Ready to commence sprint 1 setup immediately.
-                                  </p>
-                                </div>
                               </div>
                             </div>
                           </div>
                         )}
 
-                        {/* ARTICLE VIEW (If user is viewing career guide) */}
-                        {isArticleView && (
+                        {/* CATEGORY / ARCHIVE VIEW */}
+                        {isCategoryView && (
                           <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
                             <div className="space-y-2 border-b border-slate-800 pb-4">
-                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/30">
-                                Career & Industry Guide
-                              </span>
-                              <h1 className="text-xl font-bold text-white leading-snug">
-                                {matchedArticle?.title || '10 Proven Tips to Ace High-Paying Job Interviews in Nigeria'}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/30 uppercase">
+                                  Category Archive
+                                </span>
+                                <span className="text-xs text-slate-400 font-mono">{currentPath}</span>
+                              </div>
+                              <h1 className="text-xl font-extrabold text-white leading-snug">
+                                {pageTitle}
                               </h1>
                               <div className="text-xs text-slate-400 font-mono">
-                                Published by Editorial Team • 5 min read • Verified 2026
+                                Filtered catalog of resources on {parsedHostname}
                               </div>
                             </div>
                             <div className="text-xs text-slate-300 leading-relaxed space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-                              <p>{matchedArticle?.description}</p>
+                              <p className="text-slate-200 font-medium">{pageDesc}</p>
                               <p>
-                                When exploring verified listings and corporate opportunities, candidate preparation must emphasize concrete milestone results and verifiable impact.
+                                Active visitor #{selectedVisitor.visitorNumber} from {selectedVisitor.country.name} is filtering category archives and navigating verified routes.
                               </p>
                             </div>
                           </div>
                         )}
 
-                        {/* GENERIC CRAWLED PAGE VIEW (For any custom website, blog, or store) */}
-                        {!isJobView && !isArticleView && (
+                        {/* GENERAL PAGE / DOCUMENTATION VIEW */}
+                        {!isArticleView && !isProductView && !isCategoryView && (
                           <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
                             <div className="space-y-2 border-b border-slate-800 pb-4">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/30 uppercase">
-                                  {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.path.includes('category') ? 'Category Archive' : 'Live Document / Post'}
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/30 uppercase">
+                                  Live Page
                                 </span>
-                                <span className="text-xs text-slate-400 font-mono">
-                                  {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.path}
-                                </span>
+                                <span className="text-xs text-slate-400 font-mono">{currentPath}</span>
                               </div>
                               <h1 className="text-xl font-extrabold text-white leading-snug">
-                                {selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.title || 'Discovered Website Post'}
+                                {pageTitle}
                               </h1>
                               <div className="text-xs text-slate-400 font-mono flex items-center gap-3">
                                 <span>Status: 200 OK</span>
@@ -1178,10 +1151,10 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
 
                             <div className="text-xs text-slate-300 leading-relaxed space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
                               <p className="text-slate-200 font-medium">
-                                Active visitor #{selectedVisitor.visitorNumber} from {selectedVisitor.country.name} ({selectedVisitor.country.flag}) is currently reading this document and executing authentic organic human engagement actions.
+                                Active visitor #{selectedVisitor.visitorNumber} from {selectedVisitor.country.name} ({selectedVisitor.country.flag}) is actively reading this page on {parsedHostname}.
                               </p>
                               <p className="text-slate-400">
-                                Simulated micro-movements, randomized viewport scrolling, organic pause intervals, and context-aware element clicks are being dispatched without triggerable bot anomalies.
+                                {pageDesc}
                               </p>
                             </div>
 
@@ -1197,7 +1170,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                                     : 'bg-slate-950 text-blue-400 border-blue-500/30'
                                 }`}>
                                   <Link2 className="w-3 h-3" />
-                                  <span>{selectedVisitor.visitedPages[selectedVisitor.currentPageIndex]?.title}</span>
+                                  <span>{pageTitle}</span>
                                 </span>
                               </div>
                             </div>

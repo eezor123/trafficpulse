@@ -91,30 +91,62 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
   const handleTestGa4ClickPing = async () => {
     setTestClickPingStatus('testing');
     try {
+      const clientId = `${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`;
+      const sessionId = `${Math.floor(Date.now() / 1000)}`;
+      const measurementId = ga4.measurementId?.trim() || 'G-TESTPING123';
+
+      // 1. First send session start page_view to open live Realtime visitor session
+      await fetch('/api/ga4/collect-beacon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          measurementId,
+          apiSecret: ga4.apiSecret || undefined,
+          clientId,
+          sessionId,
+          hitSequence: 1,
+          isFirstVisit: false,
+          eventName: 'page_view',
+          pageTitle: 'TrafficPulse GA4 Live Session',
+          pageLocation: 'https://jobs.eezor.com/jobs',
+          pagePath: '/jobs',
+          referrer: 'https://www.google.com/search?q=jobs',
+          engagementTimeMs: 12000,
+          countryCode: 'US',
+          campaignSource: 'google',
+          campaignMedium: 'organic',
+          campaignName: 'Organic Traffic Test',
+        }),
+      });
+
+      // 2. Then immediately dispatch the click event under the active session
       const res = await fetch('/api/ga4/collect-beacon', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          measurementId: ga4.measurementId || 'G-TESTPING123',
+          measurementId,
           apiSecret: ga4.apiSecret || undefined,
-          eventName: 'click',
-          pageTitle: 'TrafficPulse GA4 Click Event Validation',
-          pageLocation: 'https://example.com/job/sample-posting',
-          pagePath: '/job/sample-posting',
-          referrer: 'https://www.google.com/search?q=jobs',
-          engagementTimeMs: 15000,
+          clientId,
+          sessionId,
           hitSequence: 2,
+          isFirstVisit: false,
+          eventName: 'click',
+          pageTitle: 'TrafficPulse GA4 Live Session',
+          pageLocation: 'https://jobs.eezor.com/jobs',
+          pagePath: '/jobs',
+          referrer: 'https://www.google.com/search?q=jobs',
+          engagementTimeMs: 2500,
           countryCode: 'US',
           campaignSource: 'google',
           campaignMedium: 'organic',
           campaignName: 'Organic Traffic Test',
           clickParams: {
-            linkUrl: 'https://jobs.partner.com/apply/101',
-            linkText: 'Apply Now (Simulated Click Test)',
+            linkUrl: 'https://jobs.eezor.com/job/apply-online',
+            linkText: 'Apply Online (Live Outbound CTA Click)',
             outbound: true,
-            linkDomain: 'jobs.partner.com',
-            linkClasses: 'btn-apply-job cta-outbound',
-            linkId: 'btn_apply_test_101',
+            linkDomain: 'jobs.eezor.com',
+            linkClasses: 'btn-apply-cta outbound-partner-link',
+            linkId: 'btn_apply_online_cta',
           },
         }),
       });

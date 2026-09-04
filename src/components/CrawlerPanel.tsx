@@ -29,7 +29,7 @@ import {
 import { CrawledPage, SiteCrawlState, DiscoveredRouteItem } from '../types';
 import { parseRawJobText } from '../utils/jobTextParser';
 import { parseSitemapOrUrlList, ParseResult } from '../utils/sitemapParser';
-import { ALL_VERIFIED_NAIJA_JOBS } from '../data/allNaijaJobListings';
+import { getClientSideCrawledPages } from '../utils/clientFallbackEngine';
 import { CrawlProgressBar } from './CrawlProgressBar';
 import { RecentlyDiscoveredRoutes } from './RecentlyDiscoveredRoutes';
 
@@ -305,13 +305,15 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
     setTimeout(() => setFeedbackMessage(null), 5000);
   };
 
-  const handleImportAllVerifiedListings = () => {
+  const handleAutoDiscoverTargetRoutes = () => {
     let count = 0;
-    ALL_VERIFIED_NAIJA_JOBS.forEach(job => {
-      onAddCustomPage(job.path, job.title);
+    const target = crawlState.targetUrl || 'https://example.com';
+    const domainPages = getClientSideCrawledPages(target);
+    domainPages.forEach(p => {
+      onAddCustomPage(p.path, p.title);
       count++;
     });
-    setFeedbackMessage(`Loaded all ${count} verified listings into route catalog!`);
+    setFeedbackMessage(`Generated ${count} domain-adaptive routes for ${crawlState.hostname || 'target site'}!`);
     setActiveFilter('all');
     setShowBulkModal(false);
     setTimeout(() => setFeedbackMessage(null), 5000);
@@ -1147,31 +1149,33 @@ https://jobs.eezor.com/?job=job_1787164089747 | Male Barbecue sales person
             </div>
 
             <p className="text-xs text-slate-400">
-              Paste one URL, query, or job ID per line (optionally with title separated by <code className="text-cyan-300 font-mono">|</code>), or paste raw copied job broadcasts directly.
+              Paste one URL or path per line (optionally with title separated by <code className="text-cyan-300 font-mono">|</code>).
             </p>
 
             <div className="flex flex-wrap gap-1.5 pt-1">
               <button
                 type="button"
-                onClick={handleImportAllVerifiedListings}
+                onClick={handleAutoDiscoverTargetRoutes}
                 className="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 font-medium transition-colors cursor-pointer flex items-center gap-1"
               >
                 <Sparkles className="w-3 h-3" />
-                <span>Load All 19+ Verified Listings</span>
+                <span>Auto-Generate Domain Templates</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setBulkInput(`/?job=job_1787164089747 | Male Barbecue sales person is urgently needed
-/?job=job_1785681865131 | Urgent Commercial Solar & Inverter Installation Lead
-/?job=job_1787164099999 | Senior Flutter & React Native Mobile App Engineer
-/?job=job_105 | Full-Stack Next.js & Stripe/Paystack Engineer
-/?job=job_101 | Mobile App Developer for Dispatch Rider Tracking System
-/?article=art_101 | 10 Proven Tips to Ace High-Paying Job Interviews in Nigeria`);
+                  const h = crawlState.hostname || 'example.com';
+                  setBulkInput(`/about | About ${h}
+/services | Our Core Services
+/pricing | Pricing & Plans
+/blog | Articles & Knowledge Base
+/contact | Customer Support
+/faq | Frequently Asked Questions
+/privacy | Privacy Policy`);
                 }}
                 className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono transition-colors cursor-pointer"
               >
-                Insert Sample IDs
+                Insert Sample Routes
               </button>
             </div>
 
@@ -1179,11 +1183,11 @@ https://jobs.eezor.com/?job=job_1787164089747 | Male Barbecue sales person
               rows={6}
               value={bulkInput}
               onChange={(e) => setBulkInput(e.target.value)}
-              placeholder={`https://jobs.eezor.com/?job=job_1787164089747 | Male Barbecue sales person is urgently needed
-job_1785681865131 | Urgent Commercial Solar Installation
-https://jobs.eezor.com/?job=job_105 | Full-Stack Next.js Engineer
-/category/software-web-development | Software & Web Dev
-/about | About Us`}
+              placeholder={`/about | About Us
+/blog/getting-started | Getting Started Guide
+/services | Services Catalog
+/pricing | Pricing Plans
+/contact | Contact & Support`}
               className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl p-3 text-xs text-slate-100 placeholder:text-slate-600 font-mono focus:outline-none"
             />
 

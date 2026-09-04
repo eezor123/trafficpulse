@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import path from 'path';
 import http from 'http';
 import https from 'https';
@@ -7,7 +7,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
-import { executeUniversalCrawl, FetchFunction } from './src/utils/universalCrawler';
+import { executeUniversalCrawl, type FetchFunction } from './src/utils/universalCrawler.ts';
 
 dotenv.config();
 
@@ -1383,7 +1383,7 @@ async function startServer() {
             visitor_country: cleanCountryCode,
             country: cleanCountryCode,
             geoid: geoData.criteriaId,
-            debug_mode: 1, // Instantly visible in GA4 Admin -> DebugView
+            ...(req.body.debugMode === true ? { debug_mode: 1 } : {}),
           };
 
           if (eventName === 'click' || cp) {
@@ -1463,8 +1463,7 @@ async function startServer() {
         'ep.region': proxyRegion,
         'ep.proxy_region': proxyRegion,
         'up.geo_country': cleanCountryCode,
-        _dbg: '1', // GA4 DebugView immediate live display
-        'ep.debug_mode': '1',
+        ...(req.body.debugMode === true ? { _dbg: '1', 'ep.debug_mode': '1' } : {}),
       };
 
       // Only set session start and first visit on the very first hit of the session
@@ -1511,7 +1510,8 @@ async function startServer() {
 
       const params = new URLSearchParams(payloadParams);
       const rawBodyString = params.toString();
-      const collectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
+      const getCollectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
+      const postCollectUrl = 'https://www.google-analytics.com/g/collect';
 
       try {
         let gaRes: any;
@@ -1531,8 +1531,8 @@ async function startServer() {
         };
 
         try {
-          // 1. Primary: POST to collectUrl with query params + body (Standard Google Analytics Endpoint)
-          gaRes = await fetch(collectUrl, {
+          // 1. Primary: POST body directly to /g/collect
+          gaRes = await fetch(postCollectUrl, {
             method: 'POST',
             headers: requestHeaders,
             body: rawBodyString,
@@ -1542,7 +1542,7 @@ async function startServer() {
 
           // 2. Secondary Fallback: GET request with all params encoded in URL
           if (!gaRes.ok && gaRes.status !== 204) {
-            gaRes = await fetch(collectUrl, {
+            gaRes = await fetch(getCollectUrl, {
               method: 'GET',
               headers: {
                 'User-Agent': requestHeaders['User-Agent'],
@@ -1554,6 +1554,8 @@ async function startServer() {
                 'CF-Connecting-IP': authenticCountryIp,
                 'CF-IPCountry': cleanCountryCode,
                 'X-Country-Code': cleanCountryCode,
+                'X-Proxy-Region': proxyRegion,
+                'X-Real-IP': authenticCountryIp,
               },
               // @ts-ignore
               agent,
@@ -1562,7 +1564,7 @@ async function startServer() {
         } catch (proxyFetchErr) {
           // 3. Resilient Direct Fallback if proxy node network errored
           try {
-            gaRes = await fetch(collectUrl, {
+            gaRes = await fetch(postCollectUrl, {
               method: 'POST',
               headers: {
                 'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',

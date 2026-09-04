@@ -1,9 +1,9 @@
-import express, { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
-import { executeUniversalCrawl, FetchFunction } from '../src/utils/universalCrawler';
+import { executeUniversalCrawl, type FetchFunction } from '../src/utils/universalCrawler.ts';
 
 dotenv.config();
 
@@ -62,13 +62,17 @@ app.use((req, res, next) => {
 
 // Normalize Vercel Serverless Function rewritten routes
 app.use((req, res, next) => {
+  // If Vercel rewrote /api/... to /api or /, restore original URL from req.originalUrl
+  if (req.originalUrl && (req.url === '/' || req.url === '/api' || req.url === '/api/')) {
+    req.url = req.originalUrl;
+  }
   // Support optional rewrite query param if provided
   if (req.query && typeof req.query['match'] === 'string') {
     const subpath = req.query['match'];
-    req.url = subpath.startsWith('/') ? subpath : `/${subpath}`;
+    req.url = subpath.startsWith('/api') ? subpath : `/api/${subpath.replace(/^\//, '')}`;
   } else if (req.query && typeof req.query['0'] === 'string') {
     const subpath = req.query['0'];
-    req.url = subpath.startsWith('/') ? subpath : `/${subpath}`;
+    req.url = subpath.startsWith('/api') ? subpath : `/api/${subpath.replace(/^\//, '')}`;
   }
   next();
 });
@@ -1438,7 +1442,7 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
             visitor_country: cleanCountryCode,
             country: cleanCountryCode,
             geoid: geoData.criteriaId,
-            debug_mode: 1, // Instantly visible in GA4 DebugView
+            ...(req.body.debugMode === true ? { debug_mode: 1 } : {}),
           };
 
           if (eventName === 'click' || cp) {
@@ -1517,8 +1521,7 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
         'ep.region': proxyRegion,
         'ep.proxy_region': proxyRegion,
         'up.geo_country': cleanCountryCode,
-        _dbg: '1', // GA4 DebugView immediate live display
-        'ep.debug_mode': '1',
+        ...(req.body.debugMode === true ? { _dbg: '1', 'ep.debug_mode': '1' } : {}),
       };
 
       // Only set session start and first visit on the very first hit of the session
@@ -1565,7 +1568,8 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
 
   const params = new URLSearchParams(payloadParams);
   const rawBodyString = params.toString();
-  const collectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
+  const getCollectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
+  const postCollectUrl = 'https://www.google-analytics.com/g/collect';
 
   try {
     let gaRes: any;
@@ -1585,8 +1589,8 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
     };
 
     try {
-      // 1. Primary: POST to collectUrl with query params + body (Standard Google Analytics Endpoint)
-      gaRes = await fetch(collectUrl, {
+      // 1. Primary: POST body directly to /g/collect
+      gaRes = await fetch(postCollectUrl, {
         method: 'POST',
         headers: requestHeaders,
         body: rawBodyString,
@@ -1596,7 +1600,7 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
 
       // 2. Secondary Fallback: GET request with all params encoded in URL
       if (!gaRes.ok && gaRes.status !== 204) {
-        gaRes = await fetch(collectUrl, {
+        gaRes = await fetch(getCollectUrl, {
           method: 'GET',
           headers: {
             'User-Agent': requestHeaders['User-Agent'],
@@ -1608,6 +1612,8 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
             'CF-Connecting-IP': authenticCountryIp,
             'CF-IPCountry': cleanCountryCode,
             'X-Country-Code': cleanCountryCode,
+            'X-Proxy-Region': proxyRegion,
+            'X-Real-IP': authenticCountryIp,
           },
           // @ts-ignore
           agent,
@@ -1616,7 +1622,7 @@ router.post('/ga4/collect-beacon', async (req: Request, res: Response) => {
     } catch {
       // 3. Resilient Direct Fallback if proxy node network errored
       try {
-        gaRes = await fetch(collectUrl, {
+        gaRes = await fetch(postCollectUrl, {
           method: 'POST',
           headers: {
             'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',

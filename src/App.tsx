@@ -23,7 +23,6 @@ import { RunSummaryModal } from './components/RunSummaryModal';
 import { HistoryPanel } from './components/HistoryPanel';
 
 import { DEFAULT_ORGANIC_CONFIG, ORGANIC_PRESETS } from './data/organicPresets';
-import { ALL_VERIFIED_NAIJA_JOBS, buildCrawledPagesFromListings } from './data/allNaijaJobListings';
 import { getClientSideCrawledPages, generateClientSideCampaign, crawlWebsiteLiveInBrowser } from './utils/clientFallbackEngine';
 import { loadStoredAuth, saveAuthSession, clearAuthSession, incrementMemberStats } from './utils/authManager';
 import { TRAFFIC_PRESETS } from './data/presets';
@@ -105,7 +104,7 @@ function loadInitialOrganicConfig(): OrganicVisitorConfig {
   return DEFAULT_ORGANIC_CONFIG;
 }
 
-const DEFAULT_CRAWLED_PAGES: CrawledPage[] = buildCrawledPagesFromListings('https://9jajobs.vercel.app');
+const DEFAULT_CRAWLED_PAGES: CrawledPage[] = getClientSideCrawledPages(DEFAULT_ORGANIC_CONFIG.targetUrl);
 
 function buildRecentDiscoveredItems(pages: CrawledPage[]): DiscoveredRouteItem[] {
   return pages.slice(0, 25).map((p, idx) => ({
@@ -134,18 +133,26 @@ function buildRecentDiscoveredItems(pages: CrawledPage[]): DiscoveredRouteItem[]
 
 function loadInitialCrawlState(): SiteCrawlState {
   const initialRecent = buildRecentDiscoveredItems(DEFAULT_CRAWLED_PAGES);
+  const targetUrl = DEFAULT_ORGANIC_CONFIG.targetUrl;
+  let hostname = 'target-site.com';
+  let origin = 'https://target-site.com';
+  try {
+    const u = new URL(targetUrl);
+    hostname = u.hostname;
+    origin = u.origin;
+  } catch {}
+
   const defaultCrawl: SiteCrawlState = {
-    targetUrl: 'https://9jajobs.vercel.app',
-    hostname: '9jajobs.vercel.app',
-    origin: 'https://9jajobs.vercel.app',
-    title: 'NaijaJobs - Escrow Job Marketplace',
-    description: 'Discovered 53+ job listings, categories, and articles on 9jajobs.vercel.app',
+    targetUrl,
+    hostname,
+    origin,
+    title: `${hostname} - Site Catalog Ready`,
+    description: `Discovered routes and content pages for ${hostname}`,
     pages: DEFAULT_CRAWLED_PAGES,
     isCrawling: false,
-    gaMeasurementId: 'G-VFY5E884EH',
     statusCode: 200,
     latencyMs: 120,
-    realLinksCount: 53,
+    realLinksCount: DEFAULT_CRAWLED_PAGES.length,
     crawlProgressPct: 100,
     crawlPhase: 'Crawl Completed • All Routes Synced',
     recentlyDiscoveredRoutes: initialRecent,
@@ -451,8 +458,8 @@ export default function App() {
       { pct: 28, phase: 'Scraping Root HTML & Meta Headers...', sub: urlToCrawl },
       { pct: 46, phase: 'Decompiling JavaScript Bundles & JSON-LD Schemas...', sub: `${urlToCrawl}/assets/index.js` },
       { pct: 68, phase: 'Parsing XML Sitemaps & REST Endpoints...', sub: `${urlToCrawl}/sitemap.xml` },
-      { pct: 84, phase: 'Executing Recursive DOM Link-Discovery Pass...', sub: `${urlToCrawl}/?job=job_1787164089747` },
-      { pct: 93, phase: 'Deduplicating Routes & Calculating Priority Weights...', sub: `${urlToCrawl}/category/engineering` },
+      { pct: 84, phase: 'Executing Recursive DOM Link-Discovery Pass...', sub: `${urlToCrawl}/posts` },
+      { pct: 93, phase: 'Deduplicating Routes & Calculating Priority Weights...', sub: `${urlToCrawl}/about` },
     ];
 
     const progressInterval = setInterval(() => {
@@ -516,7 +523,7 @@ export default function App() {
         setCrawlState({
           targetUrl: data.targetUrl || urlToCrawl,
           hostname: newHostname,
-          origin: data.origin || (urlToCrawl.startsWith('http') ? new URL(urlToCrawl).origin : 'https://jobs.eezor.com'),
+          origin: data.origin || (urlToCrawl.startsWith('http') ? new URL(urlToCrawl).origin : (urlToCrawl.startsWith('/') ? window.location.origin : `https://${urlToCrawl}`)),
           title: data.title || 'Discovered Website',
           description: data.description || `Scraped site for ${newHostname}`,
           pages: mergedPages,
@@ -579,7 +586,7 @@ export default function App() {
         setCrawlState({
           targetUrl: urlToCrawl,
           hostname,
-          origin: urlToCrawl.startsWith('http') ? new URL(urlToCrawl).origin : 'https://jobs.eezor.com',
+          origin: urlToCrawl.startsWith('http') ? new URL(urlToCrawl).origin : (urlToCrawl.startsWith('/') ? window.location.origin : `https://${urlToCrawl}`),
           title: liveCrawlResult.title || `${hostname} - Catalog`,
           description: `Scraped site for ${hostname}`,
           pages: fallbackPages,
