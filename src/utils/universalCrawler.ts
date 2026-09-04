@@ -98,7 +98,19 @@ export function normalizeCanonicalUrl(u: URL): string {
  * Converts a URL slug or path into a clean, human-readable title
  */
 export function slugToTitle(slugPath: string, fallbackText?: string): string {
-  if (fallbackText && fallbackText.trim().length > 2 && !fallbackText.includes('<') && !fallbackText.includes('{')) {
+  if (
+    fallbackText &&
+    fallbackText.trim().length > 2 &&
+    !fallbackText.includes('<') &&
+    !fallbackText.includes('{') &&
+    !fallbackText.startsWith('/') &&
+    !fallbackText.startsWith('http') &&
+    !fallbackText.includes('.com') &&
+    !fallbackText.includes('.org') &&
+    !fallbackText.includes('.net') &&
+    !fallbackText.includes('.ng') &&
+    !fallbackText.includes('.io')
+  ) {
     return fallbackText.trim();
   }
 
@@ -218,8 +230,11 @@ export function classifyPageCategory(
     return 'page';
   }
 
-  // Long slug without category marker is typically a post/article
-  if (path.length > 20 && path.includes('-')) {
+  // Long slug or multi-hyphen slug without category marker is typically a post/article
+  if (
+    (path.length > 15 && (path.includes('-') || path.includes('_'))) ||
+    (path.match(/[-_]/g) || []).length >= 2
+  ) {
     return 'post';
   }
 
@@ -688,7 +703,7 @@ export async function executeUniversalCrawl(
 
   // 2A. Probe robots.txt for declared sitemaps
   try {
-    const robotsRes = await fetchFn(`${origin}/robots.txt`, 3500);
+    const robotsRes = await fetchFn(`${origin}/robots.txt`, 2000);
     if (robotsRes.ok && robotsRes.text) {
       const sitemapRegex = /Sitemap:\s*(https?:\/\/[^\s]+)/gi;
       let rMatch: RegExpExecArray | null;
@@ -701,19 +716,12 @@ export async function executeUniversalCrawl(
     }
   } catch {}
 
-  // 2B. Add standard sitemap paths
+  // 2B. Add top standard sitemap paths
   const standardSitemapPaths = [
     '/sitemap.xml',
     '/sitemap_index.xml',
-    '/sitemap-index.xml',
-    '/sitemaps.xml',
     '/wp-sitemap.xml',
-    '/sitemap/sitemap.xml',
     '/post-sitemap.xml',
-    '/page-sitemap.xml',
-    '/category-sitemap.xml',
-    '/sitemap-posts.xml',
-    '/sitemap.php'
   ];
 
   standardSitemapPaths.forEach(smPath => {
@@ -723,17 +731,17 @@ export async function executeUniversalCrawl(
     }
   });
 
-  // 2C. Fetch queued sitemaps in concurrent batches
+  // 2C. Fetch queued sitemaps in fast concurrent batches (max 2 quick batches)
   let sitemapBatchCount = 0;
-  while (sitemapQueue.length > 0 && sitemapBatchCount < 60 && discoveredPages.length < maxLinks) {
-    const currentBatch = sitemapQueue.splice(0, 10).filter(sm => !parsedSitemaps.has(sm));
+  while (sitemapQueue.length > 0 && sitemapBatchCount < 2 && discoveredPages.length < maxLinks) {
+    const currentBatch = sitemapQueue.splice(0, 6).filter(sm => !parsedSitemaps.has(sm));
     currentBatch.forEach(sm => parsedSitemaps.add(sm));
     if (currentBatch.length === 0) break;
     sitemapBatchCount++;
 
     const sitemapTasks = currentBatch.map(async (smUrl) => {
       try {
-        const smRes = await fetchFn(smUrl, 4500);
+        const smRes = await fetchFn(smUrl, 2500);
         if (!smRes.ok || !smRes.text) return;
         // Strip CDATA tags to cleanly match loc, lastmod, and title
         const smXml = smRes.text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1');
@@ -748,7 +756,7 @@ export async function executeUniversalCrawl(
         let csm: RegExpExecArray | null;
         while ((csm = childSitemapRegex.exec(smXml)) !== null) {
           const childUrl = csm[1].trim();
-          if (!parsedSitemaps.has(childUrl) && !sitemapQueue.includes(childUrl) && sitemapQueue.length < 200) {
+          if (!parsedSitemaps.has(childUrl) && !sitemapQueue.includes(childUrl) && sitemapQueue.length < 8) {
             sitemapQueue.push(childUrl);
           }
         }
@@ -1038,7 +1046,7 @@ export async function executeUniversalCrawl(
     }
 
     // 3C. SPA & JavaScript Bundle Decompilation (React, Vue, Vite, Next.js, Nuxt, Angular)
-    if (discoveredPages.length < maxLinks) {
+    if (discoveredPages.length < 20 && discoveredPages.length < maxLinks) {
       const scriptUrls: string[] = [];
       const scriptTagRegex = /<(?:script\b[^>]*\bsrc|link\b[^>]*\bhref)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi;
       let sm: RegExpExecArray | null;
@@ -1062,7 +1070,7 @@ export async function executeUniversalCrawl(
             const resolvedScript = new URL(rawSrc, origin);
             if (isSameApexDomain(resolvedScript.hostname, hostname) || rawSrc.startsWith('/') || rawSrc.startsWith('./')) {
               const fullScriptUrl = resolvedScript.toString();
-              if (!scriptUrls.includes(fullScriptUrl) && scriptUrls.length < 8) {
+              if (!scriptUrls.includes(fullScriptUrl) && scriptUrls.length < 6) {
                 scriptUrls.push(fullScriptUrl);
               }
             }
@@ -1074,7 +1082,7 @@ export async function executeUniversalCrawl(
       if (scriptUrls.length > 0) {
         const scriptTasks = scriptUrls.map(async (sUrl) => {
           try {
-            const sRes = await fetchFn(sUrl, 4500);
+            const sRes = await fetchFn(sUrl, 2000);
             if (!sRes.ok || !sRes.text) return;
             const jsCode = sRes.text;
 
@@ -1203,11 +1211,11 @@ export async function executeUniversalCrawl(
     }
 
     // 3D. RSS, Atom & Syndication Feeds
-    if (discoveredPages.length < maxLinks) {
+    if (discoveredPages.length < 35 && discoveredPages.length < maxLinks) {
       const feedPaths = ['/feed', '/rss', '/rss.xml', '/feed.xml', '/atom.xml', '/index.xml'];
       const feedTasks = feedPaths.map(async (fPath) => {
         try {
-          const fRes = await fetchFn(`${origin}${fPath}`, 3000);
+          const fRes = await fetchFn(`${origin}${fPath}`, 2000);
           if (!fRes.ok || !fRes.text) return;
           const fXml = fRes.text;
           if (!fXml.includes('<rss') && !fXml.includes('<feed') && !fXml.includes('<channel') && !fXml.includes('<atom')) return;
@@ -1294,7 +1302,7 @@ export async function executeUniversalCrawl(
   // ----------------------------------------------------
   // STEP 4: WORDPRESS & GENERIC REST API PROBING (Real JSON only)
   // ----------------------------------------------------
-  if (discoveredPages.length < maxLinks) {
+  if (discoveredPages.length < 50 && discoveredPages.length < maxLinks) {
     const wpEndpoints = [
       `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug`,
       `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug`,
@@ -1314,7 +1322,7 @@ export async function executeUniversalCrawl(
 
     const wpTasks = wpEndpoints.map(async (wpUrl) => {
       try {
-        const wpRes = await fetchFn(wpUrl, 3500);
+        const wpRes = await fetchFn(wpUrl, 2000);
         if (wpRes.ok && wpRes.text && wpRes.text.startsWith('[')) {
           const data = JSON.parse(wpRes.text);
           if (Array.isArray(data) && data.length > 0) {
@@ -1353,7 +1361,7 @@ export async function executeUniversalCrawl(
 
     const apiTasks = genericApiEndpoints.map(async (apiUrl) => {
       try {
-        const apiRes = await fetchFn(apiUrl, 3500);
+        const apiRes = await fetchFn(apiUrl, 2000);
         if (apiRes.ok && apiRes.text && (apiRes.text.startsWith('[') || apiRes.text.startsWith('{'))) {
           let parsed: any;
           try {
@@ -1420,11 +1428,11 @@ export async function executeUniversalCrawl(
   const targetMaxDepth = Math.min(3, Math.max(1, maxDepth));
   let currentDepth = 1;
 
-  while (currentDepth < targetMaxDepth && discoveredPages.length < maxLinks) {
+  while (currentDepth < targetMaxDepth && discoveredPages.length < 35 && discoveredPages.length < maxLinks) {
     const unvisitedPages = discoveredPages.filter(p => {
       const canon = normalizeCanonicalUrl(new URL(p.url, origin));
       return !visitedUrls.has(canon);
-    }).slice(0, 18);
+    }).slice(0, 6);
 
     if (unvisitedPages.length === 0) break;
 
@@ -1433,7 +1441,7 @@ export async function executeUniversalCrawl(
       visitedUrls.add(canon);
 
       try {
-        const subRes = await fetchFn(pageObj.url, 4000);
+        const subRes = await fetchFn(pageObj.url, 2000);
         if (!subRes.ok || !subRes.text) return;
         const subHtml = subRes.text;
 

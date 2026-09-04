@@ -939,6 +939,36 @@ async function startServer() {
   });
 
   // ----------------------------------------------------
+  // 4B. RAW CORS & PROXY RELAY FOR CRAWLER & SITEMAP INGESTION
+  // ----------------------------------------------------
+  app.all('/api/proxy', async (req: Request, res: Response) => {
+    try {
+      const target = (req.query.url as string) || (req.body && req.body.url);
+      if (!target || typeof target !== 'string') {
+        return res.status(400).send('URL query parameter or body property required');
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(target, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+        },
+        signal: controller.signal,
+        redirect: 'follow',
+      });
+      clearTimeout(timer);
+      const contentType = response.headers.get('content-type') || 'text/plain; charset=utf-8';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      const text = await response.text();
+      res.status(response.status).send(text);
+    } catch (err: any) {
+      res.status(502).json({ error: err.message || 'Proxy fetch failed' });
+    }
+  });
+
+  // ----------------------------------------------------
   // 5. AUTONOMOUS WEB CRAWLER & SCRAPER ENDPOINT
   // ----------------------------------------------------
   app.post('/api/crawler/scrape', async (req: Request, res: Response) => {
