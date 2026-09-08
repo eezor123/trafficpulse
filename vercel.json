@@ -18,7 +18,7 @@
       "destination": "/api"
     },
     {
-      "source": "/((?!api/|assets/|favicon|robots\\.txt).*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]

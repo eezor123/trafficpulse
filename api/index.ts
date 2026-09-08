@@ -591,6 +591,7 @@ router.get('/browser/live-page', async (req: Request, res: Response) => {
     const visitorNumber = req.query.visitorNumber || '1';
     const country = (req.query.country as string) || 'US';
     const scrollPct = parseFloat((req.query.scroll as string) || '0');
+    const allowAds = req.query.allowAds !== 'false'; // Defaults to true (allow ads to show)
 
     if (!rawUrl) {
       return res.status(400).send('<h1>Missing target URL</h1>');
@@ -646,6 +647,65 @@ router.get('/browser/live-page', async (req: Request, res: Response) => {
       // 2. Remove restrictive CSP and frame headers if present inside meta tags
       html = html.replace(/<meta\b[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/gi, '');
       html = html.replace(/<meta\b[^>]*http-equiv=["']X-Frame-Options["'][^>]*>/gi, '');
+
+      // When allowAds is disabled explicitly, strip intrusive 3rd-party ad trackers.
+      // When allowAds is TRUE (default), preserve all Google AdSense, DoubleClick, and publisher ad tags!
+      if (!allowAds) {
+        html = html.replace(/<script\b[^>]*\bsrc=["'][^"']*(?:googlesyndication|doubleclick|clarity\.ms|criteo|taboola|outbrain|pubmatic|rubiconproject|adnxs|amazon-adsystem|adsafeprotected|moatads)[^"']*["'][^>]*>[\s\S]*?<\/script>/gi, '');
+      } else {
+        // In allow-ads mode: Inject AdSense & Google Ads framing compatibility shim + in-article ad styling
+        const adsCompatibilityShim = `
+<script id="tp-ads-compat-shim">
+  window.adsbygoogle = window.adsbygoogle || [];
+  try {
+    // Ensure google_ad_client and container rendering initialize smoothly in framed virtual browser
+    window['google_ad_output'] = 'html';
+  } catch(e) {}
+</script>
+<style id="tp-ads-inpage-styles">
+  /* Ensure AdSense & publisher ad slots remain visible and styled */
+  ins.adsbygoogle, .adsbygoogle, .ad-container, [data-ad-slot], .ad-banner {
+    display: block !important;
+    min-height: 90px !important;
+    margin: 16px auto !important;
+    max-width: 100% !important;
+    border-radius: 8px !important;
+    position: relative !important;
+    overflow: hidden !important;
+  }
+  ins.adsbygoogle[data-ad-status="unfilled"], ins.adsbygoogle:empty {
+    min-height: 90px !important;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9)) !important;
+    border: 1px dashed rgba(245, 158, 11, 0.5) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 12px 20px !important;
+    color: #e2e8f0 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    font-size: 12px !important;
+  }
+  ins.adsbygoogle[data-ad-status="unfilled"]::before, ins.adsbygoogle:empty::before {
+    content: "📢 Google AdSense • Responsive In-Page Ad Unit";
+    font-weight: 600;
+    color: #f59e0b;
+  }
+  ins.adsbygoogle[data-ad-status="unfilled"]::after, ins.adsbygoogle:empty::after {
+    content: "Sponsored";
+    background: rgba(245, 158, 11, 0.2);
+    border: 1px solid rgba(245, 158, 11, 0.5);
+    color: #fcd34d;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: monospace;
+  }
+</style>
+`;
+        if (html.includes('<head>') || html.includes('<head ')) {
+          html = html.replace(/<head\b[^>]*>/i, `$&${adsCompatibilityShim}`);
+        }
+      }
 
       // 3. Inject TrafficPulse Virtual Browser Companion Script
       const companionScript = `
