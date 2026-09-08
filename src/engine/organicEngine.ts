@@ -15,6 +15,7 @@ import {
   buildOrganicReferrer,
   generateVisitorFingerprint,
 } from './fingerprintGenerator';
+import { getAuthenticOutboundTarget } from './ga4ClickRegistry';
 
 export interface OrganicEngineCallbacks {
   onActiveVisitorsUpdate: (visitors: ActiveVisitorSession[]) => void;
@@ -569,23 +570,21 @@ export class OrganicTrafficEngine {
         );
 
         // Dispatch GA4 ad engagement beacon or click
-        if (this.config.ga4.sendEngagementEvents) {
+        if (this.config.ga4.sendEngagementEvents || this.config.ga4.sendClickEvents !== false) {
           if (actionLabel.includes('Click')) {
+            const outboundTarget = getAuthenticOutboundTarget('popup_offer', `${popupName} CTA`);
             this.dispatchGa4Beacon(
               visitor, 
               'click', 
               currentPage.path, 
               `Popup CTA - ${popupName}`,
               1500,
-              {
-                linkUrl: `${this.config.targetUrl}/promo/${popupName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-                linkText: `${popupName} CTA`,
-                outbound: true,
-                linkDomain: 'offers.partner.com',
-                linkClasses: 'popup-modal-cta-btn',
-                linkId: `modal_cta_${Date.now()}`
-              }
+              outboundTarget
             );
+            // Also dispatch select_promotion for GA4 Promotion reports
+            if (this.config.ga4.clickTrackingMode !== 'standard_outbound') {
+              this.dispatchGa4Beacon(visitor, 'select_promotion', currentPage.path, `Popup - ${popupName}`);
+            }
           } else {
             this.dispatchGa4Beacon(visitor, 'select_promotion', currentPage.path, `Popup - ${popupName}`);
           }
@@ -702,22 +701,26 @@ export class OrganicTrafficEngine {
           );
 
           // Dispatch GA4 in-article click beacon
-          if (this.config.ga4.sendEngagementEvents) {
+          if (this.config.ga4.sendEngagementEvents || this.config.ga4.sendClickEvents !== false) {
+            const outboundTarget = getAuthenticOutboundTarget('article_reference', chosenLink);
             this.dispatchGa4Beacon(
               visitor, 
               'click', 
               currentPage.path, 
               chosenLink, 
               1500, 
-              {
-                linkUrl: `${this.config.targetUrl}/link/${encodeURIComponent(chosenLink.replace(/[^a-zA-Z0-9]/g, '-'))}`,
-                linkText: chosenLink,
-                outbound: true,
-                linkDomain: 'outbound.partner.com',
-                linkClasses: 'article-link in-content',
-                linkId: `lnk_${Date.now()}`
-              }
+              outboundTarget
             );
+            // Also dispatch select_content for GA4 Content Engagement reports
+            if (this.config.ga4.clickTrackingMode !== 'standard_outbound') {
+              this.dispatchGa4Beacon(
+                visitor,
+                'select_content',
+                currentPage.path,
+                chosenLink,
+                1000
+              );
+            }
           }
 
           this.callbacks.onTelemetryEvent({
@@ -785,22 +788,26 @@ export class OrganicTrafficEngine {
             );
 
             // Dispatch GA4 ad click beacon (standard click event with outbound ad destination)
-            if (this.config.ga4.sendEngagementEvents) {
+            if (this.config.ga4.sendEngagementEvents || this.config.ga4.sendClickEvents !== false) {
+              const adOutboundTarget = getAuthenticOutboundTarget('ad_banner', pickedAd.name);
               this.dispatchGa4Beacon(
                 visitor, 
                 'click', 
                 currentPage.path, 
                 `Ad - ${pickedAd.name}`,
                 1200,
-                {
-                  linkUrl: `https://googleads.g.doubleclick.net/pagead/ads?client=ca-pub-${Math.floor(1000000000000000 + Math.random() * 9000000000000000)}&slotname=${pickedAd.slot}`,
-                  linkText: pickedAd.name,
-                  outbound: true,
-                  linkDomain: 'googleads.g.doubleclick.net',
-                  linkClasses: 'ad-banner-slot external-ad-link',
-                  linkId: `ad_${pickedAd.slot}`
-                }
+                adOutboundTarget
               );
+              // Also dispatch select_promotion for GA4 Promotion reports
+              if (this.config.ga4.clickTrackingMode !== 'standard_outbound') {
+                this.dispatchGa4Beacon(
+                  visitor,
+                  'select_promotion',
+                  currentPage.path,
+                  `Ad - ${pickedAd.name}`,
+                  1000
+                );
+              }
             }
 
             this.callbacks.onTelemetryEvent({
@@ -861,31 +868,29 @@ export class OrganicTrafficEngine {
             '#10b981'
           );
 
-          const isOutboundClick = /apply|external|share|partner|contact|portal|linkedin|twitter|mail/i.test(targetName) || Math.random() < 0.45;
-          const targetDomain = isOutboundClick 
-            ? 'careers.partner-network.com' 
-            : (this.config.targetUrl ? new URL(this.config.targetUrl).hostname : 'mysite.com');
-          const targetLinkUrl = isOutboundClick
-            ? `https://${targetDomain}/job/view?ref=organic&id=${Math.floor(Math.random() * 100000)}`
-            : `${this.config.targetUrl}${currentPage.path}#${targetName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+          const outboundTarget = getAuthenticOutboundTarget('ui_cta', targetName);
 
           // Dispatch GA4 click interaction event
-          if (this.config.ga4.sendEngagementEvents) {
+          if (this.config.ga4.sendEngagementEvents || this.config.ga4.sendClickEvents !== false) {
             this.dispatchGa4Beacon(
               visitor, 
               'click', 
               currentPage.path, 
               `${currentPage.title} - ${targetName}`,
               1200,
-              {
-                linkUrl: targetLinkUrl,
-                linkText: targetName,
-                outbound: isOutboundClick,
-                linkDomain: targetDomain,
-                linkClasses: 'interactive-ui-element btn-click',
-                linkId: `btn_${Math.random().toString(36).substr(2, 6)}`
-              }
+              outboundTarget
             );
+
+            // Also dispatch select_content for GA4 Custom & Realtime Events
+            if (this.config.ga4.clickTrackingMode !== 'standard_outbound') {
+              this.dispatchGa4Beacon(
+                visitor,
+                'select_content',
+                currentPage.path,
+                `${currentPage.title} - ${targetName}`,
+                1000
+              );
+            }
           }
 
           // Emit Live Telemetry Event
@@ -1761,6 +1766,7 @@ export class OrganicTrafficEngine {
       linkDomain?: string;
       linkClasses?: string;
       linkId?: string;
+      contentType?: string;
     }
   ) {
     this.ga4EventsCount += 1;
@@ -1841,6 +1847,11 @@ export class OrganicTrafficEngine {
             _uip: visitorIp,
           };
 
+          if (this.config.ga4.debugMode !== false) {
+            directParams._dbg = '1';
+            directParams['ep.debug_mode'] = '1';
+          }
+
           if (visitor.hitSequence === 1) {
             directParams._ss = '1';
             if (!visitor.isReturning) {
@@ -1849,10 +1860,15 @@ export class OrganicTrafficEngine {
           }
 
           if (eventName === 'click' || clickParams) {
-            directParams['ep.link_url'] = clickParams?.linkUrl || `${pageLocation}/out`;
-            directParams['ep.link_text'] = clickParams?.linkText || 'Outbound Link';
+            directParams['ep.link_url'] = clickParams?.linkUrl || 'https://careers.google.com/jobs/results/';
+            directParams['ep.link_text'] = clickParams?.linkText || 'External Verified Listing';
+            directParams['ep.link_domain'] = clickParams?.linkDomain || 'careers.google.com';
+            directParams['ep.link_classes'] = clickParams?.linkClasses || 'cta-button outbound-partner-link';
+            directParams['ep.link_id'] = clickParams?.linkId || `click_${Date.now()}`;
             directParams['ep.outbound'] = 'true';
             directParams['epn.outbound'] = '1';
+            directParams['ep.content_type'] = clickParams?.contentType || 'external_link';
+            directParams['ep.item_id'] = clickParams?.linkId || `item_${Date.now()}`;
           }
 
           const directQuery = new URLSearchParams(directParams).toString();
@@ -1915,6 +1931,7 @@ export class OrganicTrafficEngine {
         campaignName: this.config.name || 'Organic Traffic Boost',
         proxyUrl,
         isLightweight,
+        debugMode: this.config.ga4.debugMode !== false,
         clickParams,
       };
 

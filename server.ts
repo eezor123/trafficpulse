@@ -1382,6 +1382,7 @@ async function startServer() {
 
       const agent = getProxyAgent(proxyUrl);
 
+      const isDebugMode = bodyData.debugMode !== false && req.body.debugMode !== false;
       const effectiveEngagementMs = Math.max(1200, Number(engagementTimeMs) || 2000);
       const cleanClientId = (clientId || '').replace(/^GA\d+\.\d+\./i, '') || `${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`;
       const cleanSessionId = sessionId ? `${sessionId}` : `${Math.floor(Date.now() / 1000)}`;
@@ -1398,6 +1399,7 @@ async function startServer() {
       } catch {}
 
       // A. If API Secret is provided, dispatch to official GA4 Measurement Protocol
+      let mpDispatched = false;
       if (apiSecret) {
         try {
           const mpUrl = `https://www.google-analytics.com/mp/collect?api_secret=${apiSecret}&measurement_id=${measurementId}`;
@@ -1413,19 +1415,22 @@ async function startServer() {
             visitor_country: cleanCountryCode,
             country: cleanCountryCode,
             geoid: geoData.criteriaId,
-            ...(req.body.debugMode === true ? { debug_mode: 1 } : {}),
+            ...(isDebugMode ? { debug_mode: 1 } : {}),
           };
 
           if (eventName === 'click' || cp) {
-            const clickUrl = cp?.linkUrl || `${pageLocation || targetOrigin}/out/link`;
-            const clickText = cp?.linkText || pageTitle || 'Click';
-            const clickDomain = cp?.linkDomain || 'external-partner.com';
+            const clickUrl = cp?.linkUrl || 'https://careers.google.com/jobs/results/';
+            const clickText = cp?.linkText || pageTitle || 'External Verified Listing';
+            let clickDomain = cp?.linkDomain;
+            if (!clickDomain) {
+              try { clickDomain = new URL(clickUrl).hostname; } catch { clickDomain = 'careers.google.com'; }
+            }
             const clickOutbound = cp?.outbound !== false;
 
             mpEventParams.link_url = clickUrl;
             mpEventParams.link_text = clickText;
             mpEventParams.link_domain = clickDomain;
-            mpEventParams.link_classes = cp?.linkClasses || 'cta-button';
+            mpEventParams.link_classes = cp?.linkClasses || 'cta-button outbound-partner-link';
             mpEventParams.link_id = cp?.linkId || `click_${Date.now()}`;
             mpEventParams.outbound = clickOutbound;
             mpEventParams.click_target = clickText;
@@ -1445,7 +1450,7 @@ async function startServer() {
             },
           };
 
-          fetch(mpUrl, {
+          const mpRes = await fetch(mpUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1459,9 +1464,10 @@ async function startServer() {
             body: JSON.stringify(mpBody),
             // @ts-ignore
             agent,
-          }).catch(e => console.warn('GA4 MP notice:', e.message));
-        } catch (e) {
-          console.error('GA4 MP Error:', e);
+          });
+          mpDispatched = mpRes.ok || mpRes.status === 204;
+        } catch (e: any) {
+          console.warn('GA4 MP notice:', e.message);
         }
       }
 
@@ -1493,7 +1499,7 @@ async function startServer() {
         'ep.region': proxyRegion,
         'ep.proxy_region': proxyRegion,
         'up.geo_country': cleanCountryCode,
-        ...(req.body.debugMode === true ? { _dbg: '1', 'ep.debug_mode': '1' } : {}),
+        ...(isDebugMode ? { _dbg: '1', 'ep.debug_mode': '1' } : {}),
       };
 
       // Only set session start and first visit on the very first hit of the session
@@ -1518,11 +1524,14 @@ async function startServer() {
       }
 
       if (eventName === 'click' || cp) {
-        const clickUrl = cp?.linkUrl || `${pageLocation || targetOrigin}/out/link`;
-        const clickText = cp?.linkText || pageTitle || 'Click';
-        const clickDomain = cp?.linkDomain || 'external-partner.com';
+        const clickUrl = cp?.linkUrl || 'https://careers.google.com/jobs/results/';
+        const clickText = cp?.linkText || pageTitle || 'External Verified Listing';
+        let clickDomain = cp?.linkDomain;
+        if (!clickDomain) {
+          try { clickDomain = new URL(clickUrl).hostname; } catch { clickDomain = 'careers.google.com'; }
+        }
         const isOutbound = cp?.outbound !== false;
-        const linkClasses = cp?.linkClasses || 'cta-button';
+        const linkClasses = cp?.linkClasses || 'cta-button outbound-partner-link';
         const linkId = cp?.linkId || `click_${Date.now()}`;
 
         payloadParams['ep.link_url'] = clickUrl;
@@ -1541,7 +1550,7 @@ async function startServer() {
       const params = new URLSearchParams(payloadParams);
       const rawBodyString = params.toString();
       const getCollectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
-      const postCollectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
+      const postCollectUrl = 'https://www.google-analytics.com/g/collect';
 
       try {
         let gaRes: any;
@@ -1561,34 +1570,36 @@ async function startServer() {
         };
 
         try {
-          // 1. Primary: POST to /g/collect with full parameter query string AND urlencoded body
+          // 1. Primary: Clean POST to /g/collect with urlencoded body
           gaRes = await fetch(postCollectUrl, {
             method: 'POST',
             headers: requestHeaders,
             body: rawBodyString,
           });
 
-          // 2. Dual Fallback: GET request with all params encoded in URL for 100% receipt by GA4 edge collectors
-          try {
-            const getRes = await fetch(getCollectUrl, {
-              method: 'GET',
-              headers: {
-                'User-Agent': requestHeaders['User-Agent'],
-                'Accept-Language': requestHeaders['Accept-Language'],
-                'Origin': targetOrigin,
-                'Referer': pageLocation || `${targetOrigin}/`,
-                'X-Forwarded-For': authenticCountryIp,
-                'Client-IP': authenticCountryIp,
-                'CF-Connecting-IP': authenticCountryIp,
-                'CF-IPCountry': cleanCountryCode,
-                'X-Country-Code': cleanCountryCode,
-                'X-Real-IP': authenticCountryIp,
-              },
-            });
-            if (getRes.ok || getRes.status === 204) {
-              gaRes = getRes;
-            }
-          } catch {}
+          // 2. Dual Fallback: GET request with all params encoded in URL only if POST didn't succeed
+          if (!gaRes.ok && gaRes.status !== 204) {
+            try {
+              const getRes = await fetch(getCollectUrl, {
+                method: 'GET',
+                headers: {
+                  'User-Agent': requestHeaders['User-Agent'],
+                  'Accept-Language': requestHeaders['Accept-Language'],
+                  'Origin': targetOrigin,
+                  'Referer': pageLocation || `${targetOrigin}/`,
+                  'X-Forwarded-For': authenticCountryIp,
+                  'Client-IP': authenticCountryIp,
+                  'CF-Connecting-IP': authenticCountryIp,
+                  'CF-IPCountry': cleanCountryCode,
+                  'X-Country-Code': cleanCountryCode,
+                  'X-Real-IP': authenticCountryIp,
+                },
+              });
+              if (getRes.ok || getRes.status === 204) {
+                gaRes = getRes;
+              }
+            } catch {}
+          }
         } catch (proxyFetchErr) {
           // 3. Resilient Direct Fallback
           try {
@@ -1611,12 +1622,21 @@ async function startServer() {
           success: true,
           status: gaRes?.status || 200,
           eventName,
+          isClick: eventName === 'click',
           measurementId,
           clientId: cleanClientId,
           sessionId: cleanSessionId,
           countryCode: cleanCountryCode,
           resolvedIp: authenticCountryIp,
           proxyUsed: !!proxyUrl,
+          debugMode: isDebugMode,
+          mpDispatched,
+          clickDetails: eventName === 'click' || cp ? {
+            linkUrl: payloadParams['ep.link_url'],
+            linkDomain: payloadParams['ep.link_domain'],
+            linkText: payloadParams['ep.link_text'],
+            outbound: payloadParams['ep.outbound'] === 'true',
+          } : undefined,
           timestamp: Date.now(),
         });
       } catch (err: any) {

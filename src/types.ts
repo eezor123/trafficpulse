@@ -285,6 +285,10 @@ export interface Ga4TrackerConfig {
   sendScrollEvents: boolean;
   sendEngagementEvents: boolean;
   sendSessionEvents: boolean;
+  sendClickEvents?: boolean;
+  clickTrackingMode?: 'standard_outbound' | 'dual_click_and_select' | 'all_ui_clicks';
+  debugMode?: boolean;
+  outboundDomainCategory?: 'job_and_career' | 'ecommerce_and_offers' | 'tech_and_cloud' | 'news_and_social';
 }
 
 // ==========================================

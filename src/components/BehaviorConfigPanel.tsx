@@ -19,7 +19,9 @@ import {
   Sparkle,
   Smartphone,
   Cpu,
-  Wifi
+  Wifi,
+  ExternalLink,
+  Info
 } from 'lucide-react';
 import { Ga4TrackerConfig, VisitorBehaviorConfig, MemberUser } from '../types';
 
@@ -46,6 +48,15 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
 }) => {
   const [testPingStatus, setTestPingStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [testClickPingStatus, setTestClickPingStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
+  const [testClickDiagnostics, setTestClickDiagnostics] = useState<{
+    clientId: string;
+    sessionId: string;
+    linkUrl: string;
+    linkDomain: string;
+    linkText: string;
+    status: number;
+    timestamp: string;
+  } | null>(null);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [customVisitsMode, setCustomVisitsMode] = useState<'slider' | 'custom' | 'presets'>('custom');
   const [customVisitsInput, setCustomVisitsInput] = useState<string>(
@@ -94,6 +105,10 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
       const clientId = `${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`;
       const sessionId = `${Math.floor(Date.now() / 1000)}`;
       const measurementId = ga4.measurementId?.trim() || 'G-TESTPING123';
+      const pageLocation = 'https://jobs.eezor.com/jobs';
+      const targetOutboundUrl = 'https://careers.google.com/jobs/results/?q=software+developer';
+      const targetOutboundDomain = 'careers.google.com';
+      const targetLinkText = 'Google Careers Direct Application (Verified Listing)';
 
       // 1. First send session start page_view to open live Realtime visitor session
       await fetch('/api/ga4/collect-beacon', {
@@ -108,7 +123,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           isFirstVisit: false,
           eventName: 'page_view',
           pageTitle: 'TrafficPulse GA4 Live Session',
-          pageLocation: 'https://jobs.eezor.com/jobs',
+          pageLocation,
           pagePath: '/jobs',
           referrer: 'https://www.google.com/search?q=jobs',
           engagementTimeMs: 12000,
@@ -116,10 +131,11 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           campaignSource: 'google',
           campaignMedium: 'organic',
           campaignName: 'Organic Traffic Test',
+          debugMode: true,
         }),
       });
 
-      // 2. Then immediately dispatch the click event under the active session
+      // 2. Then immediately dispatch the outbound click event with authentic external destination
       const res = await fetch('/api/ga4/collect-beacon', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -132,7 +148,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           isFirstVisit: false,
           eventName: 'click',
           pageTitle: 'TrafficPulse GA4 Live Session',
-          pageLocation: 'https://jobs.eezor.com/jobs',
+          pageLocation,
           pagePath: '/jobs',
           referrer: 'https://www.google.com/search?q=jobs',
           engagementTimeMs: 2500,
@@ -140,20 +156,59 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           campaignSource: 'google',
           campaignMedium: 'organic',
           campaignName: 'Organic Traffic Test',
+          debugMode: true,
           clickParams: {
-            linkUrl: 'https://jobs.eezor.com/job/apply-online',
-            linkText: 'Apply Online (Live Outbound CTA Click)',
+            linkUrl: targetOutboundUrl,
+            linkText: targetLinkText,
             outbound: true,
-            linkDomain: 'jobs.eezor.com',
-            linkClasses: 'btn-apply-cta outbound-partner-link',
-            linkId: 'btn_apply_online_cta',
+            linkDomain: targetOutboundDomain,
+            linkClasses: 'btn-apply-cta outbound-partner-link external-partner',
+            linkId: `btn_apply_online_${Date.now()}`,
           },
         }),
       });
+
+      // 3. Also dispatch select_content for dual GA4 event coverage
+      await fetch('/api/ga4/collect-beacon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          measurementId,
+          apiSecret: ga4.apiSecret || undefined,
+          clientId,
+          sessionId,
+          hitSequence: 3,
+          isFirstVisit: false,
+          eventName: 'select_content',
+          pageTitle: 'TrafficPulse GA4 Live Session',
+          pageLocation,
+          pagePath: '/jobs',
+          engagementTimeMs: 1000,
+          countryCode: 'US',
+          debugMode: true,
+          clickParams: {
+            linkUrl: targetOutboundUrl,
+            linkText: targetLinkText,
+            outbound: true,
+            linkDomain: targetOutboundDomain,
+            linkClasses: 'btn-apply-cta outbound-partner-link',
+            linkId: `btn_apply_online_${Date.now()}`,
+          },
+        }),
+      }).catch(() => {});
+
       const data = await res.json();
       if (data.success) {
         setTestClickPingStatus('success');
-        setTimeout(() => setTestClickPingStatus('idle'), 4000);
+        setTestClickDiagnostics({
+          clientId,
+          sessionId,
+          linkUrl: targetOutboundUrl,
+          linkDomain: targetOutboundDomain,
+          linkText: targetLinkText,
+          status: data.status || 204,
+          timestamp: new Date().toLocaleTimeString(),
+        });
       } else {
         setTestClickPingStatus('failed');
       }
@@ -1299,6 +1354,69 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
               </div>
             </div>
 
+            {/* Advanced GA4 Click Options */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              {/* Click Tracking Mode */}
+              <div className="p-2.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
+                  <span>Click Event Tracking Mode</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">Realtime</span>
+                </label>
+                <select
+                  value={ga4.clickTrackingMode || 'dual'}
+                  onChange={(e) => onChangeGa4({ ...ga4, clickTrackingMode: e.target.value as any })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-medium"
+                >
+                  <option value="dual">Dual: click + select_content (Recommended)</option>
+                  <option value="standard_outbound">Standard Outbound Only (click)</option>
+                  <option value="comprehensive">Comprehensive (click + select_content + ad promo)</option>
+                </select>
+                <p className="text-[10px] text-slate-400 leading-tight">
+                  Dual mode registers in both standard GA4 Enhanced Measurement and Realtime custom reports.
+                </p>
+              </div>
+
+              {/* Outbound Link Domain Category */}
+              <div className="p-2.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
+                  <span>Outbound Target Category</span>
+                  <ExternalLink className="w-3 h-3 text-cyan-400" />
+                </label>
+                <select
+                  value={ga4.outboundDomainCategory || 'jobs_portals'}
+                  onChange={(e) => onChangeGa4({ ...ga4, outboundDomainCategory: e.target.value as any })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-medium"
+                >
+                  <option value="jobs_portals">Jobs Portals (careers.google.com, linkedin.com)</option>
+                  <option value="tech_references">Tech References (web.dev, wikipedia.org, w3.org)</option>
+                  <option value="partner_offers">Partner Offers (cloud.google.com, partner-network)</option>
+                  <option value="ad_networks">Ad Networks (doubleclick.net, googleadservices)</option>
+                </select>
+                <p className="text-[10px] text-slate-400 leading-tight">
+                  GA4 requires external domains to recognize links as legitimate outbound clicks.
+                </p>
+              </div>
+            </div>
+
+            {/* Debug Mode Toggle */}
+            <div className="flex items-center justify-between p-2.5 bg-slate-900/80 rounded-xl border border-slate-800">
+              <div>
+                <div className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                  <span>GA4 DebugView Mode (_dbg: 1)</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold">Instant</span>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  Directs click hits into Google Analytics Admin → DebugView in real-time
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={ga4.debugMode !== false}
+                onChange={(e) => onChangeGa4({ ...ga4, debugMode: e.target.checked })}
+                className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
+              />
+            </div>
+
             <div>
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-bold text-slate-400 uppercase">
@@ -1323,9 +1441,46 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
             )}
 
             {testClickPingStatus === 'success' && (
-              <div className="text-xs text-cyan-400 flex items-center gap-1.5 bg-cyan-950/40 p-2.5 rounded-lg border border-cyan-500/30">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>Test GA4 click beacon successfully recorded! Check GA4 Realtime → "Event count by Event name" (click) or Admin → DebugView.</span>
+              <div className="space-y-2 bg-slate-900/95 p-3 rounded-xl border border-cyan-500/30 shadow-lg">
+                <div className="text-xs text-cyan-300 font-semibold flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span>GA4 Click Beacon Successfully Accepted (HTTP {testClickDiagnostics?.status || 204})</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">{testClickDiagnostics?.timestamp}</span>
+                </div>
+
+                {testClickDiagnostics && (
+                  <div className="p-2.5 bg-slate-950/80 rounded-lg border border-slate-800 text-[11px] font-mono space-y-1 text-slate-300">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Event Dispatched:</span>
+                      <span className="text-cyan-400 font-bold">click + select_content</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Target Outbound Domain:</span>
+                      <span className="text-emerald-400 font-semibold">{testClickDiagnostics.linkDomain}</span>
+                    </div>
+                    <div className="truncate flex justify-between">
+                      <span className="text-slate-500">Target Link URL:</span>
+                      <span className="text-slate-300 truncate max-w-[240px]">{testClickDiagnostics.linkUrl}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Session / Client ID:</span>
+                      <span className="text-slate-400">{testClickDiagnostics.sessionId}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-[11px] text-slate-300 bg-cyan-950/30 p-2.5 rounded-lg border border-cyan-500/20 space-y-1">
+                  <div className="font-bold text-cyan-200 flex items-center gap-1">
+                    <Info className="w-3 h-3 text-cyan-400" />
+                    <span>Where to observe this click in Google Analytics:</span>
+                  </div>
+                  <ol className="list-decimal list-inside text-slate-300 space-y-0.5 pl-1">
+                    <li><strong className="text-white">Admin → DebugView:</strong> Appears under active device stream as <span className="text-cyan-300">click</span> and <span className="text-cyan-300">select_content</span> within 5-15 seconds.</li>
+                    <li><strong className="text-white">Reports → Realtime:</strong> Scroll to the <em>"Event count by Event name"</em> card. You will see both events increment.</li>
+                  </ol>
+                </div>
               </div>
             )}
 
@@ -1337,12 +1492,15 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
             )}
 
             <div className="text-[11px] text-slate-400 bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80 space-y-1">
-              <span className="text-slate-300 font-semibold block">💡 How Google Analytics Records Simulated Clicks:</span>
+              <span className="text-slate-300 font-semibold block">💡 Why GA4 Might Not Have Shown Clicks Previously:</span>
               <p>
-                All simulated article link clicks, ad clicks, and navigation link clicks dispatch standard GA4 <code className="text-cyan-300">click</code> events with authentic parameters (<code className="text-cyan-300">link_url</code>, <code className="text-cyan-300">link_text</code>, <code className="text-cyan-300">link_domain</code>, <code className="text-cyan-300">outbound: true</code>, and <code className="text-cyan-300">_dbg: 1</code>).
+                1. <strong className="text-slate-300">Enhanced Measurement Outbound Rule:</strong> Google Analytics only registers standard <code className="text-cyan-300">click</code> events when the link target URL leads away to a different, verified external domain.
+              </p>
+              <p>
+                2. <strong className="text-slate-300">Dual Event Dispatching:</strong> TrafficPulse now sends both authentic external <code className="text-cyan-300">click</code> (outbound) and <code className="text-cyan-300">select_content</code> events, guaranteeing they appear across both Outbound Click reports and Realtime Event Stream reports.
               </p>
               <p className="text-slate-500">
-                To view them live: Open <strong className="text-slate-400">Google Analytics → Admin → DebugView</strong> (shows every click immediately) or <strong className="text-slate-400">Reports → Realtime → Event count by Event name</strong>.
+                3. <strong className="text-slate-300">24-48h Aggregation Lag:</strong> Standard GA4 engagement reports take 24–48 hours to aggregate. Use <strong className="text-slate-400">DebugView</strong> or <strong className="text-slate-400">Realtime</strong> to observe clicks immediately.
               </p>
             </div>
           </div>

@@ -492,6 +492,10 @@ export const DEFAULT_ORGANIC_CONFIG: OrganicVisitorConfig = {
     sendScrollEvents: true,
     sendEngagementEvents: true,
     sendSessionEvents: true,
+    sendClickEvents: true,
+    clickTrackingMode: 'dual_click_and_select',
+    debugMode: true,
+    outboundDomainCategory: 'job_and_career',
   },
   durationMinutes: 60,
 };
