@@ -161,6 +161,8 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
     }
   };
   const [viewportMode, setViewportMode] = useState<'live_webview' | 'direct_iframe' | 'dom'>('dom');
+  const [allowAdsInBrowser, setAllowAdsInBrowser] = useState<boolean>(true);
+  const [directSandboxMode, setDirectSandboxMode] = useState<'ad_friendly' | 'unrestricted'>('ad_friendly');
   const [browserHeight, setBrowserHeight] = useState<'standard' | 'expanded'>('expanded');
   const [logFilter, setLogFilter] = useState<'all' | 'scroll' | 'click' | 'ad' | 'popup' | 'nav'>('all');
   const [autoScrollLogs, setAutoScrollLogs] = useState(true);
@@ -197,8 +199,8 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
 
   // Proxy webview URL for full live rendering (stabilized so iframe does not reload continuously on scroll updates)
   const liveWebviewSrc = useMemo(() => {
-    return `/api/browser/live-page?url=${encodeURIComponent(fullLiveUrl)}&visitorNumber=${selectedVisitor?.visitorNumber || 1}&country=${selectedVisitor?.country?.code || 'US'}`;
-  }, [fullLiveUrl, selectedVisitor?.visitorNumber, selectedVisitor?.country?.code]);
+    return `/api/browser/live-page?url=${encodeURIComponent(fullLiveUrl)}&visitorNumber=${selectedVisitor?.visitorNumber || 1}&country=${selectedVisitor?.country?.code || 'US'}&allowAds=${allowAdsInBrowser ? 'true' : 'false'}`;
+  }, [fullLiveUrl, selectedVisitor?.visitorNumber, selectedVisitor?.country?.code, allowAdsInBrowser]);
 
   // Synchronize active visitor status, scroll percentage, and cursor coordinates to the live iframe (rate-limited to 200ms)
   useEffect(() => {
@@ -278,7 +280,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const pageTitle = activePage?.title || (currentPath === '/' ? `${brandName} - Home` : currentPath.replace(/[-_/]/g, ' ').trim());
   const pageDesc = activePage?.description || `Explore verified content, documentation, and live pages on ${parsedHostname}.`;
   const pageCategory = activePage?.category || (
-    currentPath.includes('blog') || currentPath.includes('post') || currentPath.includes('article') || currentPath.includes('guide') 
+    currentPath.includes('blog') || currentPath.includes('post') || currentPath.includes('article') || currentPath.includes('guide') || currentPath.includes('job') || currentPath.includes('news') || currentPath.includes('story') || currentPath.includes('tutorial') || currentPath.includes('/p/') || currentPath.includes('/read/')
       ? 'post' 
       : currentPath.includes('product') || currentPath.includes('shop') || currentPath.includes('item')
       ? 'product'
@@ -287,9 +289,33 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
       : 'page'
   );
 
-  const isArticleView = pageCategory === 'post';
+  const isArticleView = pageCategory === 'post' || 
+    currentPath.includes('blog') || 
+    currentPath.includes('post') || 
+    currentPath.includes('article') || 
+    currentPath.includes('guide') ||
+    currentPath.includes('job') ||
+    currentPath.includes('news') ||
+    currentPath.includes('story') ||
+    currentPath.includes('tutorial') ||
+    currentPath.includes('/p/') ||
+    currentPath.includes('/read/');
+
   const isProductView = pageCategory === 'product';
   const isCategoryView = pageCategory === 'category';
+
+  // Helper to determine which specific ad unit is active/clicked by the simulated visitor
+  const isAdActive = (adSlot: 'top' | 'in_article' | 'sidebar' | 'native' | 'bottom' | 'sticky') => {
+    if (selectedVisitor?.status !== 'clicking_ad') return false;
+    const target = (activePage?.lastAdClickTarget || selectedVisitor?.currentHoverTarget || '').toLowerCase();
+    if (adSlot === 'top') return target.includes('header') || target.includes('728x90') || target.includes('top_header');
+    if (adSlot === 'in_article') return target.includes('in-article') || target.includes('in_content') || target.includes('300x250') || target.includes('display');
+    if (adSlot === 'sidebar') return target.includes('sidebar') || target.includes('300x600') || target.includes('skyscraper');
+    if (adSlot === 'native') return target.includes('recommendation') || target.includes('taboola') || target.includes('product') || target.includes('native');
+    if (adSlot === 'sticky') return target.includes('sticky') || target.includes('anchor') || target.includes('970x90');
+    if (adSlot === 'bottom') return target.includes('footer') || target.includes('bottom') || target.includes('leaderboard');
+    return true;
+  };
 
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(fullLiveUrl);
@@ -727,7 +753,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                   className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
                     viewportMode === 'live_webview' ? 'bg-cyan-600 text-white font-semibold shadow' : 'text-slate-400 hover:text-white'
                   }`}
-                  title="Live proxied webview with CSP stripping, full dynamic assets, and companion cursor sync"
+                  title="Live proxied webview with CSP stripping, full dynamic assets, AdSense enabled, and companion cursor sync"
                 >
                   <Eye className="w-3.5 h-3.5 text-cyan-200" />
                   <span>Live Webview</span>
@@ -738,7 +764,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                   className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
                     viewportMode === 'direct_iframe' ? 'bg-indigo-600 text-white font-semibold shadow' : 'text-slate-400 hover:text-white'
                   }`}
-                  title="Direct iframe embed of the live target domain"
+                  title="Direct iframe embed of the live target domain with ad support"
                 >
                   <span>Direct</span>
                 </button>
@@ -753,6 +779,44 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                   DOM Sim
                 </button>
               </div>
+
+              {/* Allow Ads Toggle in Browser Simulation */}
+              <button
+                type="button"
+                onClick={() => setAllowAdsInBrowser(!allowAdsInBrowser)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 border cursor-pointer ${
+                  allowAdsInBrowser 
+                    ? 'bg-amber-950/80 border-amber-500/50 text-amber-300 font-semibold shadow-sm' 
+                    : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
+                }`}
+                title={allowAdsInBrowser 
+                  ? "Ads Allowed: Google AdSense, DoubleClick & network ad scripts are permitted to render in the live simulation" 
+                  : "Ads Blocked: Click to allow ads in the browser simulation"}
+              >
+                <Megaphone className={`w-3.5 h-3.5 ${allowAdsInBrowser ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`} />
+                <span>{allowAdsInBrowser ? 'Ads: Allowed' : 'Ads: Blocked'}</span>
+                {allowAdsInBrowser && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                )}
+              </button>
+
+              {/* Direct Sandbox Permissive / Unrestricted Toggle (when direct_iframe is active) */}
+              {viewportMode === 'direct_iframe' && (
+                <button
+                  type="button"
+                  onClick={() => setDirectSandboxMode(directSandboxMode === 'ad_friendly' ? 'unrestricted' : 'ad_friendly')}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-mono border transition-all cursor-pointer flex items-center gap-1 ${
+                    directSandboxMode === 'unrestricted'
+                      ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300 font-bold'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                  title={directSandboxMode === 'unrestricted' 
+                    ? "Unrestricted Direct Browser: native browser iframe with zero sandbox restrictions (maximum ad compatibility)" 
+                    : "Ad-Friendly Sandbox: enables popups, forms, scripts, and ad auctions for AdSense"}
+                >
+                  <span>{directSandboxMode === 'unrestricted' ? 'Direct: Unrestricted' : 'Direct: Ad-Permissive'}</span>
+                </button>
+              )}
 
               {/* Height & Viewport Expand Toggle */}
               <button
@@ -982,27 +1046,65 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                       <div className="w-full h-full relative bg-slate-950">
                         <iframe
                           ref={liveIframeRef}
-                          key={fullLiveUrl}
+                          key={`${fullLiveUrl}_ads_${allowAdsInBrowser}`}
                           src={liveWebviewSrc}
                           title="Live Target URL Proxied Webview"
                           className="w-full h-full border-none bg-slate-950"
-                          sandbox="allow-scripts allow-same-origin allow-forms"
+                          sandbox={allowAdsInBrowser 
+                            ? "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-modals allow-presentation allow-pointer-lock allow-downloads"
+                            : "allow-scripts allow-same-origin allow-forms"
+                          }
+                          allow="autoplay; encrypted-media; fullscreen; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"
                         />
                         <div className="absolute bottom-2 left-2 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl pointer-events-none">
                           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                           <span>Live Proxied Webview Active • Real Target DOM Loaded</span>
+                          {allowAdsInBrowser && (
+                            <span className="text-amber-300 font-mono text-[10px] bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/40 flex items-center gap-1">
+                              <Megaphone className="w-2.5 h-2.5 text-amber-400" />
+                              <span>Ads Allowed • Google AdSense Active</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                     ) : viewportMode === 'direct_iframe' ? (
-                      <div className="w-full h-full relative">
+                      <div className="w-full h-full relative bg-slate-900">
                         <iframe
+                          key={`${fullLiveUrl}_${directSandboxMode}_ads_${allowAdsInBrowser}`}
                           src={fullLiveUrl}
                           title="Live Target URL View"
                           className="w-full h-full border-none bg-slate-900"
-                          sandbox="allow-scripts allow-same-origin allow-forms"
+                          {...(directSandboxMode === 'unrestricted'
+                            ? {}
+                            : {
+                                sandbox: allowAdsInBrowser
+                                  ? "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-modals allow-presentation allow-pointer-lock allow-downloads"
+                                  : "allow-scripts allow-same-origin allow-forms",
+                              }
+                          )}
+                          allow="autoplay; encrypted-media; fullscreen; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"
                         />
-                        <div className="absolute bottom-2 left-2 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-400 pointer-events-none">
-                          Direct Iframe Embed • Cursor HUD active
+                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none">
+                          <div className="bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl">
+                            <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                            <span>Direct Iframe Embed • Cursor HUD active</span>
+                            {allowAdsInBrowser && (
+                              <span className="text-amber-300 font-mono text-[10px] bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/40 flex items-center gap-1">
+                                <Megaphone className="w-2.5 h-2.5 text-amber-400" />
+                                <span>Ads Allowed • {directSandboxMode === 'unrestricted' ? 'Unrestricted Mode' : 'AdSense Enabled'}</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="pointer-events-auto bg-slate-950/90 border border-slate-800 px-2.5 py-1 rounded-lg text-[11px] text-slate-400 flex items-center gap-1.5 backdrop-blur-sm shadow-lg">
+                            <span>Target blocking frame?</span>
+                            <button
+                              type="button"
+                              onClick={() => setViewportMode('live_webview')}
+                              className="text-cyan-400 hover:text-cyan-300 font-semibold underline cursor-pointer"
+                            >
+                              Switch to Live Webview (with ads)
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ) : (
@@ -1030,36 +1132,38 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                           </div>
                         </div>
 
-                        {/* TOP DISPLAY BANNER AD */}
-                        <div className={`max-w-3xl mx-auto rounded-xl p-3.5 flex items-center justify-between text-xs transition-all duration-300 ${
-                          selectedVisitor.status === 'clicking_ad'
-                            ? 'bg-amber-950/80 border-2 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.5)] ring-4 ring-amber-400/30'
-                            : 'bg-slate-900/90 border border-dashed border-amber-500/40'
-                        }`}>
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
-                              <Megaphone className={`w-4 h-4 ${selectedVisitor.status === 'clicking_ad' ? 'animate-bounce' : ''}`} />
+                        {/* TOP DISPLAY BANNER AD (HEADER LEADERBOARD 728x90) */}
+                        {allowAdsInBrowser && (
+                          <div data-slot="top_header_728x90" className={`max-w-4xl mx-auto rounded-xl p-3.5 flex items-center justify-between text-xs transition-all duration-300 ${
+                            isAdActive('top')
+                              ? 'bg-amber-950/90 border-2 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.6)] ring-4 ring-amber-400/30'
+                              : 'bg-slate-900/90 border border-dashed border-amber-500/40 hover:border-amber-400/70'
+                          }`}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                                <Megaphone className={`w-4 h-4 ${isAdActive('top') ? 'animate-bounce' : ''}`} />
+                              </div>
+                              <div>
+                                <div className="font-bold text-slate-200 text-xs">Cloud Infrastructure & CDN Acceleration 2026</div>
+                                <div className="text-[11px] text-slate-400 font-mono">Google AdSense • Header Leaderboard (728x90) • Verified Active</div>
+                              </div>
                             </div>
-                            <div>
-                              <div className="font-bold text-slate-200 text-xs">Cloud Infrastructure & CDN Acceleration 2026</div>
-                              <div className="text-[11px] text-slate-400">Google AdSense • Responsive Banner (728x90)</div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {selectedVisitor.status === 'clicking_ad' && (
-                              <span className="px-2 py-1 rounded bg-amber-400 text-slate-950 font-bold text-[10px] font-mono animate-pulse">
-                                AD CLICKED!
+                            <div className="flex items-center gap-2">
+                              {isAdActive('top') && (
+                                <span className="px-2 py-1 rounded bg-amber-400 text-slate-950 font-bold text-[10px] font-mono animate-pulse">
+                                  AD CLICKED!
+                                </span>
+                              )}
+                              <span className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300 text-[10px] font-mono">
+                                Ads by Google
                               </span>
-                            )}
-                            <span className="px-2 py-1 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300 text-[10px] font-mono">
-                              Sponsored
-                            </span>
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                         {/* POPUP / NEWSLETTER OVERLAY MODAL */}
                         {selectedVisitor.status === 'handling_popup' && (
-                          <div className="max-w-3xl mx-auto bg-slate-900/90 border-2 border-purple-500 rounded-2xl p-5 shadow-2xl space-y-3 animate-in fade-in zoom-in duration-200">
+                          <div className="max-w-4xl mx-auto bg-slate-900/90 border-2 border-purple-500 rounded-2xl p-5 shadow-2xl space-y-3 animate-in fade-in zoom-in duration-200">
                             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                               <div className="flex items-center gap-2 text-purple-400 font-mono text-xs font-bold">
                                 <Sparkles className="w-4 h-4" />
@@ -1089,7 +1193,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
 
                         {/* PRODUCT VIEW */}
                         {isProductView && (
-                          <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+                          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
                             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-800 pb-5">
                               <div className="space-y-2">
                                 <div className="flex items-center gap-2 flex-wrap">
@@ -1120,43 +1224,213 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                           </div>
                         )}
 
-                        {/* ARTICLE / POST / BLOG VIEW */}
+                        {/* ARTICLE / SINGLE POST PAGE VIEW (WITH IN-ARTICLE ADS & SIDEBAR ADS) */}
                         {isArticleView && (
-                          <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
-                            <div className="space-y-2 border-b border-slate-800 pb-4">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/30">
-                                  Article / Guide
-                                </span>
-                                <span className="text-xs text-slate-400 font-mono">{currentPath}</span>
+                          <div className="max-w-4xl mx-auto space-y-6">
+                            <div className="flex flex-col lg:flex-row gap-6 items-start">
+                              {/* Main Article Content Column */}
+                              <div className="flex-1 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+                                {/* Article Header */}
+                                <div className="space-y-3 border-b border-slate-800 pb-5">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/30">
+                                      Single Post / Article
+                                    </span>
+                                    <span className="text-xs text-slate-400 font-mono">{currentPath}</span>
+                                    <span className="text-xs text-slate-500">• 4 min read</span>
+                                  </div>
+                                  <h1 className="text-2xl font-extrabold text-white leading-snug">
+                                    {pageTitle}
+                                  </h1>
+                                  <div className="flex items-center justify-between text-xs text-slate-400 font-mono pt-1">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-6 h-6 rounded-full bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold flex items-center justify-center text-[10px]">
+                                        {initials}
+                                      </div>
+                                      <span>Published by {brandName} Editorial Staff</span>
+                                    </div>
+                                    <span className="text-emerald-400 font-bold">✓ Verified Post</span>
+                                  </div>
+                                </div>
+
+                                {/* Article Excerpt & Paragraph 1 */}
+                                <div className="text-xs text-slate-300 leading-relaxed space-y-3 bg-slate-950/40 p-4 rounded-xl border border-slate-800/80">
+                                  <p className="text-slate-100 font-medium text-sm leading-relaxed">
+                                    {pageDesc}
+                                  </p>
+                                  <p className="text-slate-300 leading-relaxed">
+                                    When analyzing digital visitor engagement across {parsedHostname}, human readers demonstrate natural behavioral trajectories: variable vertical scroll pacing, dwell pauses over technical diagrams, and contextual anchor evaluations.
+                                  </p>
+                                </div>
+
+                                {/* IN-ARTICLE MID-CONTENT DISPLAY AD (300x250 / RESPONSIVE) */}
+                                {allowAdsInBrowser && (
+                                  <div 
+                                    data-slot="in_content_300x250"
+                                    className={`rounded-xl p-4 transition-all duration-300 ${
+                                      isAdActive('in_article')
+                                        ? 'bg-amber-950/90 border-2 border-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.6)] ring-4 ring-amber-400/30'
+                                        : 'bg-slate-950/80 border border-dashed border-amber-500/40 hover:border-amber-400/80'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono pb-2 border-b border-slate-800">
+                                      <span className="text-amber-400/90 font-bold uppercase tracking-wider flex items-center gap-1">
+                                        <Megaphone className="w-3 h-3 text-amber-400" />
+                                        <span>Advertisement • In-Article Ad Unit</span>
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        {isAdActive('in_article') && (
+                                          <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-bold animate-pulse">
+                                            IN-ARTICLE AD CLICKED!
+                                          </span>
+                                        )}
+                                        <span className="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-500/40 text-amber-300">
+                                          Ads by Google
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div className="pt-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                      <div className="space-y-1">
+                                        <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                                          <span>Modern Real-Time APM & Distributed Tracing</span>
+                                          <span className="text-[10px] px-1.5 py-0.5 bg-blue-950 text-blue-300 border border-blue-500/30 rounded">Sponsored</span>
+                                        </div>
+                                        <p className="text-xs text-slate-400 max-w-lg leading-relaxed">
+                                          Automate full-stack observability and trace millions of microservice requests with zero code changes.
+                                        </p>
+                                      </div>
+                                      <button 
+                                        type="button" 
+                                        className="shrink-0 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg flex items-center gap-1.5 transition-all"
+                                      >
+                                        <span>Explore Free Trial</span>
+                                        <ExternalLink className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Article Paragraph 2 */}
+                                <div className="text-xs text-slate-300 leading-relaxed space-y-3">
+                                  <p>
+                                    According to real-world performance benchmarks, optimizing asset delivery pipelines and eliminating unminified scripts significantly decreases Largest Contentful Paint (LCP). Maintaining seamless user flows guarantees sustained dwell time and recurring organic attribution.
+                                  </p>
+                                </div>
+
+                                {/* In-Article Contextual Resource Links */}
+                                <div className="space-y-2 pt-2 border-t border-slate-800">
+                                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Link2 className="w-3.5 h-3.5 text-blue-400" />
+                                    <span>In-Article Contextual References</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    <span className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-all ${
+                                      selectedVisitor.status === 'clicking_link'
+                                        ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-900/50 animate-pulse'
+                                        : 'bg-slate-950 text-blue-400 border-blue-500/30'
+                                    }`}>
+                                      <Link2 className="w-3 h-3" />
+                                      <span>{pageTitle}</span>
+                                    </span>
+                                    <span className="px-3 py-1.5 rounded-lg text-xs font-medium border bg-slate-950 text-slate-300 border-slate-800 flex items-center gap-1.5">
+                                      <ExternalLink className="w-3 h-3 text-slate-400" />
+                                      <span>Technical Documentation & API Specs</span>
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* SPONSORED CONTENT RECOMMENDATIONS GRID (TABOOLA / OUTBRAIN / ADSENSE NATIVE) */}
+                                {allowAdsInBrowser && (
+                                  <div 
+                                    data-slot="taboola_recommended_widget"
+                                    className={`rounded-xl p-4 space-y-3 transition-all duration-300 ${
+                                      isAdActive('native')
+                                        ? 'bg-amber-950/90 border-2 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.6)] ring-4 ring-amber-400/30'
+                                        : 'bg-slate-950/60 border border-slate-800'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                                      <span className="font-bold text-slate-300 flex items-center gap-1.5">
+                                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                                        <span>Sponsored Recommendations Around The Web</span>
+                                      </span>
+                                      <span className="text-[10px] text-amber-400/80">Taboola / Outbrain Native</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                      {[
+                                        { title: 'The 7 Cloud Architectures Powering High-Growth Startups in 2026', sponsor: 'CloudScale Inc.' },
+                                        { title: 'Why DevOps Teams Are Migrating to Zero-Latency Edge Functions', sponsor: 'EdgeGrid Tech' },
+                                        { title: 'Evaluating Next-Gen High-Throughput Databases for Real-Time Analytics', sponsor: 'DataStream DB' }
+                                      ].map((ad, idx) => (
+                                        <div key={idx} className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-amber-500/50 transition-all space-y-1">
+                                          <div className="text-xs font-bold text-slate-200 line-clamp-2 leading-snug">{ad.title}</div>
+                                          <div className="text-[10px] text-amber-400 font-mono">Sponsored by {ad.sponsor}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                              <h1 className="text-xl font-bold text-white leading-snug">
-                                {pageTitle}
-                              </h1>
-                              <div className="text-xs text-slate-400 font-mono">
-                                Published by {brandName} Editorial • 4 min read • Verified
-                              </div>
-                            </div>
-                            <div className="text-xs text-slate-300 leading-relaxed space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-                              <p className="text-slate-200 font-medium">{pageDesc}</p>
-                              <p>
-                                When exploring content on {parsedHostname}, human visitors engage through randomized vertical viewport scrolling, micro-pauses at key headers, and contextual anchor link interactions.
-                              </p>
-                            </div>
-                            {/* In-Article Contextual Resource Links */}
-                            <div className="space-y-2">
-                              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                In-Article Contextual Links
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <span className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-all ${
-                                  selectedVisitor.status === 'clicking_link'
-                                    ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-900/50 animate-pulse'
-                                    : 'bg-slate-950 text-blue-400 border-blue-500/30'
-                                }`}>
-                                  <Link2 className="w-3 h-3" />
-                                  <span>{pageTitle}</span>
-                                </span>
+
+                              {/* Sidebar Column (Publisher Sidebar with 300x600 Display Ad) */}
+                              <div className="w-full lg:w-72 space-y-4 shrink-0">
+                                {/* SIDEBAR SKYSCRAPER AD UNIT (300x600) */}
+                                {allowAdsInBrowser && (
+                                  <div 
+                                    data-slot="sidebar_300x600"
+                                    className={`rounded-2xl p-4 space-y-3 transition-all duration-300 ${
+                                      isAdActive('sidebar')
+                                        ? 'bg-amber-950/90 border-2 border-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.6)] ring-4 ring-amber-400/30'
+                                        : 'bg-slate-900 border border-dashed border-amber-500/40 hover:border-amber-400/70'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                                      <span className="text-amber-400 font-bold">SPONSORED SIDEBAR</span>
+                                      <span className="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-500/40 text-amber-300">
+                                        Google Publisher Tag
+                                      </span>
+                                    </div>
+                                    <div className="h-44 rounded-xl bg-gradient-to-br from-slate-950 to-slate-900 border border-slate-800 p-4 flex flex-col justify-between">
+                                      <div>
+                                        <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 mb-2">
+                                          <Zap className="w-4 h-4" />
+                                        </div>
+                                        <div className="text-xs font-bold text-white leading-snug">Enterprise Kubernetes Fleet Orchestration</div>
+                                        <p className="text-[11px] text-slate-400 pt-1 leading-relaxed">
+                                          Deploy clusters seamlessly across 45+ cloud regions with automated failover.
+                                        </p>
+                                      </div>
+                                      <button type="button" className="w-full py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all text-center">
+                                        Claim $300 Credits →
+                                      </button>
+                                    </div>
+                                    {isAdActive('sidebar') && (
+                                      <div className="text-[10px] font-mono font-bold text-amber-400 text-center animate-pulse">
+                                        🎯 SIDEBAR AD CLICK IN PROGRESS!
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Table of Contents & Reading Progress */}
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+                                  <div className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Navigation className="w-3.5 h-3.5 text-indigo-400" />
+                                    <span>Article Outline</span>
+                                  </div>
+                                  <div className="space-y-2 text-xs">
+                                    <div className="p-1.5 rounded bg-indigo-950/60 border border-indigo-500/30 text-indigo-300 font-medium">
+                                      1. Architectural Foundations
+                                    </div>
+                                    <div className="p-1.5 rounded bg-slate-950 text-slate-400 border border-slate-800/80">
+                                      2. In-Article Performance Metrics
+                                    </div>
+                                    <div className="p-1.5 rounded bg-slate-950 text-slate-400 border border-slate-800/80">
+                                      3. Scaled Production Deployments
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -1164,7 +1438,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
 
                         {/* CATEGORY / ARCHIVE VIEW */}
                         {isCategoryView && (
-                          <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+                          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
                             <div className="space-y-2 border-b border-slate-800 pb-4">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/30 uppercase">
@@ -1188,58 +1462,122 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                           </div>
                         )}
 
-                        {/* GENERAL PAGE / DOCUMENTATION VIEW */}
+                        {/* GENERAL PAGE / DOCUMENTATION VIEW (WITH IN-PAGE ADS) */}
                         {!isArticleView && !isProductView && !isCategoryView && (
-                          <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
-                            <div className="space-y-2 border-b border-slate-800 pb-4">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/30 uppercase">
-                                  Live Page
-                                </span>
-                                <span className="text-xs text-slate-400 font-mono">{currentPath}</span>
+                          <div className="max-w-4xl mx-auto space-y-5">
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+                              <div className="space-y-2 border-b border-slate-800 pb-4">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-500/30 uppercase">
+                                    Live Page
+                                  </span>
+                                  <span className="text-xs text-slate-400 font-mono">{currentPath}</span>
+                                </div>
+                                <h1 className="text-xl font-extrabold text-white leading-snug">
+                                  {pageTitle}
+                                </h1>
+                                <div className="text-xs text-slate-400 font-mono flex items-center gap-3">
+                                  <span>Status: 200 OK</span>
+                                  <span>•</span>
+                                  <span>Exit IP: {selectedVisitor.ipAddress}</span>
+                                  <span>•</span>
+                                  <span>Device: {selectedVisitor.deviceType}</span>
+                                </div>
                               </div>
-                              <h1 className="text-xl font-extrabold text-white leading-snug">
-                                {pageTitle}
-                              </h1>
-                              <div className="text-xs text-slate-400 font-mono flex items-center gap-3">
-                                <span>Status: 200 OK</span>
-                                <span>•</span>
-                                <span>Exit IP: {selectedVisitor.ipAddress}</span>
-                                <span>•</span>
-                                <span>Device: {selectedVisitor.deviceType}</span>
-                              </div>
-                            </div>
 
-                            <div className="text-xs text-slate-300 leading-relaxed space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-                              <p className="text-slate-200 font-medium">
-                                Active visitor #{selectedVisitor.visitorNumber} from {selectedVisitor.country.name} ({selectedVisitor.country.flag}) is actively reading this page on {parsedHostname}.
-                              </p>
-                              <p className="text-slate-400">
-                                {pageDesc}
-                              </p>
-                            </div>
-
-                            {/* In-Article Contextual Resource Links */}
-                            <div className="space-y-2">
-                              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                Related Discovered Links
+                              <div className="text-xs text-slate-300 leading-relaxed space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
+                                <p className="text-slate-200 font-medium">
+                                  Active visitor #{selectedVisitor.visitorNumber} from {selectedVisitor.country.name} ({selectedVisitor.country.flag}) is actively reading this page on {parsedHostname}.
+                                </p>
+                                <p className="text-slate-400">
+                                  {pageDesc}
+                                </p>
                               </div>
-                              <div className="flex flex-wrap gap-2">
-                                <span className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-all ${
-                                  selectedVisitor.status === 'clicking_link'
-                                    ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-900/50 animate-pulse'
-                                    : 'bg-slate-950 text-blue-400 border-blue-500/30'
-                                }`}>
-                                  <Link2 className="w-3 h-3" />
-                                  <span>{pageTitle}</span>
-                                </span>
+
+                              {/* IN-PAGE RESPONSIVE DISPLAY AD UNIT */}
+                              {allowAdsInBrowser && (
+                                <div 
+                                  data-slot="in_content_300x250"
+                                  className={`rounded-xl p-4 transition-all duration-300 ${
+                                    isAdActive('in_article')
+                                      ? 'bg-amber-950/90 border-2 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.6)] ring-4 ring-amber-400/30'
+                                      : 'bg-slate-950/80 border border-dashed border-amber-500/30'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono pb-2 border-b border-slate-800/80">
+                                    <span className="text-amber-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                                      <Megaphone className="w-3 h-3" />
+                                      <span>Sponsored • In-Page Responsive Ad</span>
+                                    </span>
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-500/40 text-amber-300">
+                                      Google AdSense
+                                    </span>
+                                  </div>
+                                  <div className="pt-2.5 flex items-center justify-between gap-3">
+                                    <div>
+                                      <div className="text-xs font-bold text-slate-200">Global Low-Latency Edge Compute & DNS Acceleration</div>
+                                      <div className="text-[11px] text-slate-400">Scale micro-services across global points of presence with sub-5ms routing.</div>
+                                    </div>
+                                    <button type="button" className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shrink-0">
+                                      Learn More
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* In-Article Contextual Resource Links */}
+                              <div className="space-y-2">
+                                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                  Related Discovered Links
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <span className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-all ${
+                                    selectedVisitor.status === 'clicking_link'
+                                      ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-900/50 animate-pulse'
+                                      : 'bg-slate-950 text-blue-400 border-blue-500/30'
+                                  }`}>
+                                    <Link2 className="w-3 h-3" />
+                                    <span>{pageTitle}</span>
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </div>
                         )}
 
-                        {/* Footer & End of Page Section */}
-                        <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-5 text-center text-xs text-slate-500 space-y-2">
+                        {/* STICKY BOTTOM FLOATING ANCHOR AD UNIT (970x90) */}
+                        {allowAdsInBrowser && (
+                          <div 
+                            data-slot="bottom_anchor_970x90"
+                            className={`max-w-4xl mx-auto rounded-xl p-3.5 flex items-center justify-between text-xs transition-all duration-300 ${
+                              isAdActive('sticky') || isAdActive('bottom')
+                                ? 'bg-amber-950/90 border-2 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.6)] ring-4 ring-amber-400/30'
+                                : 'bg-slate-900/80 border border-dashed border-amber-500/30'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                                <Megaphone className="w-3.5 h-3.5" />
+                              </div>
+                              <div>
+                                <div className="font-bold text-slate-200 text-xs">AI-Powered Cloud Acceleration & Global CDN</div>
+                                <div className="text-[10px] text-slate-400 font-mono">Google Publisher Tag • Leaderboard (728x90 / Anchor 970x90) • Verified Active</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {(isAdActive('sticky') || isAdActive('bottom')) && (
+                                <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-bold text-[10px] font-mono animate-pulse">
+                                  ANCHOR AD CLICKED!
+                                </span>
+                              )}
+                              <span className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300 text-[10px] font-mono">
+                                AdSense Banner
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-5 text-center text-xs text-slate-500 space-y-2">
                           <div className="text-slate-400 font-bold">Portal Experience • © 2026 All Rights Reserved</div>
                           <p className="text-[11px] text-slate-500">
                             Organic Traffic Simulation & Multi-Session Human Telemetry.
