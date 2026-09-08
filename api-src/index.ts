@@ -497,7 +497,7 @@ router.all('/sandbox/echo', (req: Request, res: Response) => {
 });
 
 // Health Check
-router.get('/health', (req: Request, res: Response) => {
+router.get(['/', '/api', '/health', '/api/health'], (req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: Date.now(),
@@ -2111,4 +2111,9 @@ Return ONLY valid JSON matching this schema:
 app.use('/api', router);
 app.use('/', router);
 
-export default app;
+// Vercel Serverless Function Handler
+const handler = (req: any, res: any) => {
+  return (app as any)(req, res);
+};
+
+export default handler;
