@@ -396,7 +396,7 @@ export interface LiveTelemetryEvent {
   visitorId: string;
   countryCode: string;
   countryFlag: string;
-  eventType: 'page_view' | 'scroll' | 'user_engagement' | 'session_start' | 'page_click' | 'ad_click' | 'article_link_click' | 'popup_interaction' | 'page_reload' | 'footer_scroll' | 'session_end' | 'bounce';
+  eventType: 'page_view' | 'scroll' | 'user_engagement' | 'session_start' | 'page_click' | 'ad_click' | 'article_link_click' | 'popup_interaction' | 'page_reload' | 'footer_scroll' | 'session_end' | 'bounce' | 'ga4_beacon';
   pagePath: string;
   pageTitle: string;
   source: string;
@@ -407,6 +407,23 @@ export interface LiveTelemetryEvent {
     adSlot: string;
     adNetwork: string;
   };
+}
+
+export interface Ga4BeaconLog {
+  id: string;
+  timestamp: number;
+  eventName: string;
+  measurementId: string;
+  pagePath: string;
+  pageTitle: string;
+  countryCode: string;
+  countryFlag: string;
+  sessionId: string;
+  clientId: string;
+  engagementTimeMs: number;
+  status: 'sent' | 'delivered' | 'error';
+  dispatchMode: 'dual_direct_and_proxy' | 'direct_browser' | 'server_proxy';
+  details?: string;
 }
 
 export interface OrganicRunSummary {

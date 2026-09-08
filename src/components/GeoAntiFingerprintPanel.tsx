@@ -39,7 +39,14 @@ import {
   Filter
 } from 'lucide-react';
 import { AntiFingerprintConfig, GeoCountry, ProxyNode, ProxyEngineConfig } from '../types';
-import { REGIONS_LIST, REGION_PRESETS, GLOBAL_COUNTRIES, DEFAULT_PROXIES } from '../data/organicPresets';
+import { 
+  REGIONS_LIST, 
+  REGION_PRESETS, 
+  GLOBAL_COUNTRIES, 
+  DEFAULT_PROXIES, 
+  CONTINENT_COMBINATION_PRESETS, 
+  ContinentCombinationPreset 
+} from '../data/organicPresets';
 
 export interface StrictLockdownPreset {
   id: string;
@@ -223,6 +230,72 @@ export const STRICT_LOCKDOWN_PRESETS: StrictLockdownPreset[] = [
   },
 ];
 
+export const CONTINENT_THEME: Record<string, {
+  bg: string;
+  border: string;
+  badge: string;
+  text: string;
+  pillActive: string;
+  barColor: string;
+}> = {
+  'North America': {
+    bg: 'bg-emerald-950/40',
+    border: 'border-emerald-500/30',
+    badge: 'bg-emerald-900/60 text-emerald-300 border-emerald-700/50',
+    text: 'text-emerald-400',
+    pillActive: 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20 shadow-md',
+    barColor: 'bg-emerald-500',
+  },
+  'South America': {
+    bg: 'bg-amber-950/40',
+    border: 'border-amber-500/30',
+    badge: 'bg-amber-900/60 text-amber-300 border-amber-700/50',
+    text: 'text-amber-400',
+    pillActive: 'bg-amber-600 text-white border-amber-500 shadow-amber-500/20 shadow-md',
+    barColor: 'bg-amber-500',
+  },
+  'Europe': {
+    bg: 'bg-blue-950/40',
+    border: 'border-blue-500/30',
+    badge: 'bg-blue-900/60 text-blue-300 border-blue-700/50',
+    text: 'text-blue-400',
+    pillActive: 'bg-blue-600 text-white border-blue-500 shadow-blue-500/20 shadow-md',
+    barColor: 'bg-blue-500',
+  },
+  'Asia': {
+    bg: 'bg-purple-950/40',
+    border: 'border-purple-500/30',
+    badge: 'bg-purple-900/60 text-purple-300 border-purple-700/50',
+    text: 'text-purple-400',
+    pillActive: 'bg-purple-600 text-white border-purple-500 shadow-purple-500/20 shadow-md',
+    barColor: 'bg-purple-500',
+  },
+  'Middle East': {
+    bg: 'bg-orange-950/40',
+    border: 'border-orange-500/30',
+    badge: 'bg-orange-900/60 text-orange-300 border-orange-700/50',
+    text: 'text-orange-400',
+    pillActive: 'bg-orange-600 text-white border-orange-500 shadow-orange-500/20 shadow-md',
+    barColor: 'bg-orange-500',
+  },
+  'Africa': {
+    bg: 'bg-teal-950/40',
+    border: 'border-teal-500/30',
+    badge: 'bg-teal-900/60 text-teal-300 border-teal-700/50',
+    text: 'text-teal-400',
+    pillActive: 'bg-teal-600 text-white border-teal-500 shadow-teal-500/20 shadow-md',
+    barColor: 'bg-teal-500',
+  },
+  'Oceania': {
+    bg: 'bg-cyan-950/40',
+    border: 'border-cyan-500/30',
+    badge: 'bg-cyan-900/60 text-cyan-300 border-cyan-700/50',
+    text: 'text-cyan-400',
+    pillActive: 'bg-cyan-600 text-white border-cyan-500 shadow-cyan-500/20 shadow-md',
+    barColor: 'bg-cyan-500',
+  },
+};
+
 interface GeoAntiFingerprintPanelProps {
   fingerprintConfig: AntiFingerprintConfig;
   onChange: (config: AntiFingerprintConfig) => void;
@@ -238,12 +311,15 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
 }) => {
   const [activeTab, setActiveTab] = useState<'countries' | 'proxies' | 'devices' | 'anti_fingerprint'>('countries');
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
+  // Multi-continent combination selection state
+  const [selectedContinents, setSelectedContinents] = useState<string[]>([]); // empty = All Continents
+  const [selectedComboPresetId, setSelectedComboPresetId] = useState<string | null>(null);
   const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>('all');
   const [countrySearchQuery, setCountrySearchQuery] = useState<string>('');
   const [proxySearchQuery, setProxySearchQuery] = useState<string>('');
   const [proxyRegionFilter, setProxyRegionFilter] = useState<string>('all');
   
-  // Custom multi-country checkboxes selection for 100% batch lockdown
+  // Custom multi-country checkboxes selection for 100% batch lockdown & combination actions
   const [selectedCheckboxCountries, setSelectedCheckboxCountries] = useState<string[]>([]);
 
   // Real-time Geo-IP Verification State
@@ -301,19 +377,55 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
     return null;
   }, [countries]);
 
-  // Filtered countries
+  // Real-time Traffic Breakdown & Counts across Continents
+  const continentStats = useMemo(() => {
+    const activeCountries = countries.filter(c => c.enabled !== false && (c.weight ?? 0) > 0);
+    const totalWeight = activeCountries.reduce((sum, c) => sum + (c.weight ?? 0), 0);
+
+    const standardRegions = ['North America', 'South America', 'Europe', 'Asia', 'Middle East', 'Africa', 'Oceania'];
+    const data: Record<string, { total: number; active: number; weight: number; pct: number }> = {};
+    
+    standardRegions.forEach(reg => {
+      data[reg] = { total: 0, active: 0, weight: 0, pct: 0 };
+    });
+
+    countries.forEach(c => {
+      const reg = c.region || 'Other';
+      if (!data[reg]) {
+        data[reg] = { total: 0, active: 0, weight: 0, pct: 0 };
+      }
+      data[reg].total += 1;
+      if (c.enabled !== false && (c.weight ?? 0) > 0) {
+        data[reg].active += 1;
+        data[reg].weight += (c.weight ?? 0);
+      }
+    });
+
+    Object.keys(data).forEach(reg => {
+      data[reg].pct = totalWeight > 0 ? Math.round((data[reg].weight / totalWeight) * 100) : 0;
+    });
+
+    return {
+      activeCountriesCount: activeCountries.length,
+      totalWeight,
+      byContinent: data,
+    };
+  }, [countries]);
+
+  // Filtered countries based on multi-continent combination + search
   const filteredCountries = useMemo(() => {
     return countries.filter(c => {
-      const matchesRegion = selectedRegionFilter === 'all' || c.region === selectedRegionFilter;
+      const matchesContinent = selectedContinents.length === 0 || (c.region && selectedContinents.includes(c.region));
       const q = countrySearchQuery.toLowerCase().trim();
       const matchesQuery = !q || 
         c.name.toLowerCase().includes(q) || 
         c.code.toLowerCase().includes(q) || 
         (c.city && c.city.toLowerCase().includes(q)) || 
-        (c.isp && c.isp.toLowerCase().includes(q));
-      return matchesRegion && matchesQuery;
+        (c.isp && c.isp.toLowerCase().includes(q)) ||
+        (c.region && c.region.toLowerCase().includes(q));
+      return matchesContinent && matchesQuery;
     });
-  }, [countries, selectedRegionFilter, countrySearchQuery]);
+  }, [countries, selectedContinents, countrySearchQuery]);
 
   // Filtered proxies
   const filteredProxies = useMemo(() => {
@@ -470,17 +582,148 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
     handleVerifyGeoTunnel(primaryCountry);
   };
 
-  const handleLockSelectedCheckboxes = () => {
+  // Multi-continent combination handlers
+  const handleToggleContinent = (continentId: string) => {
+    if (continentId === 'all') {
+      setSelectedContinents([]);
+      setSelectedComboPresetId(null);
+      setSelectedRegionFilter('all');
+      return;
+    }
+    setSelectedComboPresetId(null);
+    setSelectedContinents(prev => {
+      if (prev.includes(continentId)) {
+        const next = prev.filter(c => c !== continentId);
+        setSelectedRegionFilter(next.length === 1 ? next[0] : (next.length === 0 ? 'all' : 'multi'));
+        return next;
+      } else {
+        const next = [...prev, continentId];
+        setSelectedRegionFilter(next.length === 1 ? next[0] : 'multi');
+        return next;
+      }
+    });
+  };
+
+  const handleSelectOnlyContinent = (continentId: string) => {
+    if (continentId === 'all') {
+      setSelectedContinents([]);
+      setSelectedComboPresetId(null);
+      setSelectedRegionFilter('all');
+    } else {
+      setSelectedContinents([continentId]);
+      setSelectedComboPresetId(null);
+      setSelectedRegionFilter(continentId);
+    }
+  };
+
+  const handleSelectContinentPreset = (preset: ContinentCombinationPreset, lock100Pct: boolean = false) => {
+    setSelectedContinents(preset.continents);
+    setSelectedComboPresetId(preset.id);
+    setSelectedRegionFilter(preset.continents.length === 1 ? preset.continents[0] : 'multi');
+    if (lock100Pct) {
+      handleApplyContinentCombination(preset.continents);
+    }
+  };
+
+  const handleApplyContinentCombination = (continentsToApply: string[] = selectedContinents) => {
+    const targetContinents = continentsToApply.length === 0 
+      ? ['North America', 'South America', 'Europe', 'Asia', 'Middle East', 'Africa', 'Oceania']
+      : continentsToApply;
+
+    const sharePerContinent = Math.round(100 / targetContinents.length);
+
+    const updated = countries.map(c => {
+      if (c.region && targetContinents.includes(c.region)) {
+        const countriesInRegion = countries.filter(other => other.region === c.region);
+        const weightPerCountry = Math.max(5, Math.round(sharePerContinent / Math.min(countriesInRegion.length, 5)));
+        return {
+          ...c,
+          enabled: true,
+          weight: weightPerCountry,
+        };
+      }
+      return {
+        ...c,
+        enabled: false,
+        weight: 0,
+      };
+    });
+
+    let updatedProxyEngine = proxyEngine;
+    if (proxyEngine) {
+      const updatedProxies = proxyEngine.proxies.map(p => ({
+        ...p,
+        enabled: p.region ? targetContinents.includes(p.region) : false,
+      }));
+      updatedProxyEngine = {
+        ...proxyEngine,
+        enabled: true,
+        selectedRegions: targetContinents,
+        proxies: updatedProxies,
+      };
+    }
+
+    onChange({
+      ...fingerprintConfig,
+      geoMode: 'custom_distribution',
+      countries: updated,
+      proxyEngine: updatedProxyEngine,
+    });
+  };
+
+  const handleBalanceEvenlyByContinent = () => {
+    const targetContinents = selectedContinents.length === 0
+      ? ['North America', 'South America', 'Europe', 'Asia', 'Middle East', 'Africa', 'Oceania']
+      : selectedContinents;
+
+    const continentShare = Math.round(100 / targetContinents.length);
+
+    const updated = countries.map(c => {
+      if (c.region && targetContinents.includes(c.region) && c.enabled !== false) {
+        const activeInContinent = countries.filter(other => other.region === c.region && other.enabled !== false);
+        const count = activeInContinent.length || 1;
+        const weight = Math.max(5, Math.round(continentShare / count));
+        return { ...c, weight };
+      }
+      return c;
+    });
+
+    onChange({ ...fingerprintConfig, countries: updated });
+  };
+
+  // Country-level multi-select checkbox handlers
+  const handleToggleCountryCheckbox = (code: string) => {
+    setSelectedCheckboxCountries(prev => 
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
+
+  const handleSelectAllVisibleCheckboxes = () => {
+    const visibleCodes = filteredCountries.map(c => c.code);
+    const allSelected = visibleCodes.length > 0 && visibleCodes.every(code => selectedCheckboxCountries.includes(code));
+    if (allSelected) {
+      setSelectedCheckboxCountries(prev => prev.filter(c => !visibleCodes.includes(c)));
+    } else {
+      setSelectedCheckboxCountries(prev => Array.from(new Set([...prev, ...visibleCodes])));
+    }
+  };
+
+  const handleClearCountryCheckboxes = () => {
+    setSelectedCheckboxCountries([]);
+  };
+
+  const handleBatchLockSelectedCountries = () => {
     if (selectedCheckboxCountries.length === 0) return;
     const targetCodes = selectedCheckboxCountries.map(c => c.toUpperCase());
-    const evenWeight = Math.round(100 / targetCodes.length);
+    const evenWeight = Math.max(5, Math.round(100 / targetCodes.length));
 
     const updatedCountries = countries.map(c => {
-      const code = c.code.toUpperCase();
-      if (targetCodes.includes(code)) {
-        return { ...c, enabled: true, weight: evenWeight };
-      }
-      return { ...c, enabled: false, weight: 0 };
+      const isSelected = targetCodes.includes(c.code.toUpperCase());
+      return {
+        ...c,
+        enabled: isSelected,
+        weight: isSelected ? evenWeight : 0,
+      };
     });
 
     let updatedProxyEngine = proxyEngine;
@@ -519,6 +762,26 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
     const primary = targetCodes[0];
     setGeoVerifyTargetCountry(primary);
     handleVerifyGeoTunnel(primary);
+  };
+
+  const handleBatchEnableSelectedCountries = (enable: boolean) => {
+    if (selectedCheckboxCountries.length === 0) return;
+    const targetCodes = new Set(selectedCheckboxCountries.map(c => c.toUpperCase()));
+    const updated = countries.map(c => {
+      if (targetCodes.has(c.code.toUpperCase())) {
+        return {
+          ...c,
+          enabled: enable,
+          weight: enable ? Math.max(c.weight || 30, 20) : 0,
+        };
+      }
+      return c;
+    });
+    onChange({ ...fingerprintConfig, countries: updated });
+  };
+
+  const handleLockSelectedCheckboxes = () => {
+    handleBatchLockSelectedCountries();
   };
 
   const handleIsolateRegion = (regionName: string) => {
@@ -1420,122 +1683,412 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
             </div>
           </div>
 
-          {/* Quick Region Presets Bar */}
+          {/* Multi-Continent Combination Corridors (Presets) */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs">
+              <span className="font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>Quick Geographic Presets</span>
+                <span>Multi-Continent Combination Corridors</span>
               </span>
-              <span className="text-[11px] text-slate-500 font-mono">1-Click Region Activation</span>
+              <span className="text-[11px] text-slate-400 font-mono">1-Click Cross-Continental Corridors</span>
             </div>
             
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-              {REGION_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => handleSelectPreset(preset)}
-                  title={preset.description}
-                  className="p-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 text-left transition-all cursor-pointer group"
-                >
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-base">{preset.icon}</span>
-                    <span className="text-[11px] font-bold text-slate-200 group-hover:text-emerald-400 transition-colors line-clamp-1">
-                      {preset.name.split('(')[0]}
-                    </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              {CONTINENT_COMBINATION_PRESETS.map((preset) => {
+                const isSelected = selectedComboPresetId === preset.id || 
+                  (preset.continents.length === selectedContinents.length && 
+                   preset.continents.every(c => selectedContinents.includes(c)));
+
+                return (
+                  <div
+                    key={preset.id}
+                    className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                      isSelected
+                        ? 'bg-slate-900/90 border-emerald-500 shadow-md shadow-emerald-500/10'
+                        : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-lg">{preset.icon}</span>
+                          <span className="text-xs font-bold text-slate-100 line-clamp-1">{preset.name}</span>
+                        </div>
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-emerald-400 font-semibold shrink-0">
+                          {preset.badge}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-slate-400 line-clamp-2 mb-2 leading-relaxed">
+                        {preset.description}
+                      </p>
+
+                      {/* Continent Tags */}
+                      <div className="flex items-center gap-1 flex-wrap mb-2.5">
+                        {preset.continents.map(cont => (
+                          <span key={cont} className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-300 font-mono">
+                            {cont}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 pt-1 border-t border-slate-800/80">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectContinentPreset(preset, false)}
+                        className={`flex-1 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-600 text-white font-bold'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                        }`}
+                      >
+                        {isSelected ? '✓ Selected' : 'Select'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectContinentPreset(preset, true)}
+                        title="Lock 100% traffic strictly to this continent combination"
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1"
+                      >
+                        <Lock className="w-3 h-3" />
+                        <span>Lock 100%</span>
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-[10px] text-slate-500 font-mono">
-                    {preset.countryCodes.length === 0 ? 'All 45+' : `${preset.countryCodes.length} Countries`}
-                  </div>
-                </button>
-              ))}
+                );
+              })}
             </div>
           </div>
 
-          {/* Filter Bar: Regions & Search */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
-            {/* Region Filter Buttons */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {REGIONS_LIST.map((r) => (
+          {/* Interactive Multi-Continent Selection Matrix */}
+          <div className="space-y-2 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-emerald-400" />
+                <span className="font-bold text-slate-200 uppercase tracking-wider">
+                  Select Combination of Continents & Regions
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-400">
+                Click multiple continents to combine them into your traffic pool
+              </span>
+            </div>
+
+            {/* Continent Pills & Multi-Select Matrix */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 pt-1">
+              {/* All Continents Option */}
+              <button
+                type="button"
+                onClick={() => handleToggleContinent('all')}
+                className={`p-2 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
+                  selectedContinents.length === 0
+                    ? 'bg-emerald-600/20 border-emerald-500 text-white shadow-md'
+                    : 'bg-slate-900/90 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-base">🌐</span>
+                  {selectedContinents.length === 0 ? (
+                    <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5 text-slate-600" />
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-100">All Continents</div>
+                  <div className="text-[10px] text-slate-400 font-mono">Worldwide Pool</div>
+                </div>
+              </button>
+
+              {/* Individual Continents */}
+              {REGIONS_LIST.filter(r => r.id !== 'all').map((r) => {
+                const isChecked = selectedContinents.includes(r.name);
+                const stats = continentStats.byContinent[r.name] || { total: 0, active: 0, weight: 0, pct: 0 };
+                const theme = CONTINENT_THEME[r.name] || {
+                  bg: 'bg-slate-900',
+                  border: 'border-slate-800',
+                  badge: 'bg-slate-800 text-slate-300',
+                  text: 'text-slate-300',
+                  pillActive: 'bg-slate-700 text-white',
+                  barColor: 'bg-slate-500',
+                };
+
+                return (
+                  <div
+                    key={r.id}
+                    className={`p-2 rounded-xl border transition-all flex flex-col justify-between group ${
+                      isChecked
+                        ? `${theme.bg} ${theme.border} shadow-md shadow-emerald-500/5`
+                        : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleToggleContinent(r.name)}
+                      className="w-full text-left cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-base">{r.icon}</span>
+                        {isChecked ? (
+                          <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Square className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400" />
+                        )}
+                      </div>
+                      <div className="text-xs font-bold text-slate-100 line-clamp-1">{r.name}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {stats.active}/{stats.total} countries
+                      </div>
+                    </button>
+
+                    <div className="flex items-center justify-between pt-1 mt-1 border-t border-slate-800/60 text-[10px]">
+                      <span className="font-mono text-emerald-400 font-semibold">
+                        {stats.pct}% wt
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectOnlyContinent(r.name);
+                        }}
+                        title={`Focus only on ${r.name}`}
+                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[9px] text-slate-300 hover:text-white cursor-pointer"
+                      >
+                        Only
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Active Continent Combination Status & Controls Bar */}
+          <div className="bg-slate-950/90 p-3.5 rounded-xl border border-slate-800 space-y-2.5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Active Combination:</span>
+                </span>
+
+                {selectedContinents.length === 0 ? (
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-semibold flex items-center gap-1.5">
+                    <span>🌐 Worldwide (All 7 Continents Active)</span>
+                  </span>
+                ) : (
+                  selectedContinents.map(cont => {
+                    const theme = CONTINENT_THEME[cont];
+                    return (
+                      <span
+                        key={cont}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono font-semibold ${theme?.badge || 'bg-slate-800 text-slate-200 border-slate-700'}`}
+                      >
+                        <span>{REGIONS_LIST.find(r => r.name === cont)?.icon || '📍'}</span>
+                        <span>{cont}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleContinent(cont)}
+                          title={`Remove ${cont} from combination`}
+                          className="hover:text-rose-400 cursor-pointer ml-0.5"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    );
+                  })
+                )}
+
+                {selectedContinents.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleContinent('all')}
+                    className="text-[11px] text-slate-400 hover:text-slate-200 underline cursor-pointer"
+                  >
+                    Reset to All Continents
+                  </button>
+                )}
+              </div>
+
+              {/* Combination Action Buttons */}
+              <div className="flex items-center gap-2 flex-wrap text-xs">
                 <button
-                  key={r.id}
                   type="button"
-                  onClick={() => setSelectedRegionFilter(r.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all ${
-                    selectedRegionFilter === r.id
-                      ? 'bg-emerald-600 text-white shadow-md'
-                      : 'bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800'
-                  }`}
+                  onClick={() => handleApplyContinentCombination(selectedContinents)}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer flex items-center gap-1.5 shadow-md transition-all text-xs"
+                  title="Direct 100% of traffic strictly to this continent combination"
                 >
-                  <span>{r.icon}</span>
-                  <span>{r.name}</span>
+                  <Target className="w-3.5 h-3.5" />
+                  <span>Lock 100% to Combination</span>
                 </button>
-              ))}
+
+                <button
+                  type="button"
+                  onClick={handleBalanceEvenlyByContinent}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-semibold border border-slate-700 cursor-pointer flex items-center gap-1.5 transition-all text-xs"
+                  title="Distribute 100% traffic equally across the selected continents"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Even Split by Continent</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Visual Continent Traffic Distribution Bar */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                <span>Continental Traffic Allocation:</span>
+                <span>{continentStats.activeCountriesCount} countries actively generating visits</span>
+              </div>
+
+              <div className="h-2.5 w-full bg-slate-900 rounded-full overflow-hidden flex border border-slate-800">
+                {REGIONS_LIST.filter(r => r.id !== 'all')
+                  .map(r => ({ name: r.name, data: continentStats.byContinent[r.name] }))
+                  .filter(({ data }) => data && data.pct > 0)
+                  .map(({ name, data }) => {
+                    const theme = CONTINENT_THEME[name];
+                    return (
+                      <div
+                        key={name}
+                        style={{ width: `${data.pct}%` }}
+                        className={`${theme?.barColor || 'bg-slate-500'} h-full transition-all`}
+                        title={`${name}: ${data.pct}% traffic share (${data.active} countries)`}
+                      />
+                    );
+                  })}
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap text-[10px] font-mono text-slate-400 pt-0.5">
+                {REGIONS_LIST.filter(r => r.id !== 'all')
+                  .map(r => ({ name: r.name, data: continentStats.byContinent[r.name] }))
+                  .filter(({ data }) => data && data.pct > 0)
+                  .map(({ name, data }) => {
+                    const theme = CONTINENT_THEME[name];
+                    return (
+                      <span key={name} className="flex items-center gap-1">
+                        <span className={`w-2 h-2 rounded-full ${theme?.barColor || 'bg-slate-500'}`} />
+                        <span>{name}: {data.pct}%</span>
+                      </span>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+
+          {/* Sticky Multi-Country Checkbox Toolbar (Appears when any countries are checked) */}
+          {selectedCheckboxCountries.length > 0 && (
+            <div className="bg-emerald-950/70 border border-emerald-500/50 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-lg animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <CheckSquare className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div>
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>{selectedCheckboxCountries.length} Countries Selected in Custom Batch</span>
+                  </div>
+                  <div className="text-[11px] text-emerald-300 font-mono truncate max-w-[320px]">
+                    {selectedCheckboxCountries.join(', ')}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap text-xs">
+                <button
+                  type="button"
+                  onClick={handleBatchLockSelectedCountries}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer flex items-center gap-1.5 shadow-md transition-all text-xs"
+                  title="Lock 100% traffic strictly to these selected countries"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Lock 100% to Selected ({Math.round(100 / selectedCheckboxCountries.length)}% each)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleBatchEnableSelectedCountries(true)}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-emerald-400 font-semibold border border-emerald-500/30 cursor-pointer"
+                >
+                  Enable Selected
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleBatchEnableSelectedCountries(false)}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 font-semibold border border-slate-700 cursor-pointer"
+                >
+                  Disable Selected
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClearCountryCheckboxes}
+                  className="px-2 py-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                >
+                  ✕ Clear
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Search, Filter Summary & Master Controls */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
+            {/* Master Select All Checkbox & Count */}
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <button
+                type="button"
+                onClick={handleSelectAllVisibleCheckboxes}
+                className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white cursor-pointer bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-800 hover:border-slate-700"
+              >
+                {filteredCountries.length > 0 && filteredCountries.every(c => selectedCheckboxCountries.includes(c.code)) ? (
+                  <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Square className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                <span>Select All Visible ({filteredCountries.length})</span>
+              </button>
+
+              <div className="flex items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={handleEnableAllInView}
+                  className="text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer flex items-center gap-1"
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span>Enable View</span>
+                </button>
+                <span className="text-slate-700">•</span>
+                <button
+                  type="button"
+                  onClick={handleDisableAllInView}
+                  className="text-slate-400 hover:text-slate-300 font-semibold cursor-pointer flex items-center gap-1"
+                >
+                  <Square className="w-3.5 h-3.5" />
+                  <span>Disable View</span>
+                </button>
+                <span className="text-slate-700">•</span>
+                <button
+                  type="button"
+                  onClick={handleSetEvenWeightsInView}
+                  className="text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer"
+                >
+                  Even 50% Weights
+                </button>
+              </div>
             </div>
 
             {/* Search Input */}
-            <div className="relative min-w-[200px]">
+            <div className="relative min-w-[220px]">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={countrySearchQuery}
                 onChange={(e) => setCountrySearchQuery(e.target.value)}
-                placeholder="Search country, city, ISP..."
+                placeholder="Search country, city, ISP, continent..."
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 placeholder-slate-500"
               />
             </div>
           </div>
 
-          {/* Bulk Controls & Region Isolation */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs px-1 text-slate-400 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-300">
-                {filteredCountries.length} countries in {selectedRegionFilter === 'all' ? 'All Regions' : selectedRegionFilter}
-              </span>
-              {selectedRegionFilter !== 'all' && (
-                <button
-                  type="button"
-                  onClick={() => handleIsolateRegion(selectedRegionFilter)}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold border border-emerald-500/40 cursor-pointer flex items-center gap-1.5 transition-all text-[11px]"
-                  title={`Disable all other regions and isolate ${selectedRegionFilter}`}
-                >
-                  <span>🎯</span>
-                  <span>Target {selectedRegionFilter} Only</span>
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={handleEnableAllInView}
-                className="text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer flex items-center gap-1"
-              >
-                <CheckSquare className="w-3.5 h-3.5" />
-                <span>Enable View</span>
-              </button>
-              <span className="text-slate-700">•</span>
-              <button
-                type="button"
-                onClick={handleDisableAllInView}
-                className="text-slate-400 hover:text-slate-300 font-semibold cursor-pointer flex items-center gap-1"
-              >
-                <Square className="w-3.5 h-3.5" />
-                <span>Disable View</span>
-              </button>
-              <span className="text-slate-700">•</span>
-              <button
-                type="button"
-                onClick={handleSetEvenWeightsInView}
-                className="text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer"
-              >
-                Even 50% Weights
-              </button>
-            </div>
-          </div>
-
-          {/* Active Traffic Pool Summary */}
+          {/* Active Traffic Pool Summary Bar */}
           <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 text-xs flex items-center justify-between gap-2 overflow-x-auto">
             <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
               <span className="text-slate-400 font-semibold flex items-center gap-1">
@@ -1558,29 +2111,47 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
               )}
               {enabledCountriesCount === 0 && (
                 <span className="text-rose-400 text-[11px] font-semibold">
-                  ⚠️ No countries active! Click "Enable View" or choose a preset.
+                  ⚠️ No countries active! Click "Enable View" or choose a continent combination.
                 </span>
               )}
             </div>
           </div>
 
-          {/* Country Grid */}
+          {/* Country Grid with Multi-Country Checkboxes */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[440px] overflow-y-auto pr-1">
             {filteredCountries.map((country) => {
               const fullIndex = countries.findIndex(c => c.code === country.code);
               const isEnabled = country.enabled !== false && country.weight > 0;
+              const isChecked = selectedCheckboxCountries.includes(country.code);
+              const continentTheme = CONTINENT_THEME[country.region || 'North America'];
 
               return (
                 <div 
                   key={country.code}
                   className={`border rounded-xl p-3.5 space-y-2.5 transition-all ${
-                    isEnabled
-                      ? 'bg-slate-950/90 border-slate-800 hover:border-emerald-500/40'
-                      : 'bg-slate-950/40 border-slate-900 opacity-60'
+                    isChecked
+                      ? 'bg-slate-950/95 border-emerald-500/80 shadow-md shadow-emerald-500/10'
+                      : isEnabled
+                        ? 'bg-slate-950/90 border-slate-800 hover:border-emerald-500/40'
+                        : 'bg-slate-950/40 border-slate-900 opacity-60'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
+                      {/* Checkbox for custom multi-country batch */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleCountryCheckbox(country.code)}
+                        title={isChecked ? `Uncheck ${country.name}` : `Check ${country.name} for combination action`}
+                        className="cursor-pointer text-slate-500 hover:text-emerald-400 transition-colors"
+                      >
+                        {isChecked ? (
+                          <CheckSquare className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-600" />
+                        )}
+                      </button>
+
                       <span className="text-2xl drop-shadow">{country.flag}</span>
                       <div>
                         <div className="flex items-center gap-1.5">
@@ -1589,8 +2160,14 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
                             {country.code}
                           </span>
                         </div>
-                        <div className="text-[10px] text-slate-400 font-mono">
-                          {country.region || 'Global'} • {country.city?.split('/')[0]?.trim() || country.timezone.split('/')[1]}
+                        <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                          <span className={`px-1 py-0.2 rounded text-[9px] ${continentTheme?.badge || 'bg-slate-800 text-slate-400'}`}>
+                            {country.region || 'Global'}
+                          </span>
+                          <span>•</span>
+                          <span className="truncate max-w-[120px]">
+                            {country.city?.split('/')[0]?.trim() || country.timezone.split('/')[1]}
+                          </span>
                         </div>
                       </div>
                     </div>

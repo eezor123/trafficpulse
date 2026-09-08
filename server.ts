@@ -1541,14 +1541,14 @@ async function startServer() {
       const params = new URLSearchParams(payloadParams);
       const rawBodyString = params.toString();
       const getCollectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
-      const postCollectUrl = 'https://www.google-analytics.com/g/collect';
+      const postCollectUrl = `https://www.google-analytics.com/g/collect?${rawBodyString}`;
 
       try {
         let gaRes: any;
         const requestHeaders: Record<string, string> = {
           'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-          'Accept-Language': `${countryLocale},en;q=0.8`,
-          'Content-Type': 'text/plain;charset=UTF-8',
+          'Accept-Language': `${countryLocale},en;q=0.9`,
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
           'Origin': targetOrigin,
           'Referer': pageLocation || `${targetOrigin}/`,
           'X-Forwarded-For': authenticCountryIp,
@@ -1561,18 +1561,16 @@ async function startServer() {
         };
 
         try {
-          // 1. Primary: POST body directly to /g/collect
+          // 1. Primary: POST to /g/collect with full parameter query string AND urlencoded body
           gaRes = await fetch(postCollectUrl, {
             method: 'POST',
             headers: requestHeaders,
             body: rawBodyString,
-            // @ts-ignore
-            agent,
           });
 
-          // 2. Secondary Fallback: GET request with all params encoded in URL
-          if (!gaRes.ok && gaRes.status !== 204) {
-            gaRes = await fetch(getCollectUrl, {
+          // 2. Dual Fallback: GET request with all params encoded in URL for 100% receipt by GA4 edge collectors
+          try {
+            const getRes = await fetch(getCollectUrl, {
               method: 'GET',
               headers: {
                 'User-Agent': requestHeaders['User-Agent'],
@@ -1584,27 +1582,25 @@ async function startServer() {
                 'CF-Connecting-IP': authenticCountryIp,
                 'CF-IPCountry': cleanCountryCode,
                 'X-Country-Code': cleanCountryCode,
-                'X-Proxy-Region': proxyRegion,
                 'X-Real-IP': authenticCountryIp,
               },
-              // @ts-ignore
-              agent,
             });
-          }
+            if (getRes.ok || getRes.status === 204) {
+              gaRes = getRes;
+            }
+          } catch {}
         } catch (proxyFetchErr) {
-          // 3. Resilient Direct Fallback if proxy node network errored
+          // 3. Resilient Direct Fallback
           try {
-            gaRes = await fetch(postCollectUrl, {
-              method: 'POST',
+            gaRes = await fetch(getCollectUrl, {
+              method: 'GET',
               headers: {
                 'User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                'Content-Type': 'text/plain;charset=UTF-8',
                 'Origin': targetOrigin,
                 'Referer': pageLocation || `${targetOrigin}/`,
                 'X-Forwarded-For': authenticCountryIp,
                 'CF-IPCountry': cleanCountryCode,
               },
-              body: rawBodyString,
             });
           } catch {
             gaRes = { status: 200, ok: true };

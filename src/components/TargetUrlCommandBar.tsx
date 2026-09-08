@@ -26,6 +26,7 @@ interface TargetUrlCommandBarProps {
   onStartTraffic: () => void;
   onStopTraffic: () => void;
   activeVisitorsCount: number;
+  gaMeasurementId?: string;
 }
 
 const PRESET_URLS = [
@@ -45,6 +46,7 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
   onStartTraffic,
   onStopTraffic,
   activeVisitorsCount,
+  gaMeasurementId,
 }) => {
   const [inputUrl, setInputUrl] = useState(targetUrl);
   const [isPinging, setIsPinging] = useState(false);
@@ -238,12 +240,12 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
             <span className="text-emerald-400 font-bold font-mono">{crawlState.pages.length}</span> Pages Discovered
             <span className="text-slate-500 ml-1">({includedPagesCount} active in rotation)</span>
           </span>
-          {crawlState.gaMeasurementId && (
+          {(gaMeasurementId || crawlState.gaMeasurementId) && (
             <>
               <span className="text-slate-600">•</span>
-              <span className="text-emerald-300 font-mono flex items-center gap-1">
+              <span className="text-emerald-300 font-mono flex items-center gap-1 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
                 <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                <span>{crawlState.gaMeasurementId}</span>
+                <span>GA4: {gaMeasurementId || crawlState.gaMeasurementId}</span>
               </span>
             </>
           )}

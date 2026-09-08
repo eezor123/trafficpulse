@@ -32,6 +32,21 @@ export interface OrganicEngineCallbacks {
     totalAdClicks?: number;
     totalPopupInteractions?: number;
     fullScrollRatePct?: number;
+    totalGa4BeaconsSent?: number;
+    ga4EventsBreakdown?: {
+      page_view: number;
+      user_engagement: number;
+      click: number;
+      scroll: number;
+      session_start: number;
+    };
+    lastGa4Beacon?: {
+      eventName: string;
+      measurementId: string;
+      timestamp: number;
+      pagePath: string;
+      countryCode: string;
+    };
   }) => void;
   onComplete: (summary: OrganicRunSummary) => void;
   onError?: (err: any) => void;
@@ -58,6 +73,26 @@ export class OrganicTrafficEngine {
   private topLandingViews: Record<string, { title: string; count: number; timeSec: number }> = {};
   private topKeywordVisits: Record<string, number> = {};
   private ga4EventsCount: number = 0;
+  private ga4EventsBreakdown: {
+    page_view: number;
+    user_engagement: number;
+    click: number;
+    scroll: number;
+    session_start: number;
+  } = {
+    page_view: 0,
+    user_engagement: 0,
+    click: 0,
+    scroll: 0,
+    session_start: 0,
+  };
+  private lastGa4BeaconInfo?: {
+    eventName: string;
+    measurementId: string;
+    timestamp: number;
+    pagePath: string;
+    countryCode: string;
+  };
 
   // Mobile-First execution optimization
   private isMobileExecution: boolean = false;
@@ -1085,6 +1120,9 @@ export class OrganicTrafficEngine {
       totalAdClicks: liveAdClicks,
       totalPopupInteractions: livePopups,
       fullScrollRatePct: fullScrollPct,
+      totalGa4BeaconsSent: this.ga4EventsCount,
+      ga4EventsBreakdown: { ...this.ga4EventsBreakdown },
+      lastGa4Beacon: this.lastGa4BeaconInfo,
     });
   }
 
@@ -1756,6 +1794,102 @@ export class OrganicTrafficEngine {
       const proxyUrl = this.formatProxyNodeUrl(visitor.proxyUsed);
       const isLightweight = this.isMobileExecution || this.config.behavior.lightweightPayloads;
       const cleanCountryCode = (visitor.country.code || 'US').toUpperCase();
+
+      // Track breakdown metrics for UI
+      const cleanEvtKey = (eventName || 'page_view') as keyof typeof this.ga4EventsBreakdown;
+      if (this.ga4EventsBreakdown[cleanEvtKey] !== undefined) {
+        this.ga4EventsBreakdown[cleanEvtKey]++;
+      } else {
+        this.ga4EventsBreakdown.page_view++;
+      }
+      if (visitor.hitSequence === 1) {
+        this.ga4EventsBreakdown.session_start++;
+      }
+      this.lastGa4BeaconInfo = {
+        eventName: eventName || 'page_view',
+        measurementId: measurementId || 'G-DISPATCHED',
+        timestamp: Date.now(),
+        pagePath: pagePath || '/',
+        countryCode: cleanCountryCode,
+      };
+
+      // 1. Direct browser-side dispatch to Google Analytics edge collectors
+      if (measurementId && measurementId.startsWith('G-')) {
+        try {
+          const directParams: Record<string, string> = {
+            v: '2',
+            tid: measurementId,
+            _p: visitor.pageLoadId || `${Math.floor(Math.random() * 1000000000)}`,
+            _s: `${visitor.hitSequence || 1}`,
+            cid: visitor.gaClientId,
+            ul: visitorLocale.toLowerCase(),
+            sr: '1920x1080',
+            _ee: '1',
+            seg: '1',
+            sid: visitor.gaSessionId,
+            sct: '1',
+            en: eventName || 'page_view',
+            _et: `${effectiveEngagement}`,
+            'epn.engagement_time_msec': `${effectiveEngagement}`,
+            dl: pageLocation,
+            dt: pageTitle || 'Page Title',
+            dr: visitor.referrerUrl || '',
+            cs: campaignSource,
+            cm: campaignMedium,
+            cn: this.config.name || 'Organic Traffic Boost',
+            uip: visitorIp,
+            _uip: visitorIp,
+          };
+
+          if (visitor.hitSequence === 1) {
+            directParams._ss = '1';
+            if (!visitor.isReturning) {
+              directParams._fv = '1';
+            }
+          }
+
+          if (eventName === 'click' || clickParams) {
+            directParams['ep.link_url'] = clickParams?.linkUrl || `${pageLocation}/out`;
+            directParams['ep.link_text'] = clickParams?.linkText || 'Outbound Link';
+            directParams['ep.outbound'] = 'true';
+            directParams['epn.outbound'] = '1';
+          }
+
+          const directQuery = new URLSearchParams(directParams).toString();
+          const directUrl = `https://www.google-analytics.com/g/collect?${directQuery}`;
+
+          if (typeof fetch === 'function') {
+            fetch(directUrl, {
+              method: 'POST',
+              mode: 'no-cors',
+              keepalive: true,
+              body: directQuery,
+            }).catch(() => {});
+          }
+          if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+            try {
+              navigator.sendBeacon(directUrl);
+            } catch {}
+          }
+        } catch {}
+      }
+
+      // 2. Telemetry event emission so UI shows live GA4 activity
+      try {
+        this.callbacks.onTelemetryEvent({
+          id: `evt_ga4_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          timestamp: Date.now(),
+          visitorId: visitor.visitorId,
+          countryCode: cleanCountryCode,
+          countryFlag: visitor.country.flag || '🌐',
+          eventType: 'ga4_beacon',
+          pagePath: pagePath || '/',
+          pageTitle: pageTitle || 'Page Title',
+          source: visitor.trafficSource,
+          details: `📊 GA4 [${eventName || 'page_view'}] → ${measurementId || 'Active'} | Session: ${visitor.gaSessionId} (Dwell: ${Math.round(effectiveEngagement / 1000)}s)`,
+          device: visitor.deviceType,
+        });
+      } catch {}
 
       const beaconPayload = {
         measurementId: measurementId || 'G-SIMULATED',

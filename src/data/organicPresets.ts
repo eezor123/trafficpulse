@@ -8,6 +8,82 @@ export interface RegionPreset {
   countryCodes: string[];
 }
 
+export interface ContinentCombinationPreset {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  badge: string;
+  continents: string[];
+}
+
+export const CONTINENT_COMBINATION_PRESETS: ContinentCombinationPreset[] = [
+  {
+    id: 'combo_transatlantic',
+    name: 'Transatlantic (North America + Europe)',
+    description: 'Premier high-CPC commercial corridor combining US, Canada, UK, Germany, France, and Europe',
+    icon: '💎',
+    badge: 'Tier-1 Transatlantic',
+    continents: ['North America', 'Europe'],
+  },
+  {
+    id: 'combo_pan_americas',
+    name: 'Pan-Americas (North + South America)',
+    description: 'Complete Western Hemispheric coverage spanning US, Canada, Mexico, Brazil, Argentina, Colombia & Chile',
+    icon: '🌎',
+    badge: 'Western Hemisphere',
+    continents: ['North America', 'South America'],
+  },
+  {
+    id: 'combo_eurasia',
+    name: 'Eurasia (Europe + Asia)',
+    description: 'Comprehensive cross-continental traffic bridging London, Frankfurt, Tokyo, Seoul, and Singapore',
+    icon: '🌏',
+    badge: 'Eurasia Corridor',
+    continents: ['Europe', 'Asia'],
+  },
+  {
+    id: 'combo_apac_oceania',
+    name: 'APAC & Oceania (Asia + Oceania)',
+    description: 'Pacific rim powerhouse combining Tokyo, Singapore, Seoul, Sydney, Melbourne, and Auckland',
+    icon: '🚀',
+    badge: 'Asia-Pacific & Pacific',
+    continents: ['Asia', 'Oceania'],
+  },
+  {
+    id: 'combo_emea',
+    name: 'EMEA (Europe + Middle East + Africa)',
+    description: 'Traditional enterprise EMEA distribution across European capitals, Gulf financial hubs, and African tech centers',
+    icon: '🌍',
+    badge: 'Full EMEA',
+    continents: ['Europe', 'Middle East', 'Africa'],
+  },
+  {
+    id: 'combo_english_core',
+    name: 'Global English Core (North America + Europe + Oceania)',
+    description: 'Highest conversion rate Tier-1 English-dominant markets: US, UK, Canada, Australia, Ireland, and New Zealand',
+    icon: '👑',
+    badge: 'Max Commercial RPM',
+    continents: ['North America', 'Europe', 'Oceania'],
+  },
+  {
+    id: 'combo_global_south',
+    name: 'Global South (South America + Africa + Asia)',
+    description: 'Emerging market mobile broadband growth across Latin America, Sub-Saharan/North Africa, and South/Southeast Asia',
+    icon: '🌱',
+    badge: 'Emerging Markets',
+    continents: ['South America', 'Africa', 'Asia'],
+  },
+  {
+    id: 'combo_worldwide',
+    name: 'All Continents (Worldwide 7 Regions)',
+    description: 'Full global distribution across all 7 continents and 100+ countries worldwide',
+    icon: '🌐',
+    badge: 'Global Worldwide',
+    continents: ['North America', 'South America', 'Europe', 'Asia', 'Middle East', 'Africa', 'Oceania'],
+  },
+];
+
 export const REGIONS_LIST = [
   { id: 'all', name: 'All Continents', icon: '🌐' },
   { id: 'North America', name: 'North America', icon: '🇺🇸' },

@@ -1187,6 +1187,7 @@ export default function App() {
               onStartTraffic={handleStartOrganic}
               onStopTraffic={handleStopOrganic}
               activeVisitorsCount={activeVisitors.length}
+              gaMeasurementId={organicConfig.ga4?.measurementId || crawlState.gaMeasurementId || 'G-VFY5E884EH'}
             />
 
             {/* Primary Organic Mode Navigation Sub-Bar */}
@@ -1339,6 +1340,7 @@ export default function App() {
                 httpHits={httpHits}
                 stats={organicStats}
                 targetUrl={crawlState.targetUrl}
+                gaMeasurementId={organicConfig.ga4?.measurementId || crawlState.gaMeasurementId || 'G-VFY5E884EH'}
                 onClearEvents={() => setTelemetryEvents([])}
               />
             )}
