@@ -654,6 +654,11 @@ export interface MemberUser {
   lastLoginAt: number;
   isVerified: boolean;
   avatar?: string;
+  // Free Trial & Paid Traffic Assignment Fields
+  trafficBalance: number; // Available remaining traffic visits (starts at 500 for free trial)
+  totalTrafficAssigned: number; // Total traffic visits granted by system or admin (starts at 500)
+  isPaidUser?: boolean; // false = on free trial; true = upgraded by admin to paid
+  trafficStatus?: 'trial_active' | 'trial_exhausted' | 'paid_active' | 'paid_exhausted' | 'unlimited';
 }
 
 export interface AuthState {

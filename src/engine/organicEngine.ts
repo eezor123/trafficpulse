@@ -21,6 +21,7 @@ export interface OrganicEngineCallbacks {
   onActiveVisitorsUpdate: (visitors: ActiveVisitorSession[]) => void;
   onTelemetryEvent: (event: LiveTelemetryEvent) => void;
   onHttpTrafficHit?: (hit: RealHttpTrafficHit) => void;
+  onVisitorSpawned?: () => boolean;
   onStatsUpdate: (stats: {
     totalVisitorsDispatched: number;
     totalPageViews: number;
@@ -1132,6 +1133,15 @@ export class OrganicTrafficEngine {
   }
 
   private spawnVisitor() {
+    // Quota and Authentication Credit Enforcement
+    if (this.callbacks.onVisitorSpawned) {
+      const allowed = this.callbacks.onVisitorSpawned();
+      if (!allowed) {
+        this.stop();
+        return;
+      }
+    }
+
     this.visitorCounter += 1;
     const visitorNumber = this.visitorCounter;
     const visitorId = `vis_${visitorNumber}_${Math.random().toString(36).substr(2, 6)}`;

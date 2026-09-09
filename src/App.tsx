@@ -11,6 +11,7 @@ import { AIOrganicModal } from './components/AIOrganicModal';
 import { OrganicRunSummaryModal } from './components/OrganicRunSummaryModal';
 import { AuthModal } from './components/AuthModal';
 import { ProfileEditModal } from './components/ProfileEditModal';
+import { AdminUserModal } from './components/AdminUserModal';
 
 // Stress Load Components (for dual mode)
 import { ConfigPanel } from './components/ConfigPanel';
@@ -24,7 +25,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 
 import { DEFAULT_ORGANIC_CONFIG, ORGANIC_PRESETS } from './data/organicPresets';
 import { getClientSideCrawledPages, generateClientSideCampaign, crawlWebsiteLiveInBrowser } from './utils/clientFallbackEngine';
-import { loadStoredAuth, saveAuthSession, clearAuthSession, incrementMemberStats } from './utils/authManager';
+import { loadStoredAuth, saveAuthSession, clearAuthSession, incrementMemberStats, deductTrafficCredit } from './utils/authManager';
 import { TRAFFIC_PRESETS } from './data/presets';
 import { 
   ActiveVisitorSession,
@@ -261,6 +262,7 @@ export default function App() {
   const [authState, setAuthState] = useState<AuthState>(loadStoredAuth);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [isProfileEditOpen, setIsProfileEditOpen] = useState<boolean>(false);
+  const [isAdminUserModalOpen, setIsAdminUserModalOpen] = useState<boolean>(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
   const [authModalTitle, setAuthModalTitle] = useState<string | undefined>(undefined);
   const [authModalSubtitle, setAuthModalSubtitle] = useState<string | undefined>(undefined);
@@ -865,40 +867,57 @@ export default function App() {
   };
 
   const handleAutoPopulateRoutes = () => {
-    const commonRoutes = [
-      { path: '/pricing', title: 'Plans & Pricing Matrix' },
-      { path: '/features', title: 'Platform Capabilities & Features' },
-      { path: '/docs/quickstart', title: 'Developer Documentation' },
-      { path: '/blog/latest-updates-2026', title: 'Engineering Blog: Scaling Guide' },
-      { path: '/about', title: 'About the Company' },
-      { path: '/contact', title: 'Support & Inquiries' },
-    ];
-
+    const target = crawlState.targetUrl || 'https://jobs.eezor.com';
+    const fallbackList = getClientSideCrawledPages(target);
     const currentPaths = new Set(crawlState.pages.map(p => p.path));
-    const newPages: CrawledPage[] = commonRoutes
+
+    const newPages: CrawledPage[] = fallbackList
       .filter(r => !currentPaths.has(r.path))
       .map(r => ({
+        ...r,
         id: `auto_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        url: `${crawlState.targetUrl}${r.path}`,
-        path: r.path,
-        title: r.title,
-        description: 'Auto-generated route',
-        depth: 1,
-        status: 200,
         includedInVisits: true,
-        visitWeight: 60,
-        gaDetected: true,
       }));
 
-    setCrawlState(prev => ({
-      ...prev,
-      pages: [...prev.pages, ...newPages],
-    }));
+    if (newPages.length > 0) {
+      setCrawlState(prev => ({
+        ...prev,
+        pages: [...prev.pages, ...newPages],
+      }));
+      setSaveBannerMessage(`✅ Successfully populated ${newPages.length} active job listings and member routes into the crawl catalog!`);
+      setTimeout(() => setSaveBannerMessage(null), 5000);
+    } else {
+      setSaveBannerMessage(`All ${fallbackList.length} member and catalog routes are already present in your active crawl list.`);
+      setTimeout(() => setSaveBannerMessage(null), 4000);
+    }
   };
 
   // ==================== ORGANIC ENGINE EXECUTION ====================
   const handleStartOrganic = async () => {
     if (organicStatus === 'running') return;
+
+    // Strict Auth Gate Check: Authentication is required before launching traffic
+    if (!authState.isAuthenticated || !authState.user) {
+      openAuthModal(
+        'login',
+        'Account & Sign-In Required',
+        'Please sign in or register before launching traffic. New members automatically receive 500 Free Trial visits!'
+      );
+      return;
+    }
+
+    // Traffic Credit & Quota Enforcement (500 free trial or paid admin allowance)
+    const currentUser = authState.user;
+    const isExempt = currentUser.role === 'admin';
+    const currentBalance = currentUser.trafficBalance ?? 0;
+
+    if (!isExempt && currentBalance <= 0) {
+      setSaveBannerMessage(
+        '⚠️ Traffic Quota Exhausted: Your 500 Free Trial visits have been completely utilized. Only an Admin can assign additional traffic quota to your account.'
+      );
+      setTimeout(() => setSaveBannerMessage(null), 8000);
+      return;
+    }
 
     // Instant UI Transition
     setOrganicStatus('running');
@@ -934,6 +953,21 @@ export default function App() {
     };
 
     const engine = new OrganicTrafficEngine(effectiveOrganicConfig, pagesToUse, {
+      onVisitorSpawned: () => {
+        const deductResult = deductTrafficCredit(1);
+        const updated = loadStoredAuth();
+        setAuthState(updated);
+
+        if (!deductResult.allowed) {
+          handleStopOrganic();
+          setSaveBannerMessage(
+            '⚠️ Free Trial Limit Reached: You have consumed your 500 Free Trial visits. Please contact the Admin to assign additional traffic quota.'
+          );
+          setTimeout(() => setSaveBannerMessage(null), 9000);
+          return false;
+        }
+        return true;
+      },
       onActiveVisitorsUpdate: (visitors) => {
         setActiveVisitors([...visitors]);
       },
@@ -1048,6 +1082,29 @@ export default function App() {
   const handleStartStress = () => {
     if (stressStatus === 'running') return;
 
+    // Strict Auth Gate Check
+    if (!authState.isAuthenticated || !authState.user) {
+      openAuthModal(
+        'login',
+        'Account & Sign-In Required',
+        'Please sign in or register before launching load test. New members automatically receive 500 Free Trial visits!'
+      );
+      return;
+    }
+
+    // Traffic Credit & Quota Enforcement
+    const currentUser = authState.user;
+    const isExempt = currentUser.role === 'admin';
+    const currentBalance = currentUser.trafficBalance ?? 0;
+
+    if (!isExempt && currentBalance <= 0) {
+      setSaveBannerMessage(
+        '⚠️ Traffic Quota Exhausted: Your 500 Free Trial visits have been completely utilized. Only an Admin can assign additional traffic quota to your account.'
+      );
+      setTimeout(() => setSaveBannerMessage(null), 8000);
+      return;
+    }
+
     setStressStatus('running');
     setElapsedSeconds(0);
     setSnapshots([]);
@@ -1129,6 +1186,7 @@ export default function App() {
         currentUser={authState.user}
         onOpenAuth={(mode) => openAuthModal(mode)}
         onOpenProfileEdit={() => setIsProfileEditOpen(true)}
+        onOpenAdminUsers={() => setIsAdminUserModalOpen(true)}
         onLogout={handleLogout}
       />
 
@@ -1565,6 +1623,16 @@ export default function App() {
         onClose={() => setIsProfileEditOpen(false)}
         currentUser={authState.user}
         onProfileUpdated={handleProfileUpdated}
+      />
+
+      {/* Admin User Quota Management Modal */}
+      <AdminUserModal
+        isOpen={isAdminUserModalOpen}
+        onClose={() => setIsAdminUserModalOpen(false)}
+        currentUser={authState.user}
+        onUserUpdated={() => {
+          setAuthState(loadStoredAuth());
+        }}
       />
     </div>
   );

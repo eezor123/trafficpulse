@@ -225,24 +225,50 @@ export function getClientSideCrawledPages(targetUrl: string): CrawledPage[] {
     }
   } catch {}
 
-  const isJobDomain = hostname.startsWith('jobs.') || hostname.includes('career') || hostname.includes('vacancy');
+  const isJobDomain = hostname.startsWith('jobs.') || hostname.includes('career') || hostname.includes('vacancy') || hostname.includes('eezor');
 
   if (isJobDomain) {
     const jobRoutes: Array<{ path: string; title: string; desc: string; cat: 'page' | 'post' | 'category' | 'product'; weight: number }> = [
-      { path: '/', title: `${hostname} - Career & Job Portal`, desc: `Featured Job Openings on ${hostname}`, cat: 'page', weight: 100 },
-      { path: '/jobs', title: 'Browse All Open Positions', desc: 'Search and filter active vacancies', cat: 'category', weight: 95 },
-      { path: '/jobs/engineering', title: 'Engineering & Tech Roles', desc: 'Software, DevOps, and Infrastructure jobs', cat: 'category', weight: 90 },
-      { path: '/jobs/product', title: 'Product & Design Openings', desc: 'Product Managers and UX designers', cat: 'category', weight: 88 },
-      { path: '/jobs/marketing', title: 'Marketing & Sales Opportunities', desc: 'Growth and account executive positions', cat: 'category', weight: 85 },
-      { path: '/jobs/remote', title: 'Remote & Hybrid Opportunities', desc: 'Global remote job listings', cat: 'category', weight: 92 },
-      { path: '/post-job', title: 'Post a Job Listing', desc: 'Employer portal to publish vacancies', cat: 'page', weight: 85 },
-      { path: '/companies', title: 'Hiring Companies Directory', desc: 'Verified companies currently hiring', cat: 'page', weight: 80 },
-      { path: '/salaries', title: 'Salary Benchmark & Compensation Guide', desc: 'Market pay rates and benchmarks', cat: 'page', weight: 82 },
-      { path: '/about', title: `About ${hostname}`, desc: `About ${hostname}`, cat: 'page', weight: 75 },
-      { path: '/contact', title: 'Contact Support', desc: 'Candidate & Employer Support', cat: 'page', weight: 70 },
-      { path: '/faq', title: 'Frequently Asked Questions', desc: 'FAQ about jobs and hiring', cat: 'page', weight: 70 },
-      { path: '/privacy', title: 'Privacy Policy', desc: 'Applicant privacy and data protection', cat: 'page', weight: 60 },
-      { path: '/terms', title: 'Terms of Service', desc: 'Platform terms and conditions', cat: 'page', weight: 60 },
+      { path: '/', title: `${hostname} - Verified Nigerian Jobs & Career Marketplace`, desc: `Active Job Openings and Member Listings on ${hostname}`, cat: 'page', weight: 100 },
+      // Live Member-Created & User-Posted Listings (From Firestore Member Activity)
+      { path: '/?job=job_1787164089747', title: 'Male Barbecue sales person is urgently needed', desc: '[Member Post] Urgently needed BBQ sales specialist with grilling and customer hospitality experience', cat: 'post', weight: 99 },
+      { path: '/?job=job_1785681865131', title: 'Social Media & Community Engagement Manager for Tech Hub', desc: '[Member Post] Lead TikTok, Instagram and Twitter community discussions for Yaba tech incubator', cat: 'post', weight: 98 },
+      { path: '/?job=job_1784920193847', title: 'Executive Virtual Assistant & WhatsApp Client Support Specialist', desc: '[Member Post] Remote virtual assistance managing client schedules and CRM leads', cat: 'post', weight: 98 },
+      { path: '/?job=job_1783419082918', title: 'Urgent: Dispatch Rider with Valid Riders Card (Lagos Island & Ikeja)', desc: '[Member Post] Experienced dispatch delivery rider with clean safety record', cat: 'post', weight: 97 },
+      { path: '/?job=job_1782019482710', title: 'Barista and Cafe Supervisor for Artisan Coffee House (Victoria Island)', desc: '[Member Post] Specialty coffee brewing, counter sales, and cafe daily operations', cat: 'post', weight: 97 },
+      
+      // Core Verified Catalog Job Listings
+      { path: '/?job=job_101', title: 'Mobile App Developer for Dispatch Rider Tracking System', desc: '[Verified Listing] Cross-platform Flutter or React Native GPS delivery tracking app', cat: 'post', weight: 96 },
+      { path: '/?job=job_102', title: 'Brand Identity & Web UI/UX for Abuja Federal Contractor Portal', desc: '[Verified Listing] Corporate brand guidelines, typography and Figma prototype design', cat: 'post', weight: 96 },
+      { path: '/?job=job_103', title: '15kVA Commercial Solar & Lithium Battery Setup in Trans-Amadi', desc: '[Verified Listing] Industrial solar inverter wiring, load balancing and battery safety', cat: 'post', weight: 95 },
+      { path: '/?job=job_104', title: 'Tax Compliance & Audit Specialist for Enugu Tech Startup', desc: '[Verified Listing] FIRS filings, monthly withholding tax remittance and financial audits', cat: 'post', weight: 95 },
+      { path: '/?job=job_105', title: 'Urgently Needed: Full-Stack Next.js & Stripe/Paystack Engineer', desc: '[Verified Listing] High-scale fintech portal with webhook verification and React 19', cat: 'post', weight: 96 },
+      { path: '/?job=job_106', title: 'Social Media Content Creator & Video Editor for Skincare Brand', desc: '[Verified Listing] CapCut reel creation, product unboxings and influencer marketing', cat: 'post', weight: 94 },
+      { path: '/?job=job_107', title: 'Flutterwave & Monnify Virtual Account Payment Specialist', desc: '[Verified Listing] Automated settlement pipelines and banking API integration', cat: 'post', weight: 95 },
+      { path: '/?job=job_108', title: 'Corporate Legal Advisor for Tech Startup Incorporation & NDPR', desc: '[Verified Listing] CAC filings, employee NDAs and data privacy compliance', cat: 'post', weight: 93 },
+      { path: '/?job=job_109', title: 'Executive Real Estate Architectural Renderings & 3D Flythrough', desc: '[Verified Listing] Lumion, Revit and 3ds Max photo-realistic exterior visualizer', cat: 'post', weight: 94 },
+      { path: '/?job=job_110', title: 'Hospitality CCTV & Biometric Access Control Installation Lead', desc: '[Verified Listing] IP camera network, NVR server setup and turnstile card readers', cat: 'post', weight: 94 },
+      { path: '/?job=job_111', title: 'High-Scale PostgreSQL Database Administrator & Query Optimization', desc: '[Verified Listing] Index tuning, connection pooling and replication clustering', cat: 'post', weight: 95 },
+      { path: '/?job=job_112', title: 'E-commerce SEO Audit & Conversion Rate Optimization (CRO)', desc: '[Verified Listing] Structured data, Core Web Vitals and checkout funnel testing', cat: 'post', weight: 94 },
+      { path: '/?job=job_113', title: 'Solar Inverter System Installation & Farm Automation Control', desc: '[Verified Listing] Agricultural solar irrigation sensors and off-grid power', cat: 'post', weight: 93 },
+      { path: '/?job=job_114', title: 'Textile E-commerce Store & Hausa Multi-language UI Development', desc: '[Verified Listing] Localization, currency switching and mobile-first storefront', cat: 'post', weight: 93 },
+      { path: '/?job=job_115', title: 'Offshore Logistics Fleet Tracking & Petroleum Inventory Dashboard', desc: '[Verified Listing] Real-time vessel telemetry and bunkering volumetric charts', cat: 'post', weight: 94 },
+      { path: '/?job=job_116', title: 'Hospitality Management Software & POS Integration for Owerri Hotel', desc: '[Verified Listing] PMS booking calendar, kitchen display and thermal receipt print', cat: 'post', weight: 94 },
+
+      // Category Hubs & Structural Portals
+      { path: '/jobs', title: 'Browse All Open Positions & Member Listings', desc: 'Search and filter active vacancies and community posts', cat: 'category', weight: 95 },
+      { path: '/jobs/engineering', title: 'Engineering & Technology Vacancies', desc: 'Software, DevOps, Electrical, and Infrastructure roles', cat: 'category', weight: 90 },
+      { path: '/jobs/product', title: 'Product & Creative Design Roles', desc: 'Product managers, UI/UX designers, and brand leads', cat: 'category', weight: 88 },
+      { path: '/jobs/marketing', title: 'Marketing, Sales & Growth Opportunities', desc: 'Social media managers, B2B sales reps and copywriters', cat: 'category', weight: 88 },
+      { path: '/jobs/remote', title: 'Remote & Hybrid Positions across Nigeria & Diaspora', desc: 'Verified remote roles with home office setup options', cat: 'category', weight: 93 },
+      { path: '/post-job', title: 'Post a New Job Vacancy (Member & Employer Portal)', desc: 'Employer portal to publish and manage vacancies', cat: 'page', weight: 85 },
+      { path: '/companies', title: 'Verified Hiring Employers Directory', desc: 'Directory of verified companies hiring across Lagos, Abuja & PH', cat: 'page', weight: 80 },
+      { path: '/salaries', title: 'Nigerian Salary Benchmarks & Compensation Guide', desc: 'Market pay rates, tech salaries and cost-of-living index', cat: 'page', weight: 82 },
+      { path: '/about', title: `About ${hostname} - Nigeria's Leading Job Board`, desc: `Mission and verified hiring credentials for ${hostname}`, cat: 'page', weight: 75 },
+      { path: '/contact', title: 'Candidate Support & Employer Verification', desc: 'Help desk, job posting verification and support', cat: 'page', weight: 70 },
+      { path: '/faq', title: 'Frequently Asked Questions (FAQ)', desc: 'Answers regarding job applications and employer postings', cat: 'page', weight: 70 },
+      { path: '/privacy', title: 'Privacy Policy & Applicant Data Protection', desc: 'Applicant privacy and NDPR compliance guidelines', cat: 'page', weight: 60 },
+      { path: '/terms', title: 'Terms of Service & Anti-Scam Guidelines', desc: 'Platform terms, verified posting rules and disclaimers', cat: 'page', weight: 60 },
     ];
 
     return jobRoutes.map((r, idx) => ({

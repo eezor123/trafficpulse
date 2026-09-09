@@ -52,6 +52,7 @@ interface NavbarProps {
   currentUser?: MemberUser | null;
   onOpenAuth?: (mode?: 'login' | 'register') => void;
   onOpenProfileEdit?: () => void;
+  onOpenAdminUsers?: () => void;
   onLogout?: () => void;
 }
 
@@ -78,6 +79,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   onOpenAuth,
   onOpenProfileEdit,
+  onOpenAdminUsers,
   onLogout,
 }) => {
   const [showPresetDropdown, setShowPresetDropdown] = useState(false);
@@ -207,137 +209,196 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
           {/* Member Authentication Status Pill / Button */}
           {currentUser ? (
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-xl text-left cursor-pointer transition-all shadow-sm"
-              >
-                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-emerald-600 via-teal-600 to-cyan-600 p-0.5 flex items-center justify-center overflow-hidden shrink-0">
-                  <div className="w-full h-full rounded-full bg-slate-950 flex items-center justify-center overflow-hidden">
-                    {currentUser.avatar ? (
-                      <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-[10px] font-bold text-emerald-400 font-mono">
-                        {getInitials(currentUser.name)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="hidden lg:block text-left">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-semibold text-slate-200 truncate max-w-[100px]">{currentUser.name}</span>
-                    <span className="text-[9px] font-extrabold uppercase px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono">
-                      {currentUser.role === 'admin' ? 'ADMIN' : currentUser.tier}
-                    </span>
-                  </div>
-                </div>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-              </button>
+            <div className="flex items-center gap-2">
+              {/* Traffic Balance Badge */}
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs">
+                {currentUser.role === 'admin' ? (
+                  <span className="text-amber-400 font-mono font-bold flex items-center gap-1 text-[11px]">
+                    <Crown className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Unlimited Admin</span>
+                  </span>
+                ) : currentUser.isPaidUser ? (
+                  <span className="text-cyan-300 font-mono font-bold flex items-center gap-1 text-[11px]">
+                    <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>{(currentUser.trafficBalance ?? 0).toLocaleString()} Paid Credits</span>
+                  </span>
+                ) : (
+                  <span className="text-emerald-300 font-mono font-bold flex items-center gap-1 text-[11px]">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{(currentUser.trafficBalance ?? 500).toLocaleString()} / 500 Free Trial</span>
+                  </span>
+                )}
+              </div>
 
-              {/* User Dropdown Menu */}
-              {showUserMenu && (
-                <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-3 shadow-2xl z-50 animate-fadeIn">
-                  {/* User Header */}
-                  <div className="pb-3 border-b border-slate-800 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 p-0.5 shrink-0 shadow-md">
-                      <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center overflow-hidden">
-                        {currentUser.avatar ? (
-                          <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="text-xs font-bold text-emerald-400 font-mono">
-                            {getInitials(currentUser.name)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-xs font-bold text-slate-200 truncate">{currentUser.name}</span>
-                        <span className="text-[9px] uppercase font-mono px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/40 shrink-0">
-                          {currentUser.role === 'admin' ? 'Super Admin' : `${currentUser.tier}`}
+              {/* Super Admin Quick Button */}
+              {currentUser.role === 'admin' && onOpenAdminUsers && (
+                <button
+                  type="button"
+                  onClick={onOpenAdminUsers}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-amber-600/20 to-yellow-600/20 hover:from-amber-600/30 hover:to-yellow-600/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
+                  title="Open Admin User & Traffic Quota Manager"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden md:inline">Admin Quotas</span>
+                </button>
+              )}
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-xl text-left cursor-pointer transition-all shadow-sm"
+                >
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-emerald-600 via-teal-600 to-cyan-600 p-0.5 flex items-center justify-center overflow-hidden shrink-0">
+                    <div className="w-full h-full rounded-full bg-slate-950 flex items-center justify-center overflow-hidden">
+                      {currentUser.avatar ? (
+                        <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px] font-bold text-emerald-400 font-mono">
+                          {getInitials(currentUser.name)}
                         </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 truncate mt-0.5">{currentUser.email}</p>
-                      {currentUser.company && (
-                        <p className="text-[10px] text-slate-500 truncate">{currentUser.company}</p>
                       )}
                     </div>
                   </div>
-
-                  {/* Edit Profile & Photo Action Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowUserMenu(false);
-                      if (onOpenProfileEdit) onOpenProfileEdit();
-                    }}
-                    className="w-full py-2 px-3 bg-gradient-to-r from-emerald-500/15 to-teal-500/15 hover:from-emerald-500/25 hover:to-teal-500/25 border border-emerald-500/30 hover:border-emerald-500/50 rounded-xl text-xs font-bold text-emerald-300 flex items-center justify-between transition-all cursor-pointer shadow-sm"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Edit Profile & Photo</span>
-                    </span>
-                    <span className="text-[10px] text-emerald-400/80 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                      Settings
-                    </span>
-                  </button>
-
-                  {/* User Stats & Quota */}
-                  <div className="space-y-1.5 text-xs bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
-                    <div className="flex justify-between text-slate-400">
-                      <span>Visits Quota:</span>
-                      <span className="font-mono font-bold text-emerald-400">
-                        {currentUser.customVisitsLimit ? `${currentUser.customVisitsLimit.toLocaleString()}` : 'Unlimited'}
+                  <div className="hidden lg:block text-left">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold text-slate-200 truncate max-w-[100px]">{currentUser.name}</span>
+                      <span className="text-[9px] font-extrabold uppercase px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono">
+                        {currentUser.role === 'admin' ? 'ADMIN' : currentUser.tier}
                       </span>
                     </div>
-                    <div className="flex justify-between text-slate-400">
-                      <span>Campaigns Run:</span>
-                      <span className="font-mono text-slate-200">{currentUser.totalCampaignsRun}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-400">
-                      <span>Total Visits Made:</span>
-                      <span className="font-mono text-cyan-400">{(currentUser.totalVisitsGenerated || 0).toLocaleString()}</span>
-                    </div>
-                    {currentUser.targetWebsite && (
-                      <div className="flex justify-between text-slate-400 pt-1 border-t border-slate-800">
-                        <span className="truncate">Default Target:</span>
-                        <span className="font-mono text-[10px] text-slate-300 truncate max-w-[120px]" title={currentUser.targetWebsite}>
-                          {currentUser.targetWebsite.replace(/^https?:\/\//, '')}
-                        </span>
-                      </div>
-                    )}
                   </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                </button>
 
-                  {/* Menu Footer */}
-                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowUserMenu(false);
-                        if (onOpenAuth) onOpenAuth('register');
-                      }}
-                      className="text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer flex items-center gap-1"
-                    >
-                      <User className="w-3.5 h-3.5" />
-                      <span>Switch Account</span>
-                    </button>
-                    {onLogout && (
+                {/* User Dropdown Menu */}
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-3 shadow-2xl z-50 animate-fadeIn">
+                    {/* User Header */}
+                    <div className="pb-3 border-b border-slate-800 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 p-0.5 shrink-0 shadow-md">
+                        <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center overflow-hidden">
+                          {currentUser.avatar ? (
+                            <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-xs font-bold text-emerald-400 font-mono">
+                              {getInitials(currentUser.name)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs font-bold text-slate-200 truncate">{currentUser.name}</span>
+                          <span className="text-[9px] uppercase font-mono px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/40 shrink-0">
+                            {currentUser.role === 'admin' ? 'Super Admin' : `${currentUser.tier}`}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 truncate mt-0.5">{currentUser.email}</p>
+                        {currentUser.company && (
+                          <p className="text-[10px] text-slate-500 truncate">{currentUser.company}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Admin Action Button in Menu */}
+                    {currentUser.role === 'admin' && onOpenAdminUsers && (
                       <button
                         type="button"
                         onClick={() => {
                           setShowUserMenu(false);
-                          onLogout();
+                          onOpenAdminUsers();
                         }}
-                        className="text-[11px] text-rose-400 hover:text-rose-300 cursor-pointer flex items-center gap-1 font-semibold"
+                        className="w-full py-2 px-3 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 hover:from-amber-500/30 hover:to-yellow-500/30 border border-amber-500/40 rounded-xl text-xs font-bold text-amber-300 flex items-center justify-between transition-all cursor-pointer shadow-sm"
                       >
-                        <LogOut className="w-3.5 h-3.5" />
-                        <span>Sign Out</span>
+                        <span className="flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-amber-400" />
+                          <span>Admin Quota Manager</span>
+                        </span>
+                        <span className="text-[9px] font-mono bg-amber-950 px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-300">
+                          Super Admin
+                        </span>
                       </button>
                     )}
+
+                    {/* Edit Profile & Photo Action Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        if (onOpenProfileEdit) onOpenProfileEdit();
+                      }}
+                      className="w-full py-2 px-3 bg-gradient-to-r from-emerald-500/15 to-teal-500/15 hover:from-emerald-500/25 hover:to-teal-500/25 border border-emerald-500/30 hover:border-emerald-500/50 rounded-xl text-xs font-bold text-emerald-300 flex items-center justify-between transition-all cursor-pointer shadow-sm"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Edit Profile & Photo</span>
+                      </span>
+                      <span className="text-[10px] text-emerald-400/80 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                        Settings
+                      </span>
+                    </button>
+
+                    {/* User Stats & Quota */}
+                    <div className="space-y-1.5 text-xs bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+                      <div className="flex justify-between text-slate-400">
+                        <span>Traffic Quota:</span>
+                        <span className="font-mono font-bold text-emerald-400">
+                          {currentUser.role === 'admin'
+                            ? 'Unlimited (Admin)'
+                            : currentUser.isPaidUser
+                            ? `${(currentUser.trafficBalance ?? 0).toLocaleString()} (Paid)`
+                            : `${(currentUser.trafficBalance ?? 500).toLocaleString()} / 500 (Free Trial)`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>Campaigns Run:</span>
+                        <span className="font-mono text-slate-200">{currentUser.totalCampaignsRun}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>Total Visits Made:</span>
+                        <span className="font-mono text-cyan-400">{(currentUser.totalVisitsGenerated || 0).toLocaleString()}</span>
+                      </div>
+                      {currentUser.targetWebsite && (
+                        <div className="flex justify-between text-slate-400 pt-1 border-t border-slate-800">
+                          <span className="truncate">Default Target:</span>
+                          <span className="font-mono text-[10px] text-slate-300 truncate max-w-[120px]" title={currentUser.targetWebsite}>
+                            {currentUser.targetWebsite.replace(/^https?:\/\//, '')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Menu Footer */}
+                    <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          if (onOpenAuth) onOpenAuth('register');
+                        }}
+                        className="text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer flex items-center gap-1"
+                      >
+                        <User className="w-3.5 h-3.5" />
+                        <span>Switch Account</span>
+                      </button>
+                      {onLogout && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowUserMenu(false);
+                            onLogout();
+                          }}
+                          className="text-[11px] text-rose-400 hover:text-rose-300 cursor-pointer flex items-center gap-1 font-semibold"
+                        >
+                          <LogOut className="w-3.5 h-3.5" />
+                          <span>Sign Out</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-1.5">
