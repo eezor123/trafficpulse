@@ -659,6 +659,10 @@ export interface MemberUser {
   totalTrafficAssigned: number; // Total traffic visits granted by system or admin (starts at 500)
   isPaidUser?: boolean; // false = on free trial; true = upgraded by admin to paid
   trafficStatus?: 'trial_active' | 'trial_exhausted' | 'paid_active' | 'paid_exhausted' | 'unlimited';
+  // IP Logging & Multi-Account Anti-Abuse
+  registrationIp?: string;
+  lastLoginIp?: string;
+  authProvider?: 'google' | 'firebase' | 'email';
 }
 
 export interface AuthState {

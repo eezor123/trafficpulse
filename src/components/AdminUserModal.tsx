@@ -20,6 +20,7 @@ import {
   Crown,
   Zap,
   Trash2,
+  Globe,
 } from 'lucide-react';
 
 interface AdminUserModalProps {
@@ -49,7 +50,19 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
     }
   }, [isOpen]);
 
-  const refreshList = () => {
+  const refreshList = async () => {
+    try {
+      const res = await fetch('/api/auth/members');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.members)) {
+          setMembers(data.members);
+          return;
+        }
+      }
+    } catch {
+      // fallback to local stored members
+    }
     const list = getAllMembers();
     setMembers(list);
   };
@@ -289,6 +302,12 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                           <div className="min-w-0">
                             <p className="font-semibold text-slate-100 truncate">{user.name}</p>
                             <p className="text-[11px] text-slate-400 truncate">{user.email}</p>
+                            {user.registrationIp && (
+                              <p className="text-[10px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
+                                <Globe className="w-2.5 h-2.5 text-slate-400" />
+                                <span>IP: {user.registrationIp}</span>
+                              </p>
+                            )}
                           </div>
                         </div>
                       </td>

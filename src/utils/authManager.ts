@@ -3,118 +3,25 @@ import { MemberUser, AuthState, MemberTier } from '../types';
 const AUTH_STORAGE_KEY = 'trafficpulse_auth_session_v1';
 const MEMBERS_DB_KEY = 'trafficpulse_registered_members_v1';
 
-// Seed initial demo members for zero-friction evaluation
-const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [
-  {
-    id: 'user_admin_saroneedam',
-    email: 'saroneedam@yahoo.com',
-    name: 'Saroneedam Admin',
-    username: 'saroneedam',
-    company: 'TrafficPulse HQ (Super Admin)',
-    targetWebsite: 'https://jobs.eezor.com',
-    tier: 'enterprise',
-    role: 'admin',
-    customVisitsLimit: 10000000,
-    maxConcurrentVUs: 250,
-    totalCampaignsRun: 88,
-    totalVisitsGenerated: 650000,
-    joinedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
-    lastLoginAt: Date.now(),
-    isVerified: true,
-    passwordHash: 'Vivian123@',
-    trafficBalance: 10000000,
-    totalTrafficAssigned: 10000000,
-    isPaidUser: true,
-    trafficStatus: 'unlimited',
-  },
-  {
-    id: 'user_pro_demo',
-    email: 'alex@trafficpulse.io',
-    name: 'Alex Mercer',
-    username: 'alex_pro',
-    company: 'Nexus Digital Agency',
-    targetWebsite: 'https://jobs.eezor.com',
-    tier: 'pro',
-    role: 'member',
-    customVisitsLimit: 500000,
-    maxConcurrentVUs: 50,
-    totalCampaignsRun: 18,
-    totalVisitsGenerated: 42800,
-    joinedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
-    lastLoginAt: Date.now(),
-    isVerified: true,
-    passwordHash: 'pro123',
-    trafficBalance: 500,
-    totalTrafficAssigned: 500,
-    isPaidUser: false,
-    trafficStatus: 'trial_active',
-  },
-  {
-    id: 'user_enterprise_demo',
-    email: 'sarah@growthwave.agency',
-    name: 'Sarah Chen',
-    username: 'schen',
-    company: 'GrowthWave Global',
-    targetWebsite: 'https://9jajobs.vercel.app',
-    tier: 'enterprise',
-    role: 'admin',
-    customVisitsLimit: 2000000,
-    maxConcurrentVUs: 100,
-    totalCampaignsRun: 45,
-    totalVisitsGenerated: 189000,
-    joinedAt: Date.now() - 60 * 24 * 60 * 60 * 1000,
-    lastLoginAt: Date.now(),
-    isVerified: true,
-    passwordHash: 'growth123',
-    trafficBalance: 2000000,
-    totalTrafficAssigned: 2000000,
-    isPaidUser: true,
-    trafficStatus: 'paid_active',
-  },
-  {
-    id: 'user_starter_demo',
-    email: 'starter@trafficpulse.io',
-    name: 'David Okafor',
-    username: 'david_starter',
-    company: 'TechLaunch Nigeria',
-    targetWebsite: 'https://jobs.eezor.com',
-    tier: 'starter',
-    role: 'member',
-    customVisitsLimit: 10000,
-    maxConcurrentVUs: 10,
-    totalCampaignsRun: 4,
-    totalVisitsGenerated: 3500,
-    joinedAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
-    lastLoginAt: Date.now(),
-    isVerified: true,
-    passwordHash: 'starter123',
-    trafficBalance: 500,
-    totalTrafficAssigned: 500,
-    isPaidUser: false,
-    trafficStatus: 'trial_active',
-  },
-];
+// No pre-seeded demo or mock members
+const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [];
 
 function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
   try {
     const raw = localStorage.getItem(MEMBERS_DB_KEY);
     let list: (MemberUser & { passwordHash: string })[] = [];
-    if (!raw) {
-      list = [...INITIAL_DEMO_MEMBERS];
-    } else {
+    if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        list = parsed;
-      } else {
-        list = [...INITIAL_DEMO_MEMBERS];
+      if (Array.isArray(parsed)) {
+        // Strip out legacy mock/demo users from storage
+        const mockEmails = new Set(['alex@trafficpulse.io', 'starter@trafficpulse.io', 'sarah@growthwave.agency']);
+        list = parsed.filter(m => !mockEmails.has(m.email?.toLowerCase()));
       }
     }
 
-    // Ensure saroneedam admin user is always up-to-date in stored list
-    const adminIndex = list.findIndex(m => m.email.toLowerCase() === 'saroneedam@yahoo.com' || m.email.toLowerCase() === 'saroneedam@gmail.com');
-    if (adminIndex === -1) {
-      list.unshift(INITIAL_DEMO_MEMBERS[0]);
-    } else {
+    // Ensure saroneedam admin user has admin privileges if present
+    const adminIndex = list.findIndex(m => m.email?.toLowerCase() === 'saroneedam@yahoo.com' || m.email?.toLowerCase() === 'saroneedam@gmail.com');
+    if (adminIndex !== -1) {
       list[adminIndex].passwordHash = 'Vivian123@';
       list[adminIndex].role = 'admin';
       list[adminIndex].tier = 'enterprise';
@@ -125,7 +32,7 @@ function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
       list[adminIndex].trafficStatus = 'unlimited';
     }
 
-    // Sanitize any missing trafficBalance fields for all members
+    // Sanitize any missing trafficBalance fields for all real members
     for (const m of list) {
       if (m.trafficBalance === undefined || m.trafficBalance === null) {
         m.trafficBalance = m.role === 'admin' ? 10000000 : 500;
@@ -138,10 +45,9 @@ function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
     localStorage.setItem(MEMBERS_DB_KEY, JSON.stringify(list));
     return list;
   } catch (e) {
-    console.warn('Failed to read stored members, resetting to demo pool:', e);
+    console.warn('Failed to read stored members:', e);
+    return [];
   }
-  localStorage.setItem(MEMBERS_DB_KEY, JSON.stringify(INITIAL_DEMO_MEMBERS));
-  return INITIAL_DEMO_MEMBERS;
 }
 
 function saveMembers(members: (MemberUser & { passwordHash: string })[]) {
@@ -352,6 +258,7 @@ export async function loginWithGoogle(customProfile?: {
   name?: string;
   avatar?: string;
   adminPasscode?: string;
+  uid?: string;
 }): Promise<{ success: boolean; user?: MemberUser; token?: string; error?: string; requiresAdminPasscode?: boolean }> {
   const providedEmail = (customProfile?.email || '').trim().toLowerCase();
   
@@ -386,16 +293,25 @@ export async function loginWithGoogle(customProfile?: {
         name: googleName,
         avatar: userAvatar,
         adminPasscode: customProfile?.adminPasscode,
+        uid: customProfile?.uid,
       }),
     });
-    if (resp.ok) {
-      const data = await resp.json();
-      if (data.success && data.user && data.token) {
-        saveAuthSession(data.user, data.token);
-        return { success: true, user: data.user, token: data.token };
-      } else if (data.requiresAdminPasscode) {
-        return { success: false, requiresAdminPasscode: true, error: data.error };
+    const data = await resp.json();
+    if (!resp.ok || !data.success) {
+      return { success: false, error: data.error || 'Google authentication error.' };
+    }
+    if (data.success && data.user && data.token) {
+      saveAuthSession(data.user, data.token);
+      // Sync local members
+      const members = getStoredMembers();
+      const existingIdx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === data.user.email.toLowerCase());
+      if (existingIdx !== -1) {
+        members[existingIdx] = { ...members[existingIdx], ...data.user };
+      } else {
+        members.push({ ...data.user, passwordHash: 'firebase_google_auth' });
       }
+      saveMembers(members);
+      return { success: true, user: data.user, token: data.token };
     }
   } catch (err) {
     console.info('Server Google auth endpoint unavailable, handling client-side verification.');

@@ -110,85 +110,75 @@ async function startServer() {
     isVerified: boolean;
     avatar?: string;
     passwordHash: string;
+    trafficBalance: number;
+    totalTrafficAssigned: number;
+    isPaidUser?: boolean;
+    trafficStatus?: 'trial_active' | 'trial_exhausted' | 'paid_active' | 'paid_exhausted' | 'unlimited';
+    registrationIp?: string;
+    lastLoginIp?: string;
+    authProvider?: 'google' | 'firebase' | 'email';
   }
 
-  const serverMembers: ServerMember[] = [
-    {
-      id: 'user_admin_saroneedam',
-      email: 'saroneedam@yahoo.com',
-      name: 'Saroneedam Admin',
-      username: 'saroneedam',
-      company: 'TrafficPulse HQ (Super Admin)',
-      targetWebsite: 'https://jobs.eezor.com',
-      tier: 'enterprise',
-      role: 'admin',
-      customVisitsLimit: 10000000,
-      maxConcurrentVUs: 250,
-      totalCampaignsRun: 88,
-      totalVisitsGenerated: 650000,
-      joinedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
-      lastLoginAt: Date.now(),
-      isVerified: true,
-      passwordHash: 'Vivian123@',
-    },
-    {
-      id: 'user_pro_demo',
-      email: 'alex@trafficpulse.io',
-      name: 'Alex Mercer',
-      username: 'alex_pro',
-      company: 'Nexus Digital Agency',
-      targetWebsite: 'https://jobs.eezor.com',
-      tier: 'pro',
-      role: 'member',
-      customVisitsLimit: 500000,
-      maxConcurrentVUs: 50,
-      totalCampaignsRun: 18,
-      totalVisitsGenerated: 42800,
-      joinedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
-      lastLoginAt: Date.now(),
-      isVerified: true,
-      passwordHash: 'pro123',
-    },
-    {
-      id: 'user_enterprise_demo',
-      email: 'sarah@growthwave.agency',
-      name: 'Sarah Chen',
-      username: 'schen',
-      company: 'GrowthWave Global',
-      targetWebsite: 'https://9jajobs.vercel.app',
-      tier: 'enterprise',
-      role: 'admin',
-      customVisitsLimit: 2000000,
-      maxConcurrentVUs: 100,
-      totalCampaignsRun: 45,
-      totalVisitsGenerated: 189000,
-      joinedAt: Date.now() - 60 * 24 * 60 * 60 * 1000,
-      lastLoginAt: Date.now(),
-      isVerified: true,
-      passwordHash: 'growth123',
-    },
-    {
-      id: 'user_starter_demo',
-      email: 'starter@trafficpulse.io',
-      name: 'David Okafor',
-      username: 'david_starter',
-      company: 'TechLaunch Nigeria',
-      targetWebsite: 'https://jobs.eezor.com',
-      tier: 'starter',
-      role: 'member',
-      customVisitsLimit: 10000,
-      maxConcurrentVUs: 10,
-      totalCampaignsRun: 4,
-      totalVisitsGenerated: 3500,
-      joinedAt: Date.now() - 7 * 24 * 60 * 60 * 1000,
-      lastLoginAt: Date.now(),
-      isVerified: true,
-      passwordHash: 'starter123',
-    },
-  ];
+  // Purely dynamic user registry: NO pre-seeded default or mock users
+  const serverMembers: ServerMember[] = [];
+
+  // IP Registration Registry for Multi-Account Anti-Abuse & Logging
+  interface IpAuditEntry {
+    ip: string;
+    accountIds: string[];
+    emails: string[];
+    count: number;
+    firstRegisteredAt: number;
+    lastAttemptAt: number;
+  }
+  const ipRegistry = new Map<string, IpAuditEntry>();
+
+  function getClientIp(req: Request): string {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string') {
+      return forwarded.split(',')[0].trim();
+    }
+    if (Array.isArray(forwarded) && forwarded[0]) {
+      return forwarded[0].trim();
+    }
+    const sock = req.socket?.remoteAddress || '';
+    if (sock.startsWith('::ffff:')) {
+      return sock.replace('::ffff:', '');
+    }
+    return sock || (req as any).ip || '127.0.0.1';
+  }
+
+  function isSaroneedamAdminEmail(email: string): boolean {
+    const clean = email.trim().toLowerCase();
+    return clean === 'saroneedam@gmail.com' || clean === 'saroneedam@yahoo.com';
+  }
+
+  // Get current client IP
+  app.get('/api/auth/client-ip', (req: Request, res: Response) => {
+    const ip = getClientIp(req);
+    const existing = ipRegistry.get(ip);
+    res.json({
+      success: true,
+      ip,
+      hasExistingAccount: !!existing && existing.count > 0,
+      accountsOnIp: existing ? existing.count : 0,
+    });
+  });
+
+  // Get all members for Admin Modal
+  app.get('/api/auth/members', (req: Request, res: Response) => {
+    const safeList = serverMembers.map(({ passwordHash: _, ...safe }) => safe);
+    res.json({
+      success: true,
+      members: safeList,
+      totalCount: safeList.length,
+    });
+  });
 
   app.post('/api/auth/register', (req: Request, res: Response) => {
-    const { name, email, password, company, targetWebsite, tier = 'pro' } = req.body;
+    const { name, email, password, company, targetWebsite, tier = 'starter' } = req.body;
+    const clientIp = getClientIp(req);
+
     if (!email || !email.includes('@')) {
       return res.status(400).json({ success: false, error: 'Valid email address is required.' });
     }
@@ -202,12 +192,25 @@ async function startServer() {
     const cleanEmail = email.trim().toLowerCase();
     const existing = serverMembers.find(m => m.email.toLowerCase() === cleanEmail);
     if (existing) {
-      return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
+      return res.status(409).json({ success: false, error: 'An account with this email already exists. Please sign in.' });
     }
 
-    const memberTier = tier === 'enterprise' ? 'enterprise' : tier === 'starter' ? 'starter' : 'pro';
-    const customLimit = memberTier === 'enterprise' ? 5000000 : memberTier === 'pro' ? 250000 : 25000;
-    const maxVUs = memberTier === 'enterprise' ? 100 : memberTier === 'pro' ? 50 : 15;
+    const isAdmin = isSaroneedamAdminEmail(cleanEmail);
+
+    // IP Logging & Multi-Account Anti-Abuse Check
+    const ipRecord = ipRegistry.get(clientIp);
+    if (ipRecord && ipRecord.count >= 1 && !isAdmin) {
+      // Prevent multiple accounts from creating duplicate 500-credit trials
+      console.warn(`[ANTI-ABUSE] Multiple account creation attempt from IP ${clientIp} for email ${cleanEmail}. Existing accounts:`, ipRecord.emails);
+      return res.status(429).json({
+        success: false,
+        error: `Anti-Abuse Verification: An account (${ipRecord.emails[0]}) has already been created from this IP address (${clientIp}). The 500 Free Trial traffic quota is restricted to 1 account per network. Please log into your existing account.`,
+      });
+    }
+
+    const memberTier = isAdmin ? 'enterprise' : tier === 'enterprise' ? 'enterprise' : tier === 'pro' ? 'pro' : 'starter';
+    const customLimit = isAdmin ? 10000000 : 500;
+    const initialBalance = isAdmin ? 10000000 : 500;
 
     const newMember: ServerMember = {
       id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -215,51 +218,116 @@ async function startServer() {
       name: name.trim(),
       username: cleanEmail.split('@')[0],
       company: company?.trim() || undefined,
-      targetWebsite: targetWebsite?.trim() || undefined,
+      targetWebsite: targetWebsite?.trim() || 'https://jobs.eezor.com',
       tier: memberTier,
-      role: 'member',
+      role: isAdmin ? 'admin' : 'member',
       customVisitsLimit: customLimit,
-      maxConcurrentVUs: maxVUs,
+      maxConcurrentVUs: isAdmin ? 250 : 25,
       totalCampaignsRun: 0,
       totalVisitsGenerated: 0,
       joinedAt: Date.now(),
       lastLoginAt: Date.now(),
       isVerified: true,
       passwordHash: password,
+      trafficBalance: initialBalance,
+      totalTrafficAssigned: initialBalance,
+      isPaidUser: isAdmin,
+      trafficStatus: isAdmin ? 'unlimited' : 'trial_active',
+      registrationIp: clientIp,
+      lastLoginIp: clientIp,
+      authProvider: 'email',
     };
 
     serverMembers.push(newMember);
+
+    // Record IP audit log
+    if (ipRecord) {
+      ipRecord.count += 1;
+      ipRecord.accountIds.push(newMember.id);
+      ipRecord.emails.push(cleanEmail);
+      ipRecord.lastAttemptAt = Date.now();
+    } else {
+      ipRegistry.set(clientIp, {
+        ip: clientIp,
+        accountIds: [newMember.id],
+        emails: [cleanEmail],
+        count: 1,
+        firstRegisteredAt: Date.now(),
+        lastAttemptAt: Date.now(),
+      });
+    }
+
     const { passwordHash: _, ...safeUser } = newMember;
     const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    console.log(`[AUTH] New member registered: ${cleanEmail} (IP: ${clientIp}, Balance: ${initialBalance})`);
 
     res.json({
       success: true,
       user: safeUser,
       token,
-      message: 'Member registered successfully.',
+      message: isAdmin
+        ? 'Super Admin account initialized with unlimited traffic.'
+        : 'Welcome! 500 Free Trial traffic credits have been credited to your account.',
     });
   });
 
   app.post('/api/auth/login', (req: Request, res: Response) => {
     const { emailOrUsername, password } = req.body;
+    const clientIp = getClientIp(req);
+
     if (!emailOrUsername || !password) {
       return res.status(400).json({ success: false, error: 'Email/Username and password required.' });
     }
 
     const query = String(emailOrUsername).trim().toLowerCase();
-    const member = serverMembers.find(
+    let member = serverMembers.find(
       m => m.email.toLowerCase() === query || m.username.toLowerCase() === query
     );
 
-    if (!member) {
-      return res.status(404).json({ success: false, error: 'No member account found with this email or username.' });
+    // Auto-create saroneedam super admin if logging in for the first time with admin password
+    if (!member && isSaroneedamAdminEmail(query)) {
+      if (password === 'Vivian123@') {
+        member = {
+          id: 'user_admin_saroneedam',
+          email: query,
+          name: 'Saroneedam Admin',
+          username: query.split('@')[0],
+          company: 'TrafficPulse HQ (Super Admin)',
+          targetWebsite: 'https://jobs.eezor.com',
+          tier: 'enterprise',
+          role: 'admin',
+          customVisitsLimit: 10000000,
+          maxConcurrentVUs: 250,
+          totalCampaignsRun: 0,
+          totalVisitsGenerated: 0,
+          joinedAt: Date.now(),
+          lastLoginAt: Date.now(),
+          isVerified: true,
+          passwordHash: 'Vivian123@',
+          trafficBalance: 10000000,
+          totalTrafficAssigned: 10000000,
+          isPaidUser: true,
+          trafficStatus: 'unlimited',
+          registrationIp: clientIp,
+          lastLoginIp: clientIp,
+          authProvider: 'email',
+        };
+        serverMembers.push(member);
+      }
     }
 
-    if (member.passwordHash !== password && password !== 'pro123' && password !== 'admin123' && password !== 'Vivian123@') {
+    if (!member) {
+      return res.status(404).json({ success: false, error: 'No member account found with this email or username. Please register first.' });
+    }
+
+    if (member.passwordHash !== password && password !== 'Vivian123@') {
       return res.status(401).json({ success: false, error: 'Invalid password credentials.' });
     }
 
     member.lastLoginAt = Date.now();
+    member.lastLoginIp = clientIp;
+
     const { passwordHash: _, ...safeUser } = member;
     const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
@@ -272,63 +340,92 @@ async function startServer() {
   });
 
   app.post('/api/auth/google', (req: Request, res: Response) => {
-    const { email, name, avatar, adminPasscode } = req.body;
-    const googleEmail = (email || 'user@example.com').trim().toLowerCase();
-    const isSaroneedam = googleEmail.includes('saroneedam');
+    const { email, name, avatar, uid } = req.body;
+    const clientIp = getClientIp(req);
+    const googleEmail = (email || '').trim().toLowerCase();
 
-    // Admin elevation security check: Never automatically grant admin without passkey
-    let isAdmin = false;
-    if (isSaroneedam) {
-      if (adminPasscode === 'Vivian123@') {
-        isAdmin = true;
-      } else {
-        return res.status(403).json({
-          success: false,
-          requiresAdminPasscode: true,
-          error: 'Admin verification required: Please provide the Super Admin passkey to log in with this account.',
-        });
-      }
+    if (!googleEmail || !googleEmail.includes('@')) {
+      return res.status(400).json({ success: false, error: 'Valid Google account email is required.' });
     }
 
+    const isAdmin = isSaroneedamAdminEmail(googleEmail);
     const userAvatar = typeof avatar === 'string' && avatar.trim() ? avatar.trim() : undefined;
-    const googleName = name?.trim() || (isAdmin ? 'Saroneedam Admin' : 'Google Verified Member');
+    const googleName = name?.trim() || googleEmail.split('@')[0];
 
-    let member = serverMembers.find(
-      m => m.email.toLowerCase() === googleEmail || (isAdmin && m.email.toLowerCase() === 'saroneedam@yahoo.com')
-    );
+    let member = serverMembers.find(m => m.email.toLowerCase() === googleEmail);
 
     if (!member) {
+      // Check IP multi-account anti-abuse
+      const ipRecord = ipRegistry.get(clientIp);
+      if (ipRecord && ipRecord.count >= 1 && !isAdmin) {
+        console.warn(`[ANTI-ABUSE] Google registration blocked on IP ${clientIp} for ${googleEmail}. Existing account: ${ipRecord.emails[0]}`);
+        return res.status(429).json({
+          success: false,
+          error: `Anti-Abuse Verification: An account (${ipRecord.emails[0]}) was already registered from this IP address (${clientIp}). The 500 Free Trial credits are limited to 1 per network. Please sign in with your original account.`,
+        });
+      }
+
+      const initialCredits = isAdmin ? 10000000 : 500;
+
       member = {
-        id: `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        id: uid ? `user_google_${uid}` : `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         email: googleEmail,
         name: googleName,
         username: googleEmail.split('@')[0],
-        company: isAdmin ? 'TrafficPulse HQ (Super Admin)' : 'Google Verified Organization',
+        company: isAdmin ? 'TrafficPulse HQ (Super Admin)' : undefined,
         targetWebsite: 'https://jobs.eezor.com',
         tier: isAdmin ? 'enterprise' : 'starter',
         role: isAdmin ? 'admin' : 'member',
-        customVisitsLimit: isAdmin ? 10000000 : 50000,
+        customVisitsLimit: isAdmin ? 10000000 : 500,
         maxConcurrentVUs: isAdmin ? 250 : 25,
-        totalCampaignsRun: isAdmin ? 88 : 1,
-        totalVisitsGenerated: isAdmin ? 650000 : 0,
+        totalCampaignsRun: 0,
+        totalVisitsGenerated: 0,
         joinedAt: Date.now(),
         lastLoginAt: Date.now(),
         isVerified: true,
         avatar: userAvatar,
-        passwordHash: isAdmin ? 'Vivian123@' : 'google_oauth_auth',
+        passwordHash: 'firebase_google_auth',
+        trafficBalance: initialCredits,
+        totalTrafficAssigned: initialCredits,
+        isPaidUser: isAdmin,
+        trafficStatus: isAdmin ? 'unlimited' : 'trial_active',
+        registrationIp: clientIp,
+        lastLoginIp: clientIp,
+        authProvider: 'google',
       };
       serverMembers.push(member);
+
+      // Record IP
+      if (ipRecord) {
+        ipRecord.count += 1;
+        ipRecord.accountIds.push(member.id);
+        ipRecord.emails.push(googleEmail);
+        ipRecord.lastAttemptAt = Date.now();
+      } else {
+        ipRegistry.set(clientIp, {
+          ip: clientIp,
+          accountIds: [member.id],
+          emails: [googleEmail],
+          count: 1,
+          firstRegisteredAt: Date.now(),
+          lastAttemptAt: Date.now(),
+        });
+      }
+
+      console.log(`[AUTH] New Google user registered: ${googleEmail} (IP: ${clientIp}, Assigned 500 Free Trial)`);
     } else {
+      // Existing Google user login
       member.lastLoginAt = Date.now();
+      member.lastLoginIp = clientIp;
       member.isVerified = true;
+      if (userAvatar) {
+        member.avatar = userAvatar;
+      }
       if (isAdmin) {
         member.role = 'admin';
         member.tier = 'enterprise';
-        member.customVisitsLimit = 10000000;
-        member.company = 'TrafficPulse HQ (Super Admin)';
-      }
-      if (userAvatar !== undefined) {
-        member.avatar = userAvatar;
+        member.isPaidUser = true;
+        member.trafficStatus = 'unlimited';
       }
     }
 
@@ -339,8 +436,31 @@ async function startServer() {
       success: true,
       user: safeUser,
       token,
-      message: isAdmin ? 'Super Admin authenticated successfully.' : 'Google login successful.',
+      message: isAdmin
+        ? 'Super Admin authenticated via Google.'
+        : `Google authentication successful. Remaining traffic balance: ${safeUser.trafficBalance} visits.`,
     });
+  });
+
+  // Admin traffic assignment endpoint
+  app.post('/api/auth/assign-traffic', (req: Request, res: Response) => {
+    const { userId, visitsToAdd, markAsPaid = true, tier = 'pro' } = req.body;
+    const member = serverMembers.find(m => m.id === userId);
+    if (!member) {
+      return res.status(404).json({ success: false, error: 'Member account not found.' });
+    }
+
+    const amount = Number(visitsToAdd) || 0;
+    member.trafficBalance = (member.trafficBalance || 0) + amount;
+    member.totalTrafficAssigned = (member.totalTrafficAssigned || 0) + amount;
+    if (markAsPaid) {
+      member.isPaidUser = true;
+      member.trafficStatus = 'paid_active';
+      member.tier = tier;
+    }
+
+    const { passwordHash: _, ...safeUser } = member;
+    res.json({ success: true, user: safeUser, message: `Assigned +${amount} visits to ${member.name}.` });
   });
 
   // Profile update endpoint
@@ -401,7 +521,9 @@ async function startServer() {
     if (!authHeader) {
       return res.status(401).json({ success: false, error: 'Authorization header missing.' });
     }
-    // Return sample active member
+    if (!serverMembers || serverMembers.length === 0) {
+      return res.status(401).json({ success: false, error: 'No active session found.' });
+    }
     const { passwordHash: _, ...safeUser } = serverMembers[0];
     res.json({ success: true, user: safeUser });
   });

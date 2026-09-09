@@ -65,13 +65,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Google login modal/sheet state
-  const [showGooglePrompt, setShowGooglePrompt] = useState(false);
-  const [googleInputEmail, setGoogleInputEmail] = useState('');
-  const [googleInputName, setGoogleInputName] = useState('');
-  const [googleAdminPasscode, setGoogleAdminPasscode] = useState('');
-  const [needsAdminPasscode, setNeedsAdminPasscode] = useState(false);
-
   if (!isOpen) return null;
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -134,51 +127,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'An unexpected error occurred during registration.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleAuthSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const emailToUse = (googleInputEmail || (mode === 'register' && regEmail ? regEmail : '')).trim().toLowerCase();
-    
-    if (!emailToUse || !emailToUse.includes('@')) {
-      setErrorMessage('Please enter a valid Google Account email (e.g., yourname@gmail.com).');
-      return;
-    }
-
-    const isClaimingAdmin = emailToUse === 'saroneedam@yahoo.com' || emailToUse === 'saroneedam@gmail.com' || emailToUse.includes('saroneedam');
-    if (isClaimingAdmin && !googleAdminPasscode && !needsAdminPasscode) {
-      setNeedsAdminPasscode(true);
-      setErrorMessage('Security verification required: Enter the Super Admin master passcode to verify administrative ownership.');
-      return;
-    }
-
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-      const targetName = googleInputName || (mode === 'register' && regName ? regName : emailToUse.split('@')[0]);
-      const res = await loginWithGoogle({
-        email: emailToUse,
-        name: targetName,
-        adminPasscode: googleAdminPasscode,
-      });
-
-      if (res.success && res.user && res.token) {
-        setSuccessMessage(`Google Verified: Welcome, ${res.user.name} (${res.user.role === 'admin' ? 'Super Admin' : 'Verified Member'})!`);
-        setTimeout(() => {
-          onAuthSuccess(res.user!, res.token!);
-          if (onClose) onClose();
-        }, 400);
-      } else {
-        if (res.requiresAdminPasscode) {
-          setNeedsAdminPasscode(true);
-        }
-        setErrorMessage(res.error || 'Google login could not be completed.');
-      }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Google authentication error.');
     } finally {
       setLoading(false);
     }
