@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   Lock,
@@ -64,6 +64,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Security: Cleanly reset all sensitive form fields whenever modal opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      setLoginEmail('');
+      setLoginPassword('');
+      setShowLoginPassword(false);
+      setRegName('');
+      setRegEmail('');
+      setRegPassword('');
+      setRegConfirmPassword('');
+      setRegCompany('');
+      setRegWebsite('');
+      setShowRegPassword(false);
+      setErrorMessage(null);
+      setSuccessMessage(null);
+      setMode(initialMode);
+    }
+  }, [isOpen, initialMode]);
 
   if (!isOpen) return null;
 
@@ -256,7 +275,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* MODE: LOGIN */}
         {mode === 'login' && (
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
+          <form onSubmit={handleLoginSubmit} autoComplete="off" className="space-y-4">
             <div className="space-y-3">
               <div>
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">
@@ -267,6 +286,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <input
                     type="text"
                     required
+                    autoComplete="off"
                     placeholder="Enter your email or username"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
@@ -284,6 +304,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <input
                     type={showLoginPassword ? 'text' : 'password'}
                     required
+                    autoComplete="new-password"
                     placeholder="••••••••••••"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}

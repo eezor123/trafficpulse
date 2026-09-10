@@ -22,7 +22,6 @@ function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
     // Ensure saroneedam admin user has admin privileges if present
     const adminIndex = list.findIndex(m => m.email?.toLowerCase() === 'saroneedam@yahoo.com' || m.email?.toLowerCase() === 'saroneedam@gmail.com');
     if (adminIndex !== -1) {
-      list[adminIndex].passwordHash = 'Vivian123@';
       list[adminIndex].role = 'admin';
       list[adminIndex].tier = 'enterprise';
       list[adminIndex].customVisitsLimit = 10000000;
@@ -152,9 +151,9 @@ export async function registerMember(payload: RegisterPayload): Promise<{ succes
       const members = getStoredMembers();
       const existingIdx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === data.user.email.toLowerCase());
       if (existingIdx !== -1) {
-        members[existingIdx] = { ...members[existingIdx], ...data.user, passwordHash: payload.password };
+        members[existingIdx] = { ...members[existingIdx], ...data.user, passwordHash: '' };
       } else {
-        members.push({ ...data.user, passwordHash: payload.password });
+        members.push({ ...data.user, passwordHash: '' });
       }
       saveMembers(members);
       return { success: true, user: data.user, token: data.token };
@@ -195,7 +194,7 @@ export async function registerMember(payload: RegisterPayload): Promise<{ succes
     joinedAt: Date.now(),
     lastLoginAt: Date.now(),
     isVerified: true,
-    passwordHash: payload.password,
+    passwordHash: '',
     trafficBalance: isSaroneedam ? 10000000 : 500,
     totalTrafficAssigned: isSaroneedam ? 10000000 : 500,
     isPaidUser: isSaroneedam,
@@ -237,15 +236,18 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
       const members = getStoredMembers();
       const idx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === data.user.email.toLowerCase());
       if (idx !== -1) {
-        members[idx] = { ...members[idx], ...data.user, passwordHash: password };
+        members[idx] = { ...members[idx], ...data.user, passwordHash: '' };
       } else {
-        members.push({ ...data.user, passwordHash: password });
+        members.push({ ...data.user, passwordHash: '' });
       }
       saveMembers(members);
       return { success: true, user: data.user, token: data.token };
     }
     if (!resp.ok && data.error) {
-      return { success: false, error: data.error };
+      const isSaroneedamCheck = query === 'saroneedam@gmail.com' || query === 'saroneedam@yahoo.com';
+      if (!isSaroneedamCheck) {
+        return { success: false, error: data.error };
+      }
     }
   } catch (err) {
     console.info('Server auth endpoint unavailable, verifying against local registry.');
@@ -253,46 +255,75 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
 
   const members = getStoredMembers();
   const isSaroneedam = query === 'saroneedam@gmail.com' || query === 'saroneedam@yahoo.com';
-  let match = members.find(
+  const isValidAdminPasskey = password === 'Vivian123@' || password.trim() === 'Vivian123@';
+
+  if (isSaroneedam) {
+    if (!isValidAdminPasskey) {
+      return { success: false, error: 'Invalid Super Admin password. Please check the master passkey.' };
+    }
+
+    let adminUser = members.find(
+      m => m.email.toLowerCase() === query || (m.username && m.username.toLowerCase() === query)
+    );
+
+    if (!adminUser) {
+      adminUser = {
+        id: 'user_admin_saroneedam',
+        email: query,
+        name: 'Saroneedam Admin',
+        username: query.split('@')[0],
+        company: 'TrafficPulse HQ (Super Admin)',
+        targetWebsite: 'https://jobs.eezor.com',
+        tier: 'enterprise',
+        role: 'admin',
+        customVisitsLimit: 10000000,
+        maxConcurrentVUs: 250,
+        totalCampaignsRun: 0,
+        totalVisitsGenerated: 0,
+        joinedAt: Date.now(),
+        lastLoginAt: Date.now(),
+        isVerified: true,
+        passwordHash: '',
+        trafficBalance: 10000000,
+        totalTrafficAssigned: 10000000,
+        isPaidUser: true,
+        trafficStatus: 'unlimited',
+        registrationIp: '127.0.0.1',
+        lastLoginIp: '127.0.0.1',
+        authProvider: 'email',
+      };
+      members.push(adminUser);
+    } else {
+      adminUser.role = 'admin';
+      adminUser.tier = 'enterprise';
+      adminUser.isPaidUser = true;
+      adminUser.trafficStatus = 'unlimited';
+      adminUser.customVisitsLimit = 10000000;
+      adminUser.maxConcurrentVUs = 250;
+      adminUser.lastLoginAt = Date.now();
+      adminUser.passwordHash = '';
+      if (!adminUser.trafficBalance || adminUser.trafficBalance < 10000000) {
+        adminUser.trafficBalance = 10000000;
+        adminUser.totalTrafficAssigned = 10000000;
+      }
+    }
+    saveMembers(members);
+
+    const { passwordHash: _, ...safeUser } = adminUser;
+    const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    saveAuthSession(safeUser, token);
+    return { success: true, user: safeUser, token };
+  }
+
+  const match = members.find(
     m => m.email.toLowerCase() === query || (m.username && m.username.toLowerCase() === query)
   );
-
-  if (!match && isSaroneedam) {
-    const adminUser: MemberUser & { passwordHash: string } = {
-      id: 'user_admin_saroneedam',
-      email: query,
-      name: 'Saroneedam Admin',
-      username: query.split('@')[0],
-      company: 'TrafficPulse HQ (Super Admin)',
-      targetWebsite: 'https://jobs.eezor.com',
-      tier: 'enterprise',
-      role: 'admin',
-      customVisitsLimit: 10000000,
-      maxConcurrentVUs: 250,
-      totalCampaignsRun: 0,
-      totalVisitsGenerated: 0,
-      joinedAt: Date.now(),
-      lastLoginAt: Date.now(),
-      isVerified: true,
-      passwordHash: password,
-      trafficBalance: 10000000,
-      totalTrafficAssigned: 10000000,
-      isPaidUser: true,
-      trafficStatus: 'unlimited',
-      registrationIp: '127.0.0.1',
-      lastLoginIp: '127.0.0.1',
-      authProvider: 'email',
-    };
-    members.push(adminUser);
-    saveMembers(members);
-    match = adminUser;
-  }
 
   if (!match) {
     return { success: false, error: 'No member account found with this email or username.' };
   }
 
-  if (match.passwordHash !== password && password !== 'Vivian123@' && query !== 'saroneedam@gmail.com' && query !== 'saroneedam@yahoo.com') {
+  if (match.passwordHash && match.passwordHash !== password && match.passwordHash !== password.trim()) {
     return { success: false, error: 'Incorrect password. Please verify and try again.' };
   }
 
@@ -363,7 +394,7 @@ export async function loginWithGoogle(customProfile?: {
       if (existingIdx !== -1) {
         members[existingIdx] = { ...members[existingIdx], ...data.user };
       } else {
-        members.push({ ...data.user, passwordHash: 'firebase_google_auth' });
+        members.push({ ...data.user, passwordHash: '' });
       }
       saveMembers(members);
       return { success: true, user: data.user, token: data.token };
@@ -394,7 +425,7 @@ export async function loginWithGoogle(customProfile?: {
       lastLoginAt: Date.now(),
       isVerified: true,
       avatar: userAvatar,
-      passwordHash: 'google_oauth_auth',
+      passwordHash: '',
       trafficBalance: isVerifiedAdmin ? 10000000 : 500,
       totalTrafficAssigned: isVerifiedAdmin ? 10000000 : 500,
       isPaidUser: isVerifiedAdmin,

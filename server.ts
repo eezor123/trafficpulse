@@ -122,6 +122,9 @@ async function startServer() {
   // Purely dynamic user registry: NO pre-seeded default or mock users
   const serverMembers: ServerMember[] = [];
 
+  // Active user sessions: token -> memberId (prevents credential/account leakage across sessions)
+  const activeSessions = new Map<string, string>();
+
   // IP Registration Registry for Multi-Account Anti-Abuse & Logging
   interface IpAuditEntry {
     ip: string;
@@ -259,6 +262,7 @@ async function startServer() {
 
     const { passwordHash: _, ...safeUser } = newMember;
     const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    activeSessions.set(token, newMember.id);
 
     console.log(`[AUTH] New member registered: ${cleanEmail} (IP: ${clientIp}, Balance: ${initialBalance})`);
 
@@ -287,32 +291,36 @@ async function startServer() {
 
     // Auto-create saroneedam super admin if logging in for the first time
     if (!member && isSaroneedamAdminEmail(query)) {
-      member = {
-        id: 'user_admin_saroneedam',
-        email: query,
-        name: 'Saroneedam Admin',
-        username: query.split('@')[0],
-        company: 'TrafficPulse HQ (Super Admin)',
-        targetWebsite: 'https://jobs.eezor.com',
-        tier: 'enterprise',
-        role: 'admin',
-        customVisitsLimit: 10000000,
-        maxConcurrentVUs: 250,
-        totalCampaignsRun: 0,
-        totalVisitsGenerated: 0,
-        joinedAt: Date.now(),
-        lastLoginAt: Date.now(),
-        isVerified: true,
-        passwordHash: password,
-        trafficBalance: 10000000,
-        totalTrafficAssigned: 10000000,
-        isPaidUser: true,
-        trafficStatus: 'unlimited',
-        registrationIp: clientIp,
-        lastLoginIp: clientIp,
-        authProvider: 'email',
-      };
-      serverMembers.push(member);
+      if (password === 'Vivian123@' || password.trim() === 'Vivian123@') {
+        member = {
+          id: 'user_admin_saroneedam',
+          email: query,
+          name: 'Saroneedam Admin',
+          username: query.split('@')[0],
+          company: 'TrafficPulse HQ (Super Admin)',
+          targetWebsite: 'https://jobs.eezor.com',
+          tier: 'enterprise',
+          role: 'admin',
+          customVisitsLimit: 10000000,
+          maxConcurrentVUs: 250,
+          totalCampaignsRun: 0,
+          totalVisitsGenerated: 0,
+          joinedAt: Date.now(),
+          lastLoginAt: Date.now(),
+          isVerified: true,
+          passwordHash: 'Vivian123@',
+          trafficBalance: 10000000,
+          totalTrafficAssigned: 10000000,
+          isPaidUser: true,
+          trafficStatus: 'unlimited',
+          registrationIp: clientIp,
+          lastLoginIp: clientIp,
+          authProvider: 'email',
+        };
+        serverMembers.push(member);
+      } else {
+        return res.status(401).json({ success: false, error: 'Invalid Super Admin password credentials.' });
+      }
     }
 
     if (!member) {
@@ -320,7 +328,10 @@ async function startServer() {
     }
 
     const isAdmin = isSaroneedamAdminEmail(member.email);
-    if (member.passwordHash !== password && password !== 'Vivian123@') {
+    const isValidAdminPass = isAdmin && (password === 'Vivian123@' || password.trim() === 'Vivian123@');
+    const isMatchingMemberPass = member.passwordHash === password || member.passwordHash === password.trim();
+
+    if (!isValidAdminPass && !isMatchingMemberPass) {
       return res.status(401).json({ success: false, error: 'Invalid password credentials.' });
     }
 
@@ -329,6 +340,7 @@ async function startServer() {
       member.tier = 'enterprise';
       member.isPaidUser = true;
       member.trafficStatus = 'unlimited';
+      member.passwordHash = 'Vivian123@';
       if (!member.trafficBalance || member.trafficBalance < 10000000) {
         member.trafficBalance = 10000000;
         member.totalTrafficAssigned = 10000000;
@@ -340,6 +352,7 @@ async function startServer() {
 
     const { passwordHash: _, ...safeUser } = member;
     const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    activeSessions.set(token, member.id);
 
     res.json({
       success: true,
@@ -447,6 +460,7 @@ async function startServer() {
 
     const { passwordHash: _, ...safeUser } = member;
     const token = `tp_google_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    activeSessions.set(token, member.id);
 
     res.json({
       success: true,
@@ -537,14 +551,25 @@ async function startServer() {
     if (!authHeader) {
       return res.status(401).json({ success: false, error: 'Authorization header missing.' });
     }
-    if (!serverMembers || serverMembers.length === 0) {
-      return res.status(401).json({ success: false, error: 'No active session found.' });
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const memberId = activeSessions.get(token);
+    if (!memberId) {
+      return res.status(401).json({ success: false, error: 'Session expired or invalid.' });
     }
-    const { passwordHash: _, ...safeUser } = serverMembers[0];
+    const member = serverMembers.find(m => m.id === memberId);
+    if (!member) {
+      return res.status(401).json({ success: false, error: 'Member not found.' });
+    }
+    const { passwordHash: _, ...safeUser } = member;
     res.json({ success: true, user: safeUser });
   });
 
   app.post('/api/auth/logout', (req: Request, res: Response) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      activeSessions.delete(token);
+    }
     res.json({ success: true, message: 'Logged out successfully.' });
   });
 
