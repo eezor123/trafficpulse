@@ -623,7 +623,7 @@ router.post('/auth/google', (req: Request, res: Response) => {
       return res.status(401).json({
         success: false,
         requiresAdminPasscode: true,
-        error: 'Super Admin master passkey (Vivian123@) required for administrative access.',
+        error: 'Administrative security passkey is required to access this account.',
       });
     }
   }
@@ -637,10 +637,10 @@ router.post('/auth/google', (req: Request, res: Response) => {
     // Check IP multi-account anti-abuse
     const ipRecord = ipRegistry.get(clientIp);
     if (ipRecord && ipRecord.count >= 1 && !isAdmin) {
-      console.warn(`[ANTI-ABUSE] Google registration blocked on IP ${clientIp} for ${googleEmail}. Existing account: ${ipRecord.emails[0]}`);
+      console.warn(`[ANTI-ABUSE] Google registration blocked on IP ${clientIp} for ${googleEmail}.`);
       return res.status(429).json({
         success: false,
-        error: `Anti-Abuse Verification: An account (${ipRecord.emails[0]}) was already registered from this IP address (${clientIp}). The 500 Free Trial credits are limited to 1 per network. Please sign in with your original account.`,
+        error: `Anti-Abuse Verification: An account was already registered from this network (${clientIp}). The 500 Free Trial credits are limited to 1 per network. Please sign in with your original account.`,
       });
     }
 

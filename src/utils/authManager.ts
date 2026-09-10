@@ -520,7 +520,7 @@ export async function loginWithGoogle(customProfile?: {
       return {
         success: false,
         requiresAdminPasscode: true,
-        error: 'Security Verification Required: Super Admin master passkey (Vivian123@) is required for saroneedam@gmail.com on unverified domains.',
+        error: 'Security Verification Required: Administrative security passkey is required to sign into this account on unverified domains.',
       };
     }
   }

@@ -128,7 +128,6 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
         setLoading(false);
         setUnauthorizedDomain(true);
         setTab('direct');
-        setEmail('saroneedam@gmail.com');
         return;
       }
 
@@ -163,7 +162,7 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
     }
 
     if (isSaroneedam && !adminPasscode.trim()) {
-      setError('Super Admin master passkey (Vivian123@) is required for saroneedam@gmail.com.');
+      setError('Administrative security passkey is required to sign into this administrator account.');
       return;
     }
 
@@ -452,21 +451,21 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
               </div>
             </div>
 
-            {/* If Saroneedam Super Admin email is entered, prompt for Master Passkey */}
+            {/* If administrator email is entered, prompt for security passkey */}
             {isSaroneedam && (
-              <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl space-y-1.5 animate-fadeIn">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-900">
-                  <KeyRound className="w-3.5 h-3.5 text-amber-700" />
-                  <span>Super Admin Master Passkey Required</span>
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 animate-fadeIn">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                  <KeyRound className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Administrative Passkey Required</span>
                 </div>
                 <div className="relative">
                   <input
                     type={showPasscode ? 'text' : 'password'}
                     required
-                    placeholder="Enter Vivian123@"
+                    placeholder="Enter administrative passkey"
                     value={adminPasscode}
                     onChange={(e) => setAdminPasscode(e.target.value)}
-                    className="w-full bg-white border border-amber-300 rounded-lg pl-3 pr-8 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-amber-600"
+                    className="w-full bg-white border border-slate-300 rounded-lg pl-3 pr-8 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-600"
                   />
                   <button
                     type="button"
@@ -476,8 +475,8 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
                     {showPasscode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
                 </div>
-                <p className="text-[10px] text-amber-800">
-                  Authenticating administrative ownership grants instant Super Admin role & unlimited 10M traffic balance.
+                <p className="text-[10px] text-slate-500">
+                  Please enter the administrative security passkey to authenticate this account.
                 </p>
               </div>
             )}
