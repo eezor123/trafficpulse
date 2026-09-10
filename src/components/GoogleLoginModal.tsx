@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MemberUser } from '../types';
 import { loginWithGoogle } from '../utils/authManager';
-import { signInWithGoogleViaFirebase } from '../lib/firebase';
+import { signInWithGoogleViaFirebase, firebaseConfig } from '../lib/firebase';
 import {
   CheckCircle2,
   AlertCircle,
@@ -320,31 +320,50 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
 
         {/* Domain Whitelist Alert Notice (When unauthorized-domain is detected) */}
         {unauthorizedDomain && (
-          <div className="mx-6 mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-2 animate-fadeIn">
+          <div className="mx-6 mb-3 p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-2.5 animate-fadeIn">
             <div className="flex items-start gap-2">
               <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div className="space-y-1 text-[11px]">
-                <span className="font-bold text-amber-950">Cloud Preview Domain Notice</span>
-                <p className="leading-relaxed">
-                  Firebase OAuth popup is restricted because this preview domain (<code>{currentHostname}</code>) is not yet in Firebase Console&apos;s Authorized Domains list.
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-bold text-amber-950">Eezor Firebase Domain Authorization Notice</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 bg-amber-200/70 text-amber-900 rounded">
+                    {firebaseConfig.projectId}
+                  </span>
+                </div>
+                <p className="leading-relaxed text-slate-700">
+                  Your active Firebase project is <strong>{firebaseConfig.projectId}</strong> (eezor.com). Google OAuth popups require adding <code>{currentHostname}</code> to your project&apos;s <strong>Authorized Domains</strong> in Firebase Console.
                 </p>
                 <p className="font-semibold text-emerald-800">
-                  ✓ You can complete your Google sign-in or account creation directly below without waiting!
+                  ✓ You can still complete your Google sign-in or account creation directly below right now!
                 </p>
               </div>
             </div>
-            <div className="flex items-center justify-between pt-1 border-t border-amber-200/60 text-[11px]">
-              <span className="text-amber-800 truncate max-w-[240px] font-mono text-[10px]">
-                {currentHostname}
-              </span>
-              <button
-                type="button"
-                onClick={handleCopyDomain}
-                className="inline-flex items-center gap-1 px-2 py-1 bg-amber-200/80 hover:bg-amber-300 text-amber-900 rounded font-semibold text-[10px] cursor-pointer transition-colors shrink-0"
+
+            <div className="flex items-center justify-between pt-1.5 border-t border-amber-200/70 text-[11px] flex-wrap gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-600 text-[10px]">Domain:</span>
+                <span className="text-amber-900 font-mono text-[10px] font-semibold bg-white/80 px-1.5 py-0.5 rounded border border-amber-200">
+                  {currentHostname}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyDomain}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded font-semibold text-[10px] cursor-pointer transition-colors shrink-0"
+                >
+                  {copiedDomain ? <Check className="w-3 h-3 text-emerald-700" /> : <Copy className="w-3 h-3 text-amber-800" />}
+                  <span>{copiedDomain ? 'Copied!' : 'Copy'}</span>
+                </button>
+              </div>
+
+              <a
+                href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 hover:text-blue-900 hover:underline shrink-0"
               >
-                {copiedDomain ? <Check className="w-3 h-3 text-emerald-700" /> : <Copy className="w-3 h-3" />}
-                <span>{copiedDomain ? 'Copied!' : 'Copy Domain'}</span>
-              </button>
+                <span>Add in Firebase Console</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
             </div>
           </div>
         )}
@@ -399,7 +418,7 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
             </button>
 
             <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-              <span>Running on Cloud Run preview?</span>
+              <span>Domain not yet authorized in Firebase?</span>
               <button
                 type="button"
                 onClick={() => setTab('direct')}
