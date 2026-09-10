@@ -41,6 +41,7 @@ export async function signInWithGoogleViaFirebase(): Promise<{
   user?: FirebaseUser;
   error?: string;
   popupBlocked?: boolean;
+  unauthorizedDomain?: boolean;
 }> {
   try {
     const result = await signInWithPopup(firebaseAuth, googleAuthProvider);
@@ -53,6 +54,10 @@ export async function signInWithGoogleViaFirebase(): Promise<{
     const code = error?.code || '';
     const message = error?.message || '';
 
+    const isUnauthorizedDomain =
+      code === 'auth/unauthorized-domain' ||
+      message.toLowerCase().includes('unauthorized-domain');
+
     const isPopupBlocked =
       code === 'auth/popup-blocked' ||
       code === 'auth/popup-closed-by-user' ||
@@ -64,6 +69,7 @@ export async function signInWithGoogleViaFirebase(): Promise<{
       success: false,
       error: error?.message || 'Google sign-in could not be completed.',
       popupBlocked: isPopupBlocked,
+      unauthorizedDomain: isUnauthorizedDomain,
     };
   }
 }

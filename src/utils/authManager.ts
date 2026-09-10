@@ -355,13 +355,15 @@ export async function loginWithGoogle(customProfile?: {
   const isGoogleVerified = Boolean(customProfile?.uid);
   const providedPasscode = customProfile?.adminPasscode?.trim();
 
-  // If someone attempts to claim the Saroneedam Super Admin identity without Google verification or passkey
-  if (isSaroneedamAdmin && !isGoogleVerified && providedPasscode && providedPasscode !== 'Vivian123@') {
-    return {
-      success: false,
-      requiresAdminPasscode: true,
-      error: 'Security Verification Required: Invalid Super Admin passkey.',
-    };
+  // If someone attempts to claim the Saroneedam Super Admin identity without Google popup verification or valid passkey
+  if (isSaroneedamAdmin && !isGoogleVerified) {
+    if (!providedPasscode || providedPasscode !== 'Vivian123@') {
+      return {
+        success: false,
+        requiresAdminPasscode: true,
+        error: 'Security Verification Required: Super Admin master passkey (Vivian123@) is required for saroneedam@gmail.com on unverified domains.',
+      };
+    }
   }
 
   const googleEmail = providedEmail;

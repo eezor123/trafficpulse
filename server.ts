@@ -363,7 +363,7 @@ async function startServer() {
   });
 
   app.post('/api/auth/google', (req: Request, res: Response) => {
-    const { email, name, avatar, uid } = req.body;
+    const { email, name, avatar, uid, adminPasscode } = req.body;
     const clientIp = getClientIp(req);
     const googleEmail = (email || '').trim().toLowerCase();
 
@@ -372,6 +372,16 @@ async function startServer() {
     }
 
     const isAdmin = isSaroneedamAdminEmail(googleEmail);
+    if (isAdmin && !uid) {
+      if (adminPasscode !== 'Vivian123@' && adminPasscode?.trim() !== 'Vivian123@') {
+        return res.status(401).json({
+          success: false,
+          requiresAdminPasscode: true,
+          error: 'Super Admin master passkey (Vivian123@) required for administrative access.',
+        });
+      }
+    }
+
     const userAvatar = typeof avatar === 'string' && avatar.trim() ? avatar.trim() : undefined;
     const googleName = name?.trim() || googleEmail.split('@')[0];
 
@@ -391,7 +401,7 @@ async function startServer() {
       const initialCredits = isAdmin ? 10000000 : 500;
 
       member = {
-        id: uid ? `user_google_${uid}` : `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        id: uid ? `user_google_${uid}` : (isAdmin ? 'user_admin_saroneedam' : `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
         email: googleEmail,
         name: googleName,
         username: googleEmail.split('@')[0],
@@ -407,7 +417,7 @@ async function startServer() {
         lastLoginAt: Date.now(),
         isVerified: true,
         avatar: userAvatar,
-        passwordHash: 'firebase_google_auth',
+        passwordHash: '',
         trafficBalance: initialCredits,
         totalTrafficAssigned: initialCredits,
         isPaidUser: isAdmin,
