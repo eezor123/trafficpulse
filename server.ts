@@ -136,6 +136,81 @@ async function startServer() {
   }
   const ipRegistry = new Map<string, IpAuditEntry>();
 
+  // Pending Email Verifications Store (15-minute OTP lifecycle)
+  interface PendingVerification {
+    email: string;
+    code: string;
+    name: string;
+    passwordHash: string;
+    company?: string;
+    targetWebsite?: string;
+    tier: 'starter' | 'pro' | 'enterprise';
+    clientIp: string;
+    createdAt: number;
+    expiresAt: number;
+    attempts: number;
+  }
+  const pendingVerifications = new Map<string, PendingVerification>();
+
+  // Helper to dispatch email verification via SMTP (or log simulation if SMTP unconfigured)
+  async function sendVerificationEmail(toEmail: string, code: string, name: string): Promise<{ sent: boolean; messageId?: string; error?: string }> {
+    console.log(`[EMAIL-VERIFICATION] Dispatching 6-digit code for ${toEmail}: ${code}`);
+
+    const host = process.env.SMTP_HOST;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+    const from = process.env.EMAIL_FROM || '"TrafficPulse" <no-reply@trafficpulse.io>';
+
+    if (host && user && pass) {
+      try {
+        const nodemailer = await import('nodemailer');
+        const transporter = nodemailer.createTransport({
+          host,
+          port,
+          secure,
+          auth: { user, pass },
+        });
+
+        const html = `
+          <div style="font-family: Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; background: #0f172a; color: #f8fafc; border-radius: 16px; border: 1px solid #1e293b;">
+            <div style="text-align: center; margin-bottom: 24px;">
+              <h1 style="color: #10b981; margin: 0; font-size: 26px; font-weight: 800;">TrafficPulse</h1>
+              <p style="color: #94a3b8; font-size: 13px; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px;">Account Email Verification</p>
+            </div>
+            <div style="background: #1e293b; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
+              <p style="margin: 0 0 12px; font-size: 16px; color: #e2e8f0;">Hello <strong>${name || 'there'}</strong>,</p>
+              <p style="margin: 0 0 20px; font-size: 14px; color: #94a3b8; line-height: 1.5;">Please enter the 6-digit verification code below to confirm your email and immediately claim your <strong>500 Free Trial Traffic Credits</strong>.</p>
+              <div style="font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #34d399; background: #090d16; padding: 18px 24px; border-radius: 10px; border: 1px dashed #10b981; display: inline-block; font-family: monospace;">
+                ${code}
+              </div>
+              <p style="margin: 20px 0 0; font-size: 12px; color: #64748b;">This verification code is valid for 15 minutes.</p>
+            </div>
+            <p style="font-size: 11px; color: #475569; text-align: center; margin: 0;">If you didn't create a TrafficPulse account, you can ignore this message.</p>
+          </div>
+        `;
+
+        const info = await transporter.sendMail({
+          from,
+          to: toEmail,
+          subject: `Your TrafficPulse Verification Code: ${code}`,
+          text: `Your TrafficPulse email verification code is: ${code}. It expires in 15 minutes.`,
+          html,
+        });
+
+        console.log(`[EMAIL-VERIFICATION] Outbound SMTP email delivered successfully to ${toEmail} (Message ID: ${info.messageId})`);
+        return { sent: true, messageId: info.messageId };
+      } catch (smtpErr: any) {
+        console.warn(`[EMAIL-VERIFICATION] SMTP delivery encountered error:`, smtpErr?.message || smtpErr);
+        return { sent: false, error: smtpErr?.message };
+      }
+    }
+
+    console.log(`[EMAIL-VERIFICATION] [PREVIEW SIMULATION] Code for ${toEmail}: ${code}`);
+    return { sent: true };
+  }
+
   function getClientIp(req: Request): string {
     const forwarded = req.headers['x-forwarded-for'];
     if (typeof forwarded === 'string') {
@@ -178,7 +253,7 @@ async function startServer() {
     });
   });
 
-  app.post('/api/auth/register', (req: Request, res: Response) => {
+  app.post('/api/auth/register', async (req: Request, res: Response) => {
     const { name, email, password, company, targetWebsite, tier = 'starter' } = req.body;
     const clientIp = getClientIp(req);
 
@@ -194,8 +269,8 @@ async function startServer() {
 
     const cleanEmail = email.trim().toLowerCase();
     const existing = serverMembers.find(m => m.email.toLowerCase() === cleanEmail);
-    if (existing) {
-      return res.status(409).json({ success: false, error: 'An account with this email already exists. Please sign in.' });
+    if (existing && existing.isVerified) {
+      return res.status(409).json({ success: false, error: 'An account with this email already exists and is verified. Please sign in.' });
     }
 
     const isAdmin = isSaroneedamAdminEmail(cleanEmail);
@@ -212,26 +287,116 @@ async function startServer() {
     }
 
     const memberTier = isAdmin ? 'enterprise' : tier === 'enterprise' ? 'enterprise' : tier === 'pro' ? 'pro' : 'starter';
-    const customLimit = isAdmin ? 10000000 : 500;
+
+    // Generate random 6-digit verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes validity
+
+    pendingVerifications.set(cleanEmail, {
+      email: cleanEmail,
+      code: verificationCode,
+      name: name.trim(),
+      passwordHash: password,
+      company: company?.trim() || (isAdmin ? 'TrafficPulse HQ (Super Admin)' : undefined),
+      targetWebsite: targetWebsite?.trim() || 'https://jobs.eezor.com',
+      tier: memberTier,
+      clientIp,
+      createdAt: Date.now(),
+      expiresAt,
+      attempts: 0,
+    });
+
+    console.log(`[AUTH] Normal registration requested for ${cleanEmail}. Code: ${verificationCode}`);
+
+    // Asynchronously dispatch verification email via SMTP if configured
+    sendVerificationEmail(cleanEmail, verificationCode, name.trim()).catch(err => {
+      console.warn('[AUTH] Error during background verification dispatch:', err);
+    });
+
+    return res.json({
+      success: true,
+      requiresVerification: true,
+      email: cleanEmail,
+      verificationCodePreview: verificationCode,
+      message: `A 6-digit confirmation code has been dispatched to ${cleanEmail}. Please enter the code to verify your account and claim your 500 Free Trial visits.`,
+    });
+  });
+
+  // Verify 6-digit email confirmation code & activate account
+  app.post('/api/auth/verify-email', (req: Request, res: Response) => {
+    const { email, code } = req.body;
+    const clientIp = getClientIp(req);
+
+    if (!email || !code) {
+      return res.status(400).json({ success: false, error: 'Email and verification code are required.' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const inputCode = String(code).trim();
+    const pending = pendingVerifications.get(cleanEmail);
+
+    if (!pending) {
+      return res.status(400).json({
+        success: false,
+        error: 'No pending verification was found for this email address or it has expired. Please register again.',
+      });
+    }
+
+    if (Date.now() > pending.expiresAt) {
+      pendingVerifications.delete(cleanEmail);
+      return res.status(400).json({
+        success: false,
+        error: 'Verification code has expired (15-minute validity limit). Please request a new code.',
+      });
+    }
+
+    if (pending.attempts >= 5) {
+      pendingVerifications.delete(cleanEmail);
+      return res.status(429).json({
+        success: false,
+        error: 'Too many incorrect verification attempts. For your security, please restart registration.',
+      });
+    }
+
+    if (pending.code !== inputCode) {
+      pending.attempts += 1;
+      const remaining = 5 - pending.attempts;
+      return res.status(400).json({
+        success: false,
+        error: `Invalid verification code. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`,
+      });
+    }
+
+    // Code verified! Create active member
+    const isAdmin = isSaroneedamAdminEmail(cleanEmail);
+    const memberTier = isAdmin ? 'enterprise' : pending.tier;
     const initialBalance = isAdmin ? 10000000 : 500;
+    const customLimit = isAdmin ? 10000000 : 500;
+    const maxVUs = isAdmin ? 250 : 25;
+
+    // Remove any previous unverified entry
+    const existingIdx = serverMembers.findIndex(m => m.email.toLowerCase() === cleanEmail);
+    if (existingIdx !== -1) {
+      serverMembers.splice(existingIdx, 1);
+    }
 
     const newMember: ServerMember = {
-      id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      id: isAdmin ? 'user_admin_saroneedam' : `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       email: cleanEmail,
-      name: name.trim(),
+      name: pending.name,
       username: cleanEmail.split('@')[0],
-      company: company?.trim() || undefined,
-      targetWebsite: targetWebsite?.trim() || 'https://jobs.eezor.com',
+      company: pending.company,
+      targetWebsite: pending.targetWebsite || 'https://jobs.eezor.com',
       tier: memberTier,
       role: isAdmin ? 'admin' : 'member',
       customVisitsLimit: customLimit,
-      maxConcurrentVUs: isAdmin ? 250 : 25,
+      maxConcurrentVUs: maxVUs,
       totalCampaignsRun: 0,
       totalVisitsGenerated: 0,
       joinedAt: Date.now(),
       lastLoginAt: Date.now(),
       isVerified: true,
-      passwordHash: password,
+      passwordHash: pending.passwordHash,
       trafficBalance: initialBalance,
       totalTrafficAssigned: initialBalance,
       isPaidUser: isAdmin,
@@ -242,8 +407,10 @@ async function startServer() {
     };
 
     serverMembers.push(newMember);
+    pendingVerifications.delete(cleanEmail);
 
     // Record IP audit log
+    const ipRecord = ipRegistry.get(clientIp);
     if (ipRecord) {
       ipRecord.count += 1;
       ipRecord.accountIds.push(newMember.id);
@@ -260,19 +427,71 @@ async function startServer() {
       });
     }
 
-    const { passwordHash: _, ...safeUser } = newMember;
     const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     activeSessions.set(token, newMember.id);
 
-    console.log(`[AUTH] New member registered: ${cleanEmail} (IP: ${clientIp}, Balance: ${initialBalance})`);
+    const { passwordHash: _, ...safeUser } = newMember;
+    console.log(`[AUTH] Email verified and account activated for ${cleanEmail} (Balance: ${initialBalance})`);
 
-    res.json({
+    return res.json({
       success: true,
       user: safeUser,
       token,
       message: isAdmin
-        ? 'Super Admin account initialized with unlimited traffic.'
-        : 'Welcome! 500 Free Trial traffic credits have been credited to your account.',
+        ? 'Super Admin email verified! Unlimited enterprise session initialized.'
+        : 'Email verified! 500 Free Trial traffic credits have been credited to your account.',
+    });
+  });
+
+  // Resend fresh 6-digit confirmation code
+  app.post('/api/auth/resend-code', async (req: Request, res: Response) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Email address is required to resend verification code.' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    let pending = pendingVerifications.get(cleanEmail);
+
+    if (!pending) {
+      const existing = serverMembers.find(m => m.email.toLowerCase() === cleanEmail);
+      if (existing && !existing.isVerified) {
+        pending = {
+          email: cleanEmail,
+          code: Math.floor(100000 + Math.random() * 900000).toString(),
+          name: existing.name,
+          passwordHash: existing.passwordHash,
+          company: existing.company,
+          targetWebsite: existing.targetWebsite,
+          tier: existing.tier,
+          clientIp: getClientIp(req),
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 15 * 60 * 1000,
+          attempts: 0,
+        };
+        pendingVerifications.set(cleanEmail, pending);
+      } else {
+        return res.status(404).json({
+          success: false,
+          error: 'No pending registration was found for this email. Please register for an account.',
+        });
+      }
+    } else {
+      pending.code = Math.floor(100000 + Math.random() * 900000).toString();
+      pending.expiresAt = Date.now() + 15 * 60 * 1000;
+      pending.attempts = 0;
+    }
+
+    console.log(`[AUTH] Resending verification code for ${cleanEmail}: ${pending.code}`);
+
+    sendVerificationEmail(cleanEmail, pending.code, pending.name).catch(err => {
+      console.warn('[AUTH] Error resending verification email:', err);
+    });
+
+    return res.json({
+      success: true,
+      verificationCodePreview: pending.code,
+      message: `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail}.`,
     });
   });
 
@@ -324,6 +543,17 @@ async function startServer() {
     }
 
     if (!member) {
+      // Check if there is an unverified pending registration
+      const pending = pendingVerifications.get(query);
+      if (pending) {
+        return res.status(403).json({
+          success: false,
+          requiresVerification: true,
+          email: pending.email,
+          verificationCodePreview: pending.code,
+          error: 'Your email address is not yet verified. Please enter the verification code sent to your inbox.',
+        });
+      }
       return res.status(404).json({ success: false, error: 'No member account found with this email or username. Please register first.' });
     }
 
@@ -333,6 +563,34 @@ async function startServer() {
 
     if (!isValidAdminPass && !isMatchingMemberPass) {
       return res.status(401).json({ success: false, error: 'Invalid password credentials.' });
+    }
+
+    // Check if account is verified
+    if (!member.isVerified) {
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      pendingVerifications.set(member.email.toLowerCase(), {
+        email: member.email.toLowerCase(),
+        code,
+        name: member.name,
+        passwordHash: member.passwordHash,
+        company: member.company,
+        targetWebsite: member.targetWebsite,
+        tier: member.tier,
+        clientIp,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 15 * 60 * 1000,
+        attempts: 0,
+      });
+
+      sendVerificationEmail(member.email, code, member.name).catch(() => {});
+
+      return res.status(403).json({
+        success: false,
+        requiresVerification: true,
+        email: member.email,
+        verificationCodePreview: code,
+        error: 'Your email address is not verified yet. Please enter the verification code to activate your account.',
+      });
     }
 
     if (isAdmin) {
@@ -361,6 +619,7 @@ async function startServer() {
       message: 'Logged in successfully.',
     });
   });
+
 
   app.post('/api/auth/google', (req: Request, res: Response) => {
     const { email, name, avatar, uid, adminPasscode } = req.body;

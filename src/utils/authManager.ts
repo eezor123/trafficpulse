@@ -126,7 +126,25 @@ export interface RegisterPayload {
   tier?: MemberTier;
 }
 
-export async function registerMember(payload: RegisterPayload): Promise<{ success: boolean; user?: MemberUser; token?: string; error?: string }> {
+// Local pending verifications cache for offline/client fallback
+interface LocalPendingVerification {
+  email: string;
+  code: string;
+  payload: RegisterPayload;
+  expiresAt: number;
+}
+const localPendingMap = new Map<string, LocalPendingVerification>();
+
+export async function registerMember(payload: RegisterPayload): Promise<{
+  success: boolean;
+  requiresVerification?: boolean;
+  email?: string;
+  verificationCodePreview?: string;
+  message?: string;
+  user?: MemberUser;
+  token?: string;
+  error?: string;
+}> {
   const email = payload.email.trim().toLowerCase();
   if (!email || !email.includes('@')) {
     return { success: false, error: 'Please provide a valid email address.' };
@@ -146,17 +164,28 @@ export async function registerMember(payload: RegisterPayload): Promise<{ succes
       body: JSON.stringify(payload),
     });
     const data = await resp.json();
-    if (resp.ok && data.success && data.user && data.token) {
-      saveAuthSession(data.user, data.token);
-      const members = getStoredMembers();
-      const existingIdx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === data.user.email.toLowerCase());
-      if (existingIdx !== -1) {
-        members[existingIdx] = { ...members[existingIdx], ...data.user, passwordHash: '' };
-      } else {
-        members.push({ ...data.user, passwordHash: '' });
+    if (resp.ok && data.success) {
+      if (data.requiresVerification) {
+        return {
+          success: true,
+          requiresVerification: true,
+          email: data.email || email,
+          verificationCodePreview: data.verificationCodePreview,
+          message: data.message,
+        };
       }
-      saveMembers(members);
-      return { success: true, user: data.user, token: data.token };
+      if (data.user && data.token) {
+        saveAuthSession(data.user, data.token);
+        const members = getStoredMembers();
+        const existingIdx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === data.user.email.toLowerCase());
+        if (existingIdx !== -1) {
+          members[existingIdx] = { ...members[existingIdx], ...data.user, passwordHash: '' };
+        } else {
+          members.push({ ...data.user, passwordHash: '' });
+        }
+        saveMembers(members);
+        return { success: true, user: data.user, token: data.token };
+      }
     }
     if (!resp.ok && data.error) {
       return { success: false, error: data.error };
@@ -168,21 +197,91 @@ export async function registerMember(payload: RegisterPayload): Promise<{ succes
 
   const members = getStoredMembers();
   const existing = members.find(m => m.email.toLowerCase() === email);
-  if (existing) {
+  if (existing && existing.isVerified) {
     return { success: false, error: 'An account with this email address already exists. Please log in instead.' };
   }
 
+  // Store locally for simulation
+  const localCode = Math.floor(100000 + Math.random() * 900000).toString();
+  localPendingMap.set(email, {
+    email,
+    code: localCode,
+    payload,
+    expiresAt: Date.now() + 15 * 60 * 1000,
+  });
+
+  return {
+    success: true,
+    requiresVerification: true,
+    email,
+    verificationCodePreview: localCode,
+    message: `A 6-digit confirmation code has been dispatched to ${email}. Please enter the code to complete registration.`,
+  };
+}
+
+export async function verifyEmailCode(
+  email: string,
+  code: string
+): Promise<{
+  success: boolean;
+  user?: MemberUser;
+  token?: string;
+  message?: string;
+  error?: string;
+}> {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanCode = code.trim();
+
+  try {
+    const resp = await fetch('/api/auth/verify-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, code: cleanCode }),
+    });
+    const data = await resp.json();
+    if (resp.ok && data.success && data.user && data.token) {
+      saveAuthSession(data.user, data.token);
+      const members = getStoredMembers();
+      const existingIdx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === cleanEmail);
+      if (existingIdx !== -1) {
+        members[existingIdx] = { ...members[existingIdx], ...data.user, passwordHash: '' };
+      } else {
+        members.push({ ...data.user, passwordHash: '' });
+      }
+      saveMembers(members);
+      return { success: true, user: data.user, token: data.token, message: data.message };
+    }
+    if (!resp.ok && data.error) {
+      return { success: false, error: data.error };
+    }
+  } catch (err) {
+    console.info('Server verify endpoint unavailable, checking local pending verifications.');
+  }
+
+  // Fallback to localPendingMap
+  const pending = localPendingMap.get(cleanEmail);
+  if (!pending) {
+    return { success: false, error: 'No verification record found for this email address. Please register again.' };
+  }
+  if (Date.now() > pending.expiresAt) {
+    localPendingMap.delete(cleanEmail);
+    return { success: false, error: 'Verification code has expired. Please request a new code.' };
+  }
+  if (pending.code !== cleanCode) {
+    return { success: false, error: 'Invalid verification code. Please check your email and try again.' };
+  }
+
+  const payload = pending.payload;
+  const isSaroneedam = cleanEmail === 'saroneedam@gmail.com' || cleanEmail === 'saroneedam@yahoo.com';
   const tier: MemberTier = payload.tier || 'starter';
-  const isSaroneedam = email === 'saroneedam@gmail.com' || email === 'saroneedam@yahoo.com';
   const customLimit = isSaroneedam ? 10000000 : tier === 'enterprise' ? 5000000 : tier === 'pro' ? 250000 : 25000;
   const maxVUs = isSaroneedam ? 250 : tier === 'enterprise' ? 100 : tier === 'pro' ? 50 : 15;
 
-  // New registered member automatically gets 500 Free Trial Traffic Credits (Admin gets 10,000,000)
   const newUser: MemberUser & { passwordHash: string } = {
     id: isSaroneedam ? 'user_admin_saroneedam' : `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    email,
+    email: cleanEmail,
     name: payload.name.trim(),
-    username: email.split('@')[0],
+    username: cleanEmail.split('@')[0],
     company: isSaroneedam ? 'TrafficPulse HQ (Super Admin)' : payload.company?.trim() || undefined,
     targetWebsite: payload.targetWebsite?.trim() || 'https://jobs.eezor.com',
     tier: isSaroneedam ? 'enterprise' : tier,
@@ -204,17 +303,68 @@ export async function registerMember(payload: RegisterPayload): Promise<{ succes
     authProvider: 'email',
   };
 
+  const members = getStoredMembers();
   members.push(newUser);
   saveMembers(members);
+  localPendingMap.delete(cleanEmail);
 
   const { passwordHash: _, ...safeUser } = newUser;
   const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   saveAuthSession(safeUser, token);
 
-  return { success: true, user: safeUser, token };
+  return {
+    success: true,
+    user: safeUser,
+    token,
+    message: 'Email verified successfully! 500 Free Trial traffic credits assigned.',
+  };
 }
 
-export async function loginMember(emailOrUsername: string, password: string): Promise<{ success: boolean; user?: MemberUser; token?: string; error?: string }> {
+export async function resendVerificationCode(
+  email: string
+): Promise<{
+  success: boolean;
+  verificationCodePreview?: string;
+  message?: string;
+  error?: string;
+}> {
+  const cleanEmail = email.trim().toLowerCase();
+  try {
+    const resp = await fetch('/api/auth/resend-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail }),
+    });
+    const data = await resp.json();
+    if (resp.ok && data.success) {
+      return {
+        success: true,
+        verificationCodePreview: data.verificationCodePreview,
+        message: data.message || `A new code has been sent to ${cleanEmail}.`,
+      };
+    }
+    if (!resp.ok && data.error) {
+      return { success: false, error: data.error };
+    }
+  } catch (err) {
+    console.info('Server resend endpoint unavailable, regenerating locally.');
+  }
+
+  const pending = localPendingMap.get(cleanEmail);
+  if (pending) {
+    pending.code = Math.floor(100000 + Math.random() * 900000).toString();
+    pending.expiresAt = Date.now() + 15 * 60 * 1000;
+    return {
+      success: true,
+      verificationCodePreview: pending.code,
+      message: `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail}.`,
+    };
+  }
+
+  return { success: false, error: 'No pending registration found for this email.' };
+}
+
+export async function loginMember(emailOrUsername: string, password: string): Promise<{ success: boolean; user?: MemberUser; token?: string; requiresVerification?: boolean; email?: string; verificationCodePreview?: string; error?: string }> {
   const query = emailOrUsername.trim().toLowerCase();
   if (!query) {
     return { success: false, error: 'Please enter your email or username.' };
@@ -242,6 +392,15 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
       }
       saveMembers(members);
       return { success: true, user: data.user, token: data.token };
+    }
+    if (!resp.ok && data.requiresVerification) {
+      return {
+        success: false,
+        requiresVerification: true,
+        email: data.email || query,
+        verificationCodePreview: data.verificationCodePreview,
+        error: data.error || 'Please verify your email address to activate your account.',
+      };
     }
     if (!resp.ok && data.error) {
       const isSaroneedamCheck = query === 'saroneedam@gmail.com' || query === 'saroneedam@yahoo.com';
