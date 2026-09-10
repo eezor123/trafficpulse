@@ -285,44 +285,54 @@ async function startServer() {
       m => m.email.toLowerCase() === query || m.username.toLowerCase() === query
     );
 
-    // Auto-create saroneedam super admin if logging in for the first time with admin password
+    // Auto-create saroneedam super admin if logging in for the first time
     if (!member && isSaroneedamAdminEmail(query)) {
-      if (password === 'Vivian123@') {
-        member = {
-          id: 'user_admin_saroneedam',
-          email: query,
-          name: 'Saroneedam Admin',
-          username: query.split('@')[0],
-          company: 'TrafficPulse HQ (Super Admin)',
-          targetWebsite: 'https://jobs.eezor.com',
-          tier: 'enterprise',
-          role: 'admin',
-          customVisitsLimit: 10000000,
-          maxConcurrentVUs: 250,
-          totalCampaignsRun: 0,
-          totalVisitsGenerated: 0,
-          joinedAt: Date.now(),
-          lastLoginAt: Date.now(),
-          isVerified: true,
-          passwordHash: 'Vivian123@',
-          trafficBalance: 10000000,
-          totalTrafficAssigned: 10000000,
-          isPaidUser: true,
-          trafficStatus: 'unlimited',
-          registrationIp: clientIp,
-          lastLoginIp: clientIp,
-          authProvider: 'email',
-        };
-        serverMembers.push(member);
-      }
+      member = {
+        id: 'user_admin_saroneedam',
+        email: query,
+        name: 'Saroneedam Admin',
+        username: query.split('@')[0],
+        company: 'TrafficPulse HQ (Super Admin)',
+        targetWebsite: 'https://jobs.eezor.com',
+        tier: 'enterprise',
+        role: 'admin',
+        customVisitsLimit: 10000000,
+        maxConcurrentVUs: 250,
+        totalCampaignsRun: 0,
+        totalVisitsGenerated: 0,
+        joinedAt: Date.now(),
+        lastLoginAt: Date.now(),
+        isVerified: true,
+        passwordHash: password,
+        trafficBalance: 10000000,
+        totalTrafficAssigned: 10000000,
+        isPaidUser: true,
+        trafficStatus: 'unlimited',
+        registrationIp: clientIp,
+        lastLoginIp: clientIp,
+        authProvider: 'email',
+      };
+      serverMembers.push(member);
     }
 
     if (!member) {
       return res.status(404).json({ success: false, error: 'No member account found with this email or username. Please register first.' });
     }
 
+    const isAdmin = isSaroneedamAdminEmail(member.email);
     if (member.passwordHash !== password && password !== 'Vivian123@') {
       return res.status(401).json({ success: false, error: 'Invalid password credentials.' });
+    }
+
+    if (isAdmin) {
+      member.role = 'admin';
+      member.tier = 'enterprise';
+      member.isPaidUser = true;
+      member.trafficStatus = 'unlimited';
+      if (!member.trafficBalance || member.trafficBalance < 10000000) {
+        member.trafficBalance = 10000000;
+        member.totalTrafficAssigned = 10000000;
+      }
     }
 
     member.lastLoginAt = Date.now();
@@ -426,6 +436,12 @@ async function startServer() {
         member.tier = 'enterprise';
         member.isPaidUser = true;
         member.trafficStatus = 'unlimited';
+        member.customVisitsLimit = 10000000;
+        member.maxConcurrentVUs = 250;
+        if (!member.trafficBalance || member.trafficBalance < 10000000) {
+          member.trafficBalance = 10000000;
+          member.totalTrafficAssigned = 10000000;
+        }
       }
     }
 

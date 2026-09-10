@@ -14,7 +14,7 @@ export const firebaseConfig = {
   projectId: 'eezor1-1537170168584',
   appId: '1:840352479509:web:45be19193f0a424b85111c',
   apiKey: 'AIzaSyA9iahgzxM8aLZwUxnqWK5DtQcPTNXpw_Q',
-  authDomain: 'auth.eezor.com',
+  authDomain: 'eezor1-1537170168584.firebaseapp.com',
   firestoreDatabaseId: 'ai-studio-naijajobsnigeria-f8a2304a-f7d0-471a-a51c-710cdaeeb89e',
   storageBucket: 'eezor1-1537170168584.firebasestorage.app',
   messagingSenderId: '840352479509',
