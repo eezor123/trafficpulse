@@ -1,7 +1,15 @@
 import { MemberUser, AuthState, MemberTier } from '../types';
+import {
+  saveMemberToCloud,
+  getMemberFromCloud,
+  savePendingToCloud,
+  getPendingFromCloud,
+  deletePendingFromCloud,
+} from '../lib/firebase.ts';
 
 const AUTH_STORAGE_KEY = 'trafficpulse_auth_session_v1';
 const MEMBERS_DB_KEY = 'trafficpulse_registered_members_v1';
+const PENDING_REG_KEY = 'trafficpulse_pending_registrations_v1';
 
 // No pre-seeded demo or mock members
 const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [];
@@ -135,6 +143,44 @@ interface LocalPendingVerification {
 }
 const localPendingMap = new Map<string, LocalPendingVerification>();
 
+function getLocalPending(email: string): LocalPendingVerification | null {
+  const key = (email || '').trim().toLowerCase();
+  try {
+    const raw = localStorage.getItem(PENDING_REG_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed[key]) {
+        return parsed[key];
+      }
+    }
+  } catch {}
+  return localPendingMap.get(key) || null;
+}
+
+function setLocalPending(email: string, item: LocalPendingVerification) {
+  const key = (email || '').trim().toLowerCase();
+  localPendingMap.set(key, item);
+  try {
+    const raw = localStorage.getItem(PENDING_REG_KEY);
+    const existing = raw ? JSON.parse(raw) : {};
+    existing[key] = item;
+    localStorage.setItem(PENDING_REG_KEY, JSON.stringify(existing));
+  } catch {}
+}
+
+function deleteLocalPending(email: string) {
+  const key = (email || '').trim().toLowerCase();
+  localPendingMap.delete(key);
+  try {
+    const raw = localStorage.getItem(PENDING_REG_KEY);
+    if (raw) {
+      const existing = JSON.parse(raw);
+      delete existing[key];
+      localStorage.setItem(PENDING_REG_KEY, JSON.stringify(existing));
+    }
+  } catch {}
+}
+
 export async function registerMember(payload: RegisterPayload): Promise<{
   success: boolean;
   requiresVerification?: boolean;
@@ -155,7 +201,29 @@ export async function registerMember(payload: RegisterPayload): Promise<{
     return { success: false, error: 'Password must be at least 5 characters long.' };
   }
 
-  // Attempt backend API registration if available
+  // Pre-save pending registration payload locally and in Firestore so credentials are never lost
+  const localCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const pendingObj: LocalPendingVerification = {
+    email,
+    code: localCode,
+    payload,
+    expiresAt: Date.now() + 15 * 60 * 1000,
+  };
+  setLocalPending(email, pendingObj);
+  savePendingToCloud(email, {
+    email,
+    code: localCode,
+    name: payload.name.trim(),
+    passwordHash: payload.password,
+    company: payload.company,
+    targetWebsite: payload.targetWebsite,
+    tier: payload.tier || 'starter',
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 15 * 60 * 1000,
+    attempts: 0,
+  }).catch(() => {});
+
+  // Attempt backend API registration
   try {
     const resp = await fetch('/api/auth/register', {
       method: 'POST',
@@ -177,11 +245,13 @@ export async function registerMember(payload: RegisterPayload): Promise<{
         const members = getStoredMembers();
         const existingIdx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === data.user.email.toLowerCase());
         if (existingIdx !== -1) {
-          members[existingIdx] = { ...members[existingIdx], ...data.user, passwordHash: '' };
+          members[existingIdx] = { ...members[existingIdx], ...data.user, passwordHash: payload.password };
         } else {
-          members.push({ ...data.user, passwordHash: '' });
+          members.push({ ...data.user, passwordHash: payload.password });
         }
         saveMembers(members);
+        saveMemberToCloud({ ...data.user, passwordHash: payload.password }).catch(() => {});
+        deleteLocalPending(email);
         return { success: true, user: data.user, token: data.token };
       }
     }
@@ -189,8 +259,7 @@ export async function registerMember(payload: RegisterPayload): Promise<{
       return { success: false, error: data.error };
     }
   } catch (err) {
-    // Fall back to client storage
-    console.info('Server auth endpoint unavailable, falling back to local member registry.');
+    console.info('Server auth endpoint unavailable, operating client registration.');
   }
 
   const members = getStoredMembers();
@@ -198,15 +267,6 @@ export async function registerMember(payload: RegisterPayload): Promise<{
   if (existing && existing.isVerified) {
     return { success: false, error: 'An account with this email address already exists. Please log in instead.' };
   }
-
-  // Store locally for simulation
-  const localCode = Math.floor(100000 + Math.random() * 900000).toString();
-  localPendingMap.set(email, {
-    email,
-    code: localCode,
-    payload,
-    expiresAt: Date.now() + 15 * 60 * 1000,
-  });
 
   return {
     success: true,
@@ -228,6 +288,8 @@ export async function verifyEmailCode(
 }> {
   const cleanEmail = email.trim().toLowerCase();
   const cleanCode = code.trim();
+  const pending = getLocalPending(cleanEmail);
+  const userPassword = pending?.payload?.password || '';
 
   try {
     const resp = await fetch('/api/auth/verify-email', {
@@ -241,46 +303,73 @@ export async function verifyEmailCode(
       const members = getStoredMembers();
       const existingIdx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === cleanEmail);
       if (existingIdx !== -1) {
-        members[existingIdx] = { ...members[existingIdx], ...data.user, passwordHash: '' };
+        members[existingIdx] = {
+          ...members[existingIdx],
+          ...data.user,
+          passwordHash: userPassword || members[existingIdx].passwordHash || '',
+        };
       } else {
-        members.push({ ...data.user, passwordHash: '' });
+        members.push({ ...data.user, passwordHash: userPassword });
       }
       saveMembers(members);
+
+      // Persist to Cloud Firestore database
+      saveMemberToCloud({
+        ...data.user,
+        passwordHash: userPassword,
+      }).catch(() => {});
+
+      deleteLocalPending(cleanEmail);
+      deletePendingFromCloud(cleanEmail).catch(() => {});
+
       return { success: true, user: data.user, token: data.token, message: data.message };
     }
     if (!resp.ok && data.error) {
       return { success: false, error: data.error };
     }
   } catch (err) {
-    console.info('Server verify endpoint unavailable, checking local pending verifications.');
+    console.info('Server verify endpoint unavailable, checking local & cloud pending verifications.');
   }
 
-  // Fallback to localPendingMap
-  const pending = localPendingMap.get(cleanEmail);
+  // Fallback to local and cloud pending verification
+  let cloudPending: any = null;
   if (!pending) {
+    try {
+      cloudPending = await getPendingFromCloud(cleanEmail);
+    } catch {}
+  }
+
+  const effectiveCode = pending?.code || cloudPending?.code;
+  const effectivePayload = pending?.payload || (cloudPending ? {
+    name: cloudPending.name,
+    email: cleanEmail,
+    password: cloudPending.passwordHash,
+    company: cloudPending.company,
+    targetWebsite: cloudPending.targetWebsite,
+    tier: cloudPending.tier,
+  } : null);
+
+  if (!effectiveCode || !effectivePayload) {
     return { success: false, error: 'No verification record found for this email address. Please register again.' };
   }
-  if (Date.now() > pending.expiresAt) {
-    localPendingMap.delete(cleanEmail);
-    return { success: false, error: 'Verification code has expired. Please request a new code.' };
-  }
-  if (pending.code !== cleanCode) {
+  if (effectiveCode !== cleanCode) {
     return { success: false, error: 'Invalid verification code. Please check your email and try again.' };
   }
 
-  const payload = pending.payload;
   const isSaroneedam = cleanEmail === 'saroneedam@gmail.com' || cleanEmail === 'saroneedam@yahoo.com';
-  const tier: MemberTier = payload.tier || 'starter';
+  const tier: MemberTier = effectivePayload.tier || 'starter';
   const customLimit = isSaroneedam ? 10000000 : tier === 'enterprise' ? 5000000 : tier === 'pro' ? 250000 : 25000;
   const maxVUs = isSaroneedam ? 250 : tier === 'enterprise' ? 100 : tier === 'pro' ? 50 : 15;
+
+  const resolvedPassword = effectivePayload.password || userPassword || '';
 
   const newUser: MemberUser & { passwordHash: string } = {
     id: isSaroneedam ? 'user_admin_saroneedam' : `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     email: cleanEmail,
-    name: payload.name.trim(),
+    name: effectivePayload.name.trim(),
     username: cleanEmail.split('@')[0],
-    company: isSaroneedam ? 'TrafficPulse HQ (Super Admin)' : payload.company?.trim() || undefined,
-    targetWebsite: payload.targetWebsite?.trim() || 'https://jobs.eezor.com',
+    company: isSaroneedam ? 'TrafficPulse HQ (Super Admin)' : effectivePayload.company?.trim() || undefined,
+    targetWebsite: effectivePayload.targetWebsite?.trim() || 'https://jobs.eezor.com',
     tier: isSaroneedam ? 'enterprise' : tier,
     role: isSaroneedam ? 'admin' : 'member',
     customVisitsLimit: customLimit,
@@ -290,7 +379,7 @@ export async function verifyEmailCode(
     joinedAt: Date.now(),
     lastLoginAt: Date.now(),
     isVerified: true,
-    passwordHash: '',
+    passwordHash: resolvedPassword,
     trafficBalance: isSaroneedam ? 10000000 : 500,
     totalTrafficAssigned: isSaroneedam ? 10000000 : 500,
     isPaidUser: isSaroneedam,
@@ -301,9 +390,25 @@ export async function verifyEmailCode(
   };
 
   const members = getStoredMembers();
-  members.push(newUser);
+  const existingIdx = members.findIndex(m => m.email.toLowerCase() === cleanEmail);
+  if (existingIdx !== -1) {
+    members[existingIdx] = newUser;
+  } else {
+    members.push(newUser);
+  }
   saveMembers(members);
-  localPendingMap.delete(cleanEmail);
+
+  // Persist to Cloud Firestore database
+  saveMemberToCloud(newUser).catch(() => {});
+  deleteLocalPending(cleanEmail);
+  deletePendingFromCloud(cleanEmail).catch(() => {});
+
+  // Sync to server
+  fetch('/api/auth/sync-member', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ member: newUser }),
+  }).catch(() => {});
 
   const { passwordHash: _, ...safeUser } = newUser;
   const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -367,7 +472,7 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
     return { success: false, error: 'Please enter your password.' };
   }
 
-  // Attempt backend API login
+  // 1. Attempt backend API login
   try {
     const resp = await fetch('/api/auth/login', {
       method: 'POST',
@@ -380,11 +485,13 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
       const members = getStoredMembers();
       const idx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === data.user.email.toLowerCase());
       if (idx !== -1) {
-        members[idx] = { ...members[idx], ...data.user, passwordHash: '' };
+        members[idx] = { ...members[idx], ...data.user, passwordHash: password };
       } else {
-        members.push({ ...data.user, passwordHash: '' });
+        members.push({ ...data.user, passwordHash: password });
       }
       saveMembers(members);
+      // Persist to Cloud Firestore database
+      saveMemberToCloud({ ...data.user, passwordHash: password }).catch(() => {});
       return { success: true, user: data.user, token: data.token };
     }
     if (!resp.ok && data.requiresVerification) {
@@ -395,16 +502,56 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
         error: data.error || 'Please verify your email address to activate your account.',
       };
     }
-    if (!resp.ok && data.error) {
-      const isSaroneedamCheck = query === 'saroneedam@gmail.com' || query === 'saroneedam@yahoo.com';
-      if (!isSaroneedamCheck) {
-        return { success: false, error: data.error };
-      }
+    if (resp.status === 401) {
+      return { success: false, error: data.error || 'Incorrect password. Please verify and try again.' };
     }
+    // If status is 404, continue to Firestore and local registry checks below
   } catch (err) {
-    console.info('Server auth endpoint unavailable, verifying against local registry.');
+    console.info('Server auth endpoint unavailable, checking cloud & local registries.');
   }
 
+  // 2. Direct Cloud Firestore database check (restores accounts across server restarts & cloud instances)
+  try {
+    const cloudUser = await getMemberFromCloud(query);
+    if (cloudUser && cloudUser.email) {
+      const isSaroneedam = cloudUser.email.toLowerCase() === 'saroneedam@gmail.com' || cloudUser.email.toLowerCase() === 'saroneedam@yahoo.com';
+      const isValidAdminPass = isSaroneedam && (password === 'Vivian123@' || password.trim() === 'Vivian123@');
+      const isMatchingPass = !cloudUser.passwordHash || cloudUser.passwordHash === password || cloudUser.passwordHash === password.trim();
+
+      if (isValidAdminPass || isMatchingPass) {
+        const { passwordHash: _, ...safeUser } = cloudUser;
+        const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        saveAuthSession(safeUser, token);
+
+        const members = getStoredMembers();
+        const idx = members.findIndex(m => m.email.toLowerCase() === safeUser.email.toLowerCase());
+        if (idx !== -1) {
+          members[idx] = { ...members[idx], ...safeUser, passwordHash: password };
+        } else {
+          members.push({ ...safeUser, passwordHash: password });
+        }
+        saveMembers(members);
+
+        // Update last login in Firestore
+        saveMemberToCloud({ ...safeUser, passwordHash: password, lastLoginAt: Date.now() }).catch(() => {});
+
+        // Synchronize with server cache
+        fetch('/api/auth/sync-member', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ member: { ...safeUser, passwordHash: password } }),
+        }).catch(() => {});
+
+        return { success: true, user: safeUser, token };
+      } else {
+        return { success: false, error: 'Incorrect password. Please verify and try again.' };
+      }
+    }
+  } catch (cloudErr) {
+    console.warn('Direct Firestore login check warning:', cloudErr);
+  }
+
+  // 3. Local storage registry check
   const members = getStoredMembers();
   const isSaroneedam = query === 'saroneedam@gmail.com' || query === 'saroneedam@yahoo.com';
   const isValidAdminPasskey = password === 'Vivian123@' || password.trim() === 'Vivian123@';
@@ -435,7 +582,7 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
         joinedAt: Date.now(),
         lastLoginAt: Date.now(),
         isVerified: true,
-        passwordHash: '',
+        passwordHash: 'Vivian123@',
         trafficBalance: 10000000,
         totalTrafficAssigned: 10000000,
         isPaidUser: true,
@@ -453,13 +600,21 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
       adminUser.customVisitsLimit = 10000000;
       adminUser.maxConcurrentVUs = 250;
       adminUser.lastLoginAt = Date.now();
-      adminUser.passwordHash = '';
+      adminUser.passwordHash = 'Vivian123@';
       if (!adminUser.trafficBalance || adminUser.trafficBalance < 10000000) {
         adminUser.trafficBalance = 10000000;
         adminUser.totalTrafficAssigned = 10000000;
       }
     }
     saveMembers(members);
+    saveMemberToCloud(adminUser).catch(() => {});
+
+    // Sync to server
+    fetch('/api/auth/sync-member', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ member: adminUser }),
+    }).catch(() => {});
 
     const { passwordHash: _, ...safeUser } = adminUser;
     const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -472,16 +627,25 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
   );
 
   if (!match) {
-    return { success: false, error: 'No member account found with this email or username.' };
+    return { success: false, error: 'No member account found with this email or username. Please register first.' };
   }
 
   if (match.passwordHash && match.passwordHash !== password && match.passwordHash !== password.trim()) {
     return { success: false, error: 'Incorrect password. Please verify and try again.' };
   }
 
-  // Update last login
+  // Update password if it was missing or needs saving
+  match.passwordHash = password;
   match.lastLoginAt = Date.now();
   saveMembers(members);
+  saveMemberToCloud(match).catch(() => {});
+
+  // Sync to server
+  fetch('/api/auth/sync-member', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ member: match }),
+  }).catch(() => {});
 
   const { passwordHash: _, ...safeUser } = match;
   const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;

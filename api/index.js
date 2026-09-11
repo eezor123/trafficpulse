@@ -211,8 +211,32 @@ function generateDomainAdaptivePages(targetUrl, hostname, origin, gaMeasurementI
   const gaDetected = !!gaMeasurementId || !!gtmId;
   const rawBrand = siteTitle && siteTitle.length < 35 && !siteTitle.includes("|") && !siteTitle.includes("-") ? siteTitle.trim() : hostname.replace(/^(?:www\.|jobs\.|careers\.|blog\.|app\.|shop\.)/i, "").replace(/\.[a-z.]+$/i, "");
   const brandName = rawBrand ? rawBrand.charAt(0).toUpperCase() + rawBrand.slice(1) : "Platform";
-  if (lowerHost.includes("job") || lowerHost.includes("career") || lowerHost.includes("work") || lowerHost.includes("vacancy") || lowerHost.includes("hire") || lowerHost.includes("talent") || lowerUrl.includes("job")) {
+  if (lowerHost.includes("job") || lowerHost.includes("career") || lowerHost.includes("work") || lowerHost.includes("vacancy") || lowerHost.includes("hire") || lowerHost.includes("talent") || lowerHost.includes("eezor") || lowerUrl.includes("job")) {
     const jobPaths = [
+      // Live Member-Created & User-Posted Listings (From Member Submissions)
+      { path: "/?job=job_1787164089747", title: "Male Barbecue sales person is urgently needed", cat: "post", weight: 99 },
+      { path: "/?job=job_1785681865131", title: "Social Media & Community Engagement Manager for Tech Hub", cat: "post", weight: 98 },
+      { path: "/?job=job_1784920193847", title: "Executive Virtual Assistant & WhatsApp Client Support Specialist", cat: "post", weight: 98 },
+      { path: "/?job=job_1783419082918", title: "Urgent: Dispatch Rider with Valid Riders Card (Lagos Island & Ikeja)", cat: "post", weight: 97 },
+      { path: "/?job=job_1782019482710", title: "Barista and Cafe Supervisor for Artisan Coffee House (Victoria Island)", cat: "post", weight: 97 },
+      // Core Verified Catalog Job Listings
+      { path: "/?job=job_101", title: "Mobile App Developer for Dispatch Rider Tracking System", cat: "post", weight: 96 },
+      { path: "/?job=job_102", title: "Brand Identity & Web UI/UX for Abuja Federal Contractor Portal", cat: "post", weight: 96 },
+      { path: "/?job=job_103", title: "15kVA Commercial Solar & Lithium Battery Setup in Trans-Amadi", cat: "post", weight: 95 },
+      { path: "/?job=job_104", title: "Tax Compliance & Audit Specialist for Enugu Tech Startup", cat: "post", weight: 95 },
+      { path: "/?job=job_105", title: "Urgently Needed: Full-Stack Next.js & Stripe/Paystack Engineer", cat: "post", weight: 96 },
+      { path: "/?job=job_106", title: "Social Media Content Creator & Video Editor for Skincare Brand", cat: "post", weight: 94 },
+      { path: "/?job=job_107", title: "Flutterwave & Monnify Virtual Account Payment Specialist", cat: "post", weight: 95 },
+      { path: "/?job=job_108", title: "Corporate Legal Advisor for Tech Startup Incorporation & NDPR", cat: "post", weight: 93 },
+      { path: "/?job=job_109", title: "Executive Real Estate Architectural Renderings & 3D Flythrough", cat: "post", weight: 94 },
+      { path: "/?job=job_110", title: "Hospitality CCTV & Biometric Access Control Installation Lead", cat: "post", weight: 94 },
+      { path: "/?job=job_111", title: "High-Scale PostgreSQL Database Administrator & Query Optimization", cat: "post", weight: 95 },
+      { path: "/?job=job_112", title: "E-commerce SEO Audit & Conversion Rate Optimization (CRO)", cat: "post", weight: 94 },
+      { path: "/?job=job_113", title: "Solar Inverter System Installation & Farm Automation Control", cat: "post", weight: 93 },
+      { path: "/?job=job_114", title: "Textile E-commerce Store & Hausa Multi-language UI Development", cat: "post", weight: 93 },
+      { path: "/?job=job_115", title: "Offshore Logistics Fleet Tracking & Petroleum Inventory Dashboard", cat: "post", weight: 94 },
+      { path: "/?job=job_116", title: "Hospitality Management Software & POS Integration for Owerri Hotel", cat: "post", weight: 94 },
+      // Category Hubs & Structural Portals
       { path: "/jobs", title: `All Open Vacancies | ${brandName}`, cat: "category", weight: 95 },
       { path: "/jobs/remote", title: "Remote & Hybrid Opportunities", cat: "category", weight: 94 },
       { path: "/jobs/engineering", title: "Software & Technology Roles", cat: "category", weight: 90 },
@@ -812,7 +836,7 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
       if (scriptUrls.length > 0) {
         const scriptTasks = scriptUrls.map(async (sUrl) => {
           try {
-            const sRes = await fetchFn(sUrl, 2e3);
+            const sRes = await fetchFn(sUrl, 8e3);
             if (!sRes.ok || !sRes.text) return;
             const jsCode = sRes.text;
             const jobMatches = jsCode.match(/["']?(job_[a-zA-Z0-9_]{2,32})["']?/g) || [];
@@ -822,10 +846,15 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
             const postMatches = jsCode.match(/["']?(post_[a-zA-Z0-9_]{2,32}|item_[a-zA-Z0-9_]{2,32}|listing_[a-zA-Z0-9_]{2,32})["']?/g) || [];
             const uniquePostIds = [...new Set(postMatches.map((m) => m.replace(/["']/g, "")))];
             const titleMap = /* @__PURE__ */ new Map();
-            const idTitleRegex = /(?:id|jobId|articleId|postId)["'\s:]+["']([^"']+)["'][\s\S]{1,75}?(?:title|name|headline)["'\s:]+["']([^"']{5,90})["']/gi;
+            const idTitleRegex = /(?:id|jobId|articleId|postId)["'\s:]+["']([^"']+)["'][\s\S]{1,120}?(?:title|name|headline)["'\s:]+["']([^"']{5,120})["']/gi;
             let itm;
             while ((itm = idTitleRegex.exec(jsCode)) !== null) {
               titleMap.set(itm[1], itm[2].trim());
+            }
+            const reverseRegex = /(?:title|name|headline)["'\s:]+["']([^"']{5,120})["'][\s\S]{1,120}?(?:id|jobId|articleId|postId)["'\s:]+["']([^"']+)["']/gi;
+            let ritm;
+            while ((ritm = reverseRegex.exec(jsCode)) !== null) {
+              titleMap.set(ritm[2], ritm[1].trim());
             }
             for (const jId of uniqueJobIds.slice(0, 45)) {
               if (discoveredPages.length >= maxLinks) break;
@@ -1276,82 +1305,100 @@ app.use((req, res, next) => {
   next();
 });
 var router = express.Router();
-var serverMembers = [
-  {
-    id: "user_admin_saroneedam",
-    email: "saroneedam@yahoo.com",
-    name: "Saroneedam Admin",
-    username: "saroneedam",
-    company: "TrafficPulse HQ (Super Admin)",
-    targetWebsite: "https://jobs.eezor.com",
-    tier: "enterprise",
-    role: "admin",
-    customVisitsLimit: 1e7,
-    maxConcurrentVUs: 250,
-    totalCampaignsRun: 88,
-    totalVisitsGenerated: 65e4,
-    joinedAt: Date.now() - 90 * 24 * 60 * 60 * 1e3,
-    lastLoginAt: Date.now(),
-    isVerified: true,
-    passwordHash: "Vivian123@"
-  },
-  {
-    id: "user_pro_demo",
-    email: "alex@trafficpulse.io",
-    name: "Alex Mercer",
-    username: "alex_pro",
-    company: "Nexus Digital Agency",
-    targetWebsite: "https://jobs.eezor.com",
-    tier: "pro",
-    role: "member",
-    customVisitsLimit: 5e5,
-    maxConcurrentVUs: 50,
-    totalCampaignsRun: 18,
-    totalVisitsGenerated: 42800,
-    joinedAt: Date.now() - 30 * 24 * 60 * 60 * 1e3,
-    lastLoginAt: Date.now(),
-    isVerified: true,
-    passwordHash: "pro123"
-  },
-  {
-    id: "user_enterprise_demo",
-    email: "sarah@growthwave.agency",
-    name: "Sarah Chen",
-    username: "schen",
-    company: "GrowthWave Global",
-    targetWebsite: "https://9jajobs.vercel.app",
-    tier: "enterprise",
-    role: "admin",
-    customVisitsLimit: 2e6,
-    maxConcurrentVUs: 100,
-    totalCampaignsRun: 45,
-    totalVisitsGenerated: 189e3,
-    joinedAt: Date.now() - 60 * 24 * 60 * 60 * 1e3,
-    lastLoginAt: Date.now(),
-    isVerified: true,
-    passwordHash: "growth123"
-  },
-  {
-    id: "user_starter_demo",
-    email: "starter@trafficpulse.io",
-    name: "David Okafor",
-    username: "david_starter",
-    company: "TechLaunch Nigeria",
-    targetWebsite: "https://jobs.eezor.com",
-    tier: "starter",
-    role: "member",
-    customVisitsLimit: 1e4,
-    maxConcurrentVUs: 10,
-    totalCampaignsRun: 4,
-    totalVisitsGenerated: 3500,
-    joinedAt: Date.now() - 7 * 24 * 60 * 60 * 1e3,
-    lastLoginAt: Date.now(),
-    isVerified: true,
-    passwordHash: "starter123"
+var serverMembers = [];
+var activeSessions = /* @__PURE__ */ new Map();
+var ipRegistry = /* @__PURE__ */ new Map();
+var pendingVerifications = /* @__PURE__ */ new Map();
+async function sendVerificationEmail(toEmail, code, name) {
+  console.log(`[EMAIL-VERIFICATION] Dispatching 6-digit code for ${toEmail}: ${code}`);
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const port = parseInt(process.env.SMTP_PORT || "587", 10);
+  const secure = process.env.SMTP_SECURE === "true" || port === 465;
+  const from = process.env.EMAIL_FROM || '"TrafficPulse" <no-reply@trafficpulse.io>';
+  if (host && user && pass) {
+    try {
+      const nodemailer = await import("nodemailer");
+      const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: { user, pass }
+      });
+      const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; background: #0f172a; color: #f8fafc; border-radius: 16px; border: 1px solid #1e293b;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <h1 style="color: #10b981; margin: 0; font-size: 26px; font-weight: 800;">TrafficPulse</h1>
+            <p style="color: #94a3b8; font-size: 13px; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px;">Account Email Verification</p>
+          </div>
+          <div style="background: #1e293b; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
+            <p style="margin: 0 0 12px; font-size: 16px; color: #e2e8f0;">Hello <strong>${name || "there"}</strong>,</p>
+            <p style="margin: 0 0 20px; font-size: 14px; color: #94a3b8; line-height: 1.5;">Please enter the 6-digit verification code below to confirm your email and immediately claim your <strong>500 Free Trial Traffic Credits</strong>.</p>
+            <div style="font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #34d399; background: #090d16; padding: 18px 24px; border-radius: 10px; border: 1px dashed #10b981; display: inline-block; font-family: monospace;">
+              ${code}
+            </div>
+            <p style="margin: 20px 0 0; font-size: 12px; color: #64748b;">This verification code is valid for 15 minutes.</p>
+          </div>
+          <p style="font-size: 11px; color: #475569; text-align: center; margin: 0;">If you didn't create a TrafficPulse account, you can ignore this message.</p>
+        </div>
+      `;
+      const info = await transporter.sendMail({
+        from,
+        to: toEmail,
+        subject: `Your TrafficPulse Verification Code: ${code}`,
+        text: `Your TrafficPulse email verification code is: ${code}. It expires in 15 minutes.`,
+        html
+      });
+      console.log(`[EMAIL-VERIFICATION] Outbound SMTP email delivered successfully to ${toEmail} (Message ID: ${info.messageId})`);
+      return { sent: true, messageId: info.messageId };
+    } catch (smtpErr) {
+      console.warn(`[EMAIL-VERIFICATION] SMTP delivery encountered error:`, smtpErr?.message || smtpErr);
+      return { sent: false, error: smtpErr?.message };
+    }
   }
-];
-router.post("/auth/register", (req, res) => {
-  const { name, email, password, company, targetWebsite, tier = "pro" } = req.body;
+  console.log(`[EMAIL-VERIFICATION] [PREVIEW SIMULATION] Code for ${toEmail}: ${code}`);
+  return { sent: true };
+}
+function getClientIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") {
+    return forwarded.split(",")[0].trim();
+  }
+  if (Array.isArray(forwarded) && forwarded[0]) {
+    return forwarded[0].trim();
+  }
+  const sock = req.socket?.remoteAddress || "";
+  if (sock.startsWith("::ffff:")) {
+    return sock.replace("::ffff:", "");
+  }
+  return sock || req.ip || "127.0.0.1";
+}
+function isSaroneedamAdminEmail(email) {
+  const clean = email.trim().toLowerCase();
+  return clean === "saroneedam@gmail.com" || clean === "saroneedam@yahoo.com";
+}
+router.get("/auth/client-ip", (req, res) => {
+  const ip = getClientIp(req);
+  const existing = ipRegistry.get(ip);
+  res.json({
+    success: true,
+    ip,
+    hasExistingAccount: !!existing && existing.count > 0,
+    accountsOnIp: existing ? existing.count : 0
+  });
+});
+router.get("/auth/members", (req, res) => {
+  const safeList = serverMembers.map(({ passwordHash: _, ...safe }) => safe);
+  res.json({
+    success: true,
+    members: safeList,
+    totalCount: safeList.length
+  });
+});
+router.post("/auth/register", async (req, res) => {
+  const { name, email, password, company, targetWebsite, tier = "starter" } = req.body;
+  const clientIp = getClientIp(req);
   if (!email || !email.includes("@")) {
     return res.status(400).json({ success: false, error: "Valid email address is required." });
   }
@@ -1363,21 +1410,100 @@ router.post("/auth/register", (req, res) => {
   }
   const cleanEmail = email.trim().toLowerCase();
   const existing = serverMembers.find((m) => m.email.toLowerCase() === cleanEmail);
-  if (existing) {
-    return res.status(409).json({ success: false, error: "An account with this email already exists." });
+  if (existing && existing.isVerified) {
+    return res.status(409).json({ success: false, error: "An account with this email already exists and is verified. Please sign in." });
   }
-  const memberTier = tier === "enterprise" ? "enterprise" : tier === "starter" ? "starter" : "pro";
-  const customLimit = memberTier === "enterprise" ? 5e6 : memberTier === "pro" ? 25e4 : 25e3;
-  const maxVUs = memberTier === "enterprise" ? 100 : memberTier === "pro" ? 50 : 15;
-  const newMember = {
-    id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+  const isAdmin = isSaroneedamAdminEmail(cleanEmail);
+  const ipRecord = ipRegistry.get(clientIp);
+  if (ipRecord && ipRecord.count >= 1 && !isAdmin) {
+    console.warn(`[ANTI-ABUSE] Multi-account registration blocked on IP ${clientIp} for ${cleanEmail}. Existing accounts: ${ipRecord.emails.join(", ")}`);
+    return res.status(429).json({
+      success: false,
+      error: `Anti-Abuse Verification: An account (${ipRecord.emails[0]}) is already registered from this IP address (${clientIp}). The 500 Free Trial traffic credits are strictly limited to 1 trial per network. Please log in with your existing account.`
+    });
+  }
+  const memberTier = isAdmin ? "enterprise" : tier === "enterprise" ? "enterprise" : tier === "starter" ? "starter" : "pro";
+  const verificationCode = Math.floor(1e5 + Math.random() * 9e5).toString();
+  const expiresAt = Date.now() + 15 * 60 * 1e3;
+  pendingVerifications.set(cleanEmail, {
     email: cleanEmail,
+    code: verificationCode,
     name: name.trim(),
-    username: cleanEmail.split("@")[0],
-    company: company?.trim() || void 0,
-    targetWebsite: targetWebsite?.trim() || void 0,
+    passwordHash: password,
+    company: company?.trim() || (isAdmin ? "TrafficPulse HQ (Super Admin)" : void 0),
+    targetWebsite: targetWebsite?.trim() || "https://jobs.eezor.com",
     tier: memberTier,
-    role: "member",
+    clientIp,
+    createdAt: Date.now(),
+    expiresAt,
+    attempts: 0
+  });
+  console.log(`[AUTH] Normal registration requested for ${cleanEmail}. Code: ${verificationCode}`);
+  sendVerificationEmail(cleanEmail, verificationCode, name.trim()).catch((err) => {
+    console.warn("[AUTH] Error during background verification dispatch:", err);
+  });
+  return res.json({
+    success: true,
+    requiresVerification: true,
+    email: cleanEmail,
+    message: `A 6-digit confirmation code has been dispatched to ${cleanEmail}. Please enter the code to verify your account and claim your 500 Free Trial visits.`
+  });
+});
+router.post("/auth/verify-email", (req, res) => {
+  const { email, code } = req.body;
+  const clientIp = getClientIp(req);
+  if (!email || !code) {
+    return res.status(400).json({ success: false, error: "Email and verification code are required." });
+  }
+  const cleanEmail = String(email).trim().toLowerCase();
+  const inputCode = String(code).trim();
+  const pending = pendingVerifications.get(cleanEmail);
+  if (!pending) {
+    return res.status(400).json({
+      success: false,
+      error: "No pending verification was found for this email address or it has expired. Please register again."
+    });
+  }
+  if (Date.now() > pending.expiresAt) {
+    pendingVerifications.delete(cleanEmail);
+    return res.status(400).json({
+      success: false,
+      error: "Verification code has expired (15-minute validity limit). Please request a new code."
+    });
+  }
+  if (pending.attempts >= 5) {
+    pendingVerifications.delete(cleanEmail);
+    return res.status(429).json({
+      success: false,
+      error: "Too many incorrect verification attempts. For your security, please restart registration."
+    });
+  }
+  if (pending.code !== inputCode) {
+    pending.attempts += 1;
+    const remaining = 5 - pending.attempts;
+    return res.status(400).json({
+      success: false,
+      error: `Invalid verification code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`
+    });
+  }
+  const isAdmin = isSaroneedamAdminEmail(cleanEmail);
+  const memberTier = isAdmin ? "enterprise" : pending.tier;
+  const initialBalance = isAdmin ? 1e7 : 500;
+  const customLimit = isAdmin ? 1e7 : 500;
+  const maxVUs = isAdmin ? 250 : 25;
+  const existingIdx = serverMembers.findIndex((m) => m.email.toLowerCase() === cleanEmail);
+  if (existingIdx !== -1) {
+    serverMembers.splice(existingIdx, 1);
+  }
+  const newMember = {
+    id: isAdmin ? "user_admin_saroneedam" : `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    email: cleanEmail,
+    name: pending.name,
+    username: cleanEmail.split("@")[0],
+    company: pending.company,
+    targetWebsite: pending.targetWebsite || "https://jobs.eezor.com",
+    tier: memberTier,
+    role: isAdmin ? "admin" : "member",
     customVisitsLimit: customLimit,
     maxConcurrentVUs: maxVUs,
     totalCampaignsRun: 0,
@@ -1385,36 +1511,188 @@ router.post("/auth/register", (req, res) => {
     joinedAt: Date.now(),
     lastLoginAt: Date.now(),
     isVerified: true,
-    passwordHash: password
+    passwordHash: pending.passwordHash,
+    trafficBalance: initialBalance,
+    totalTrafficAssigned: initialBalance,
+    isPaidUser: isAdmin,
+    trafficStatus: isAdmin ? "unlimited" : "trial_active",
+    registrationIp: clientIp,
+    lastLoginIp: clientIp,
+    authProvider: "email"
   };
   serverMembers.push(newMember);
-  const { passwordHash: _, ...safeUser } = newMember;
+  pendingVerifications.delete(cleanEmail);
+  const ipRecord = ipRegistry.get(clientIp);
+  if (ipRecord) {
+    ipRecord.count += 1;
+    ipRecord.accountIds.push(newMember.id);
+    ipRecord.emails.push(cleanEmail);
+    ipRecord.lastAttemptAt = Date.now();
+  } else {
+    ipRegistry.set(clientIp, {
+      ip: clientIp,
+      accountIds: [newMember.id],
+      emails: [cleanEmail],
+      count: 1,
+      firstRegisteredAt: Date.now(),
+      lastAttemptAt: Date.now()
+    });
+  }
   const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  res.json({
+  activeSessions.set(token, newMember.id);
+  const { passwordHash: _, ...safeUser } = newMember;
+  console.log(`[AUTH] Email verified and account activated for ${cleanEmail} (Balance: ${initialBalance})`);
+  return res.json({
     success: true,
     user: safeUser,
     token,
-    message: "Member registered successfully."
+    message: isAdmin ? "Super Admin email verified! Unlimited enterprise session initialized." : "Email verified! 500 Free Trial traffic credits have been credited to your account."
+  });
+});
+router.post("/auth/resend-code", async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ success: false, error: "Email address is required to resend verification code." });
+  }
+  const cleanEmail = String(email).trim().toLowerCase();
+  let pending = pendingVerifications.get(cleanEmail);
+  if (!pending) {
+    const existing = serverMembers.find((m) => m.email.toLowerCase() === cleanEmail);
+    if (existing && !existing.isVerified) {
+      pending = {
+        email: cleanEmail,
+        code: Math.floor(1e5 + Math.random() * 9e5).toString(),
+        name: existing.name,
+        passwordHash: existing.passwordHash,
+        company: existing.company,
+        targetWebsite: existing.targetWebsite,
+        tier: existing.tier,
+        clientIp: getClientIp(req),
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 15 * 60 * 1e3,
+        attempts: 0
+      };
+      pendingVerifications.set(cleanEmail, pending);
+    } else {
+      return res.status(404).json({
+        success: false,
+        error: "No pending registration was found for this email. Please register for an account."
+      });
+    }
+  } else {
+    pending.code = Math.floor(1e5 + Math.random() * 9e5).toString();
+    pending.expiresAt = Date.now() + 15 * 60 * 1e3;
+    pending.attempts = 0;
+  }
+  console.log(`[AUTH] Resending verification code for ${cleanEmail}: ${pending.code}`);
+  sendVerificationEmail(cleanEmail, pending.code, pending.name).catch((err) => {
+    console.warn("[AUTH] Error resending verification email:", err);
+  });
+  return res.json({
+    success: true,
+    message: `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail}.`
   });
 });
 router.post("/auth/login", (req, res) => {
   const { emailOrUsername, password } = req.body;
+  const clientIp = getClientIp(req);
   if (!emailOrUsername || !password) {
     return res.status(400).json({ success: false, error: "Email/Username and password required." });
   }
   const query = String(emailOrUsername).trim().toLowerCase();
-  const member = serverMembers.find(
+  let member = serverMembers.find(
     (m) => m.email.toLowerCase() === query || m.username.toLowerCase() === query
   );
-  if (!member) {
-    return res.status(404).json({ success: false, error: "No member account found with this email or username." });
+  if (!member && isSaroneedamAdminEmail(query)) {
+    if (password === "Vivian123@" || password.trim() === "Vivian123@") {
+      member = {
+        id: "user_admin_saroneedam",
+        email: query,
+        name: "Saroneedam Admin",
+        username: query.split("@")[0],
+        company: "TrafficPulse HQ (Super Admin)",
+        targetWebsite: "https://jobs.eezor.com",
+        tier: "enterprise",
+        role: "admin",
+        customVisitsLimit: 1e7,
+        maxConcurrentVUs: 250,
+        totalCampaignsRun: 0,
+        totalVisitsGenerated: 0,
+        joinedAt: Date.now(),
+        lastLoginAt: Date.now(),
+        isVerified: true,
+        passwordHash: "Vivian123@",
+        trafficBalance: 1e7,
+        totalTrafficAssigned: 1e7,
+        isPaidUser: true,
+        trafficStatus: "unlimited",
+        registrationIp: clientIp,
+        lastLoginIp: clientIp,
+        authProvider: "email"
+      };
+      serverMembers.push(member);
+    } else {
+      return res.status(401).json({ success: false, error: "Invalid Super Admin password credentials." });
+    }
   }
-  if (member.passwordHash !== password && password !== "pro123" && password !== "admin123" && password !== "Vivian123@") {
+  if (!member) {
+    const pending = pendingVerifications.get(query);
+    if (pending) {
+      return res.status(403).json({
+        success: false,
+        requiresVerification: true,
+        email: pending.email,
+        error: "Your email address is not yet verified. Please enter the verification code sent to your inbox."
+      });
+    }
+    return res.status(404).json({ success: false, error: "No member account found with this email or username. Please register first." });
+  }
+  const isAdmin = isSaroneedamAdminEmail(member.email);
+  const isValidAdminPass = isAdmin && (password === "Vivian123@" || password.trim() === "Vivian123@");
+  const isMatchingMemberPass = member.passwordHash === password || member.passwordHash === password.trim();
+  if (!isValidAdminPass && !isMatchingMemberPass) {
     return res.status(401).json({ success: false, error: "Invalid password credentials." });
   }
+  if (!member.isVerified) {
+    const code = Math.floor(1e5 + Math.random() * 9e5).toString();
+    pendingVerifications.set(member.email.toLowerCase(), {
+      email: member.email.toLowerCase(),
+      code,
+      name: member.name,
+      passwordHash: member.passwordHash,
+      company: member.company,
+      targetWebsite: member.targetWebsite,
+      tier: member.tier,
+      clientIp,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 15 * 60 * 1e3,
+      attempts: 0
+    });
+    sendVerificationEmail(member.email, code, member.name).catch(() => {
+    });
+    return res.status(403).json({
+      success: false,
+      requiresVerification: true,
+      email: member.email,
+      error: "Your email address is not verified yet. Please enter the verification code to activate your account."
+    });
+  }
+  if (isAdmin) {
+    member.role = "admin";
+    member.tier = "enterprise";
+    member.isPaidUser = true;
+    member.trafficStatus = "unlimited";
+    member.passwordHash = "Vivian123@";
+    if (!member.trafficBalance || member.trafficBalance < 1e7) {
+      member.trafficBalance = 1e7;
+      member.totalTrafficAssigned = 1e7;
+    }
+  }
   member.lastLoginAt = Date.now();
+  member.lastLoginIp = clientIp;
   const { passwordHash: _, ...safeUser } = member;
   const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  activeSessions.set(token, member.id);
   res.json({
     success: true,
     user: safeUser,
@@ -1423,67 +1701,106 @@ router.post("/auth/login", (req, res) => {
   });
 });
 router.post("/auth/google", (req, res) => {
-  const { email, name, avatar, adminPasscode } = req.body;
-  const googleEmail = (email || "user@example.com").trim().toLowerCase();
-  const isSaroneedam = googleEmail.includes("saroneedam");
-  let isAdmin = false;
-  if (isSaroneedam) {
-    if (adminPasscode === "Vivian123@") {
-      isAdmin = true;
-    } else {
-      return res.status(403).json({
+  const { email, name, avatar, uid, adminPasscode } = req.body;
+  const clientIp = getClientIp(req);
+  const googleEmail = (email || "").trim().toLowerCase();
+  if (!googleEmail || !googleEmail.includes("@")) {
+    return res.status(400).json({ success: false, error: "Valid Google account email is required." });
+  }
+  const isAdmin = isSaroneedamAdminEmail(googleEmail);
+  if (isAdmin && !uid) {
+    if (adminPasscode !== "Vivian123@" && adminPasscode?.trim() !== "Vivian123@") {
+      return res.status(401).json({
         success: false,
         requiresAdminPasscode: true,
-        error: "Admin verification required: Please provide the Super Admin passkey to log in with this account."
+        error: "Administrative security passkey is required to access this account."
       });
     }
   }
   const userAvatar = typeof avatar === "string" && avatar.trim() ? avatar.trim() : void 0;
-  const googleName = name?.trim() || (isAdmin ? "Saroneedam Admin" : "Google Verified Member");
-  let member = serverMembers.find(
-    (m) => m.email.toLowerCase() === googleEmail || isAdmin && m.email.toLowerCase() === "saroneedam@yahoo.com"
-  );
+  const googleName = name?.trim() || googleEmail.split("@")[0];
+  let member = serverMembers.find((m) => m.email.toLowerCase() === googleEmail);
   if (!member) {
+    const ipRecord = ipRegistry.get(clientIp);
+    if (ipRecord && ipRecord.count >= 1 && !isAdmin) {
+      console.warn(`[ANTI-ABUSE] Google registration blocked on IP ${clientIp} for ${googleEmail}.`);
+      return res.status(429).json({
+        success: false,
+        error: `Anti-Abuse Verification: An account was already registered from this network (${clientIp}). The 500 Free Trial credits are limited to 1 per network. Please sign in with your original account.`
+      });
+    }
+    const initialCredits = isAdmin ? 1e7 : 500;
     member = {
-      id: `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      id: uid ? `user_google_${uid}` : isAdmin ? "user_admin_saroneedam" : `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       email: googleEmail,
       name: googleName,
       username: googleEmail.split("@")[0],
-      company: isAdmin ? "TrafficPulse HQ (Super Admin)" : "Google Verified Organization",
+      company: isAdmin ? "TrafficPulse HQ (Super Admin)" : void 0,
       targetWebsite: "https://jobs.eezor.com",
       tier: isAdmin ? "enterprise" : "starter",
       role: isAdmin ? "admin" : "member",
-      customVisitsLimit: isAdmin ? 1e7 : 5e4,
+      customVisitsLimit: isAdmin ? 1e7 : 500,
       maxConcurrentVUs: isAdmin ? 250 : 25,
-      totalCampaignsRun: isAdmin ? 88 : 1,
-      totalVisitsGenerated: isAdmin ? 65e4 : 0,
+      totalCampaignsRun: 0,
+      totalVisitsGenerated: 0,
       joinedAt: Date.now(),
       lastLoginAt: Date.now(),
       isVerified: true,
       avatar: userAvatar,
-      passwordHash: isAdmin ? "Vivian123@" : "google_oauth_auth"
+      passwordHash: "",
+      trafficBalance: initialCredits,
+      totalTrafficAssigned: initialCredits,
+      isPaidUser: isAdmin,
+      trafficStatus: isAdmin ? "unlimited" : "trial_active",
+      registrationIp: clientIp,
+      lastLoginIp: clientIp,
+      authProvider: "google"
     };
     serverMembers.push(member);
+    if (ipRecord) {
+      ipRecord.count += 1;
+      ipRecord.accountIds.push(member.id);
+      ipRecord.emails.push(googleEmail);
+      ipRecord.lastAttemptAt = Date.now();
+    } else {
+      ipRegistry.set(clientIp, {
+        ip: clientIp,
+        accountIds: [member.id],
+        emails: [googleEmail],
+        count: 1,
+        firstRegisteredAt: Date.now(),
+        lastAttemptAt: Date.now()
+      });
+    }
+    console.log(`[AUTH] New Google user registered: ${googleEmail} (IP: ${clientIp}, Assigned 500 Free Trial)`);
   } else {
     member.lastLoginAt = Date.now();
+    member.lastLoginIp = clientIp;
     member.isVerified = true;
+    if (userAvatar) {
+      member.avatar = userAvatar;
+    }
     if (isAdmin) {
       member.role = "admin";
       member.tier = "enterprise";
+      member.isPaidUser = true;
+      member.trafficStatus = "unlimited";
       member.customVisitsLimit = 1e7;
-      member.company = "TrafficPulse HQ (Super Admin)";
-    }
-    if (userAvatar !== void 0) {
-      member.avatar = userAvatar;
+      member.maxConcurrentVUs = 250;
+      if (!member.trafficBalance || member.trafficBalance < 1e7) {
+        member.trafficBalance = 1e7;
+        member.totalTrafficAssigned = 1e7;
+      }
     }
   }
   const { passwordHash: _, ...safeUser } = member;
   const token = `tp_google_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  activeSessions.set(token, member.id);
   res.json({
     success: true,
     user: safeUser,
     token,
-    message: isAdmin ? "Super Admin authenticated successfully." : "Google login successful."
+    message: isAdmin ? "Super Admin authenticated via Google." : member.joinedAt === member.lastLoginAt ? "Welcome! 500 Free Trial traffic credits have been credited to your account." : "Google login successful."
   });
 });
 router.post("/auth/profile", (req, res) => {
@@ -1501,7 +1818,7 @@ router.post("/auth/profile", (req, res) => {
     if (newPassword.length < 5) {
       return res.status(400).json({ success: false, error: "New password must be at least 5 characters." });
     }
-    if (member.passwordHash && member.passwordHash !== "google_oauth_auth") {
+    if (member.passwordHash && member.passwordHash !== "firebase_google_auth") {
       if (!currentPassword || currentPassword !== member.passwordHash && currentPassword !== "Vivian123@") {
         return res.status(401).json({ success: false, error: "Current password verification failed." });
       }
@@ -1535,10 +1852,24 @@ router.get("/auth/me", (req, res) => {
   if (!authHeader) {
     return res.status(401).json({ success: false, error: "Authorization header missing." });
   }
-  const { passwordHash: _, ...safeUser } = serverMembers[0];
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const memberId = activeSessions.get(token);
+  if (!memberId) {
+    return res.status(401).json({ success: false, error: "Session expired or invalid." });
+  }
+  const member = serverMembers.find((m) => m.id === memberId);
+  if (!member) {
+    return res.status(401).json({ success: false, error: "Member not found." });
+  }
+  const { passwordHash: _, ...safeUser } = member;
   res.json({ success: true, user: safeUser });
 });
 router.post("/auth/logout", (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader) {
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    activeSessions.delete(token);
+  }
   res.json({ success: true, message: "Logged out successfully." });
 });
 var products = Array.from({ length: 50 }, (_, i) => ({

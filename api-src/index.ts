@@ -4,6 +4,16 @@ import dotenv from 'dotenv';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { executeUniversalCrawl, type FetchFunction } from '../src/utils/universalCrawler.ts';
+import {
+  findMember,
+  persistMember,
+  listAllMembers,
+  findPending,
+  persistPending,
+  removePending,
+  type ServerMember,
+  type PendingVerification,
+} from '../src/server/memberStore.ts';
 
 dotenv.config();
 
@@ -82,36 +92,6 @@ const router = express.Router();
 // ----------------------------------------------------
 // MEMBER AUTHENTICATION & REGISTRATION ENDPOINTS
 // ----------------------------------------------------
-interface ServerMember {
-  id: string;
-  email: string;
-  name: string;
-  username: string;
-  company?: string;
-  targetWebsite?: string;
-  tier: 'starter' | 'pro' | 'enterprise';
-  role: 'member' | 'admin';
-  customVisitsLimit?: number;
-  maxConcurrentVUs?: number;
-  totalCampaignsRun: number;
-  totalVisitsGenerated: number;
-  joinedAt: number;
-  lastLoginAt: number;
-  isVerified: boolean;
-  avatar?: string;
-  passwordHash: string;
-  trafficBalance?: number;
-  totalTrafficAssigned?: number;
-  isPaidUser?: boolean;
-  trafficStatus?: 'trial_active' | 'active' | 'exhausted' | 'unlimited';
-  registrationIp?: string;
-  lastLoginIp?: string;
-  authProvider?: 'email' | 'google';
-}
-
-// Purely dynamic user registry: NO pre-seeded default or mock users
-const serverMembers: ServerMember[] = [];
-
 // Active user sessions: token -> memberId (prevents credential/account leakage across sessions)
 const activeSessions = new Map<string, string>();
 
@@ -125,22 +105,6 @@ interface IpAuditEntry {
   lastAttemptAt: number;
 }
 const ipRegistry = new Map<string, IpAuditEntry>();
-
-// Pending Email Verifications Store (15-minute OTP lifecycle)
-interface PendingVerification {
-  email: string;
-  code: string;
-  name: string;
-  passwordHash: string;
-  company?: string;
-  targetWebsite?: string;
-  tier: 'starter' | 'pro' | 'enterprise';
-  clientIp: string;
-  createdAt: number;
-  expiresAt: number;
-  attempts: number;
-}
-const pendingVerifications = new Map<string, PendingVerification>();
 
 // Helper to dispatch email verification via SMTP (or log simulation if SMTP unconfigured)
 async function sendVerificationEmail(toEmail: string, code: string, name: string): Promise<{ sent: boolean; messageId?: string; error?: string }> {
@@ -234,13 +198,40 @@ router.get('/auth/client-ip', (req: Request, res: Response) => {
 });
 
 // Get all members for Admin Modal (passwords stripped)
-router.get('/auth/members', (req: Request, res: Response) => {
-  const safeList = serverMembers.map(({ passwordHash: _, ...safe }) => safe);
-  res.json({
-    success: true,
-    members: safeList,
-    totalCount: safeList.length,
-  });
+router.get('/auth/members', async (req: Request, res: Response) => {
+  try {
+    const allMembers = await listAllMembers();
+    const safeList = allMembers.map(({ passwordHash: _, ...safe }) => safe);
+    res.json({
+      success: true,
+      members: safeList,
+      totalCount: safeList.length,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to list members' });
+  }
+});
+
+// Client-to-server member synchronization endpoint
+router.post('/auth/sync-member', async (req: Request, res: Response) => {
+  const { member } = req.body;
+  if (!member || !member.email) {
+    return res.status(400).json({ success: false, error: 'Member data with valid email is required.' });
+  }
+  try {
+    const cleanEmail = String(member.email).trim().toLowerCase();
+    const existing = await findMember(cleanEmail);
+    const updated: ServerMember = {
+      ...(existing || {}),
+      ...member,
+      email: cleanEmail,
+      lastLoginAt: Date.now(),
+    };
+    await persistMember(updated);
+    return res.json({ success: true, message: 'Member synchronized successfully.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to sync member' });
+  }
 });
 
 router.post('/auth/register', async (req: Request, res: Response) => {
@@ -258,7 +249,7 @@ router.post('/auth/register', async (req: Request, res: Response) => {
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  const existing = serverMembers.find(m => m.email.toLowerCase() === cleanEmail);
+  const existing = await findMember(cleanEmail);
   if (existing && existing.isVerified) {
     return res.status(409).json({ success: false, error: 'An account with this email already exists and is verified. Please sign in.' });
   }
@@ -281,7 +272,7 @@ router.post('/auth/register', async (req: Request, res: Response) => {
   const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
   const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes validity
 
-  pendingVerifications.set(cleanEmail, {
+  await persistPending({
     email: cleanEmail,
     code: verificationCode,
     name: name.trim(),
@@ -310,7 +301,7 @@ router.post('/auth/register', async (req: Request, res: Response) => {
 });
 
 // Verify 6-digit email confirmation code & activate account
-router.post('/auth/verify-email', (req: Request, res: Response) => {
+router.post('/auth/verify-email', async (req: Request, res: Response) => {
   const { email, code } = req.body;
   const clientIp = getClientIp(req);
 
@@ -320,7 +311,7 @@ router.post('/auth/verify-email', (req: Request, res: Response) => {
 
   const cleanEmail = String(email).trim().toLowerCase();
   const inputCode = String(code).trim();
-  const pending = pendingVerifications.get(cleanEmail);
+  const pending = await findPending(cleanEmail);
 
   if (!pending) {
     return res.status(400).json({
@@ -330,7 +321,7 @@ router.post('/auth/verify-email', (req: Request, res: Response) => {
   }
 
   if (Date.now() > pending.expiresAt) {
-    pendingVerifications.delete(cleanEmail);
+    await removePending(cleanEmail);
     return res.status(400).json({
       success: false,
       error: 'Verification code has expired (15-minute validity limit). Please request a new code.',
@@ -338,7 +329,7 @@ router.post('/auth/verify-email', (req: Request, res: Response) => {
   }
 
   if (pending.attempts >= 5) {
-    pendingVerifications.delete(cleanEmail);
+    await removePending(cleanEmail);
     return res.status(429).json({
       success: false,
       error: 'Too many incorrect verification attempts. For your security, please restart registration.',
@@ -347,6 +338,7 @@ router.post('/auth/verify-email', (req: Request, res: Response) => {
 
   if (pending.code !== inputCode) {
     pending.attempts += 1;
+    await persistPending(pending);
     const remaining = 5 - pending.attempts;
     return res.status(400).json({
       success: false,
@@ -360,12 +352,6 @@ router.post('/auth/verify-email', (req: Request, res: Response) => {
   const initialBalance = isAdmin ? 10000000 : 500;
   const customLimit = isAdmin ? 10000000 : 500;
   const maxVUs = isAdmin ? 250 : 25;
-
-  // Remove any previous unverified entry
-  const existingIdx = serverMembers.findIndex(m => m.email.toLowerCase() === cleanEmail);
-  if (existingIdx !== -1) {
-    serverMembers.splice(existingIdx, 1);
-  }
 
   const newMember: ServerMember = {
     id: isAdmin ? 'user_admin_saroneedam' : `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -393,8 +379,8 @@ router.post('/auth/verify-email', (req: Request, res: Response) => {
     authProvider: 'email',
   };
 
-  serverMembers.push(newMember);
-  pendingVerifications.delete(cleanEmail);
+  await persistMember(newMember);
+  await removePending(cleanEmail);
 
   // Record IP audit log
   const ipRecord = ipRegistry.get(clientIp);
@@ -438,10 +424,10 @@ router.post('/auth/resend-code', async (req: Request, res: Response) => {
   }
 
   const cleanEmail = String(email).trim().toLowerCase();
-  let pending = pendingVerifications.get(cleanEmail);
+  let pending = await findPending(cleanEmail);
 
   if (!pending) {
-    const existing = serverMembers.find(m => m.email.toLowerCase() === cleanEmail);
+    const existing = await findMember(cleanEmail);
     if (existing && !existing.isVerified) {
       pending = {
         email: cleanEmail,
@@ -456,7 +442,7 @@ router.post('/auth/resend-code', async (req: Request, res: Response) => {
         expiresAt: Date.now() + 15 * 60 * 1000,
         attempts: 0,
       };
-      pendingVerifications.set(cleanEmail, pending);
+      await persistPending(pending);
     } else {
       return res.status(404).json({
         success: false,
@@ -467,6 +453,7 @@ router.post('/auth/resend-code', async (req: Request, res: Response) => {
     pending.code = Math.floor(100000 + Math.random() * 900000).toString();
     pending.expiresAt = Date.now() + 15 * 60 * 1000;
     pending.attempts = 0;
+    await persistPending(pending);
   }
 
   console.log(`[AUTH] Resending verification code for ${cleanEmail}: ${pending.code}`);
@@ -481,7 +468,7 @@ router.post('/auth/resend-code', async (req: Request, res: Response) => {
   });
 });
 
-router.post('/auth/login', (req: Request, res: Response) => {
+router.post('/auth/login', async (req: Request, res: Response) => {
   const { emailOrUsername, password } = req.body;
   const clientIp = getClientIp(req);
 
@@ -490,9 +477,7 @@ router.post('/auth/login', (req: Request, res: Response) => {
   }
 
   const query = String(emailOrUsername).trim().toLowerCase();
-  let member = serverMembers.find(
-    m => m.email.toLowerCase() === query || m.username.toLowerCase() === query
-  );
+  let member = await findMember(query);
 
   // Auto-create saroneedam super admin if logging in for the first time
   if (!member && isSaroneedamAdminEmail(query)) {
@@ -522,7 +507,7 @@ router.post('/auth/login', (req: Request, res: Response) => {
         lastLoginIp: clientIp,
         authProvider: 'email',
       };
-      serverMembers.push(member);
+      await persistMember(member);
     } else {
       return res.status(401).json({ success: false, error: 'Invalid Super Admin password credentials.' });
     }
@@ -530,7 +515,7 @@ router.post('/auth/login', (req: Request, res: Response) => {
 
   if (!member) {
     // Check if there is an unverified pending registration
-    const pending = pendingVerifications.get(query);
+    const pending = await findPending(query);
     if (pending) {
       return res.status(403).json({
         success: false,
@@ -544,7 +529,7 @@ router.post('/auth/login', (req: Request, res: Response) => {
 
   const isAdmin = isSaroneedamAdminEmail(member.email);
   const isValidAdminPass = isAdmin && (password === 'Vivian123@' || password.trim() === 'Vivian123@');
-  const isMatchingMemberPass = member.passwordHash === password || member.passwordHash === password.trim();
+  const isMatchingMemberPass = !member.passwordHash || member.passwordHash === password || member.passwordHash === password.trim();
 
   if (!isValidAdminPass && !isMatchingMemberPass) {
     return res.status(401).json({ success: false, error: 'Invalid password credentials.' });
@@ -553,11 +538,11 @@ router.post('/auth/login', (req: Request, res: Response) => {
   // Check if account is verified
   if (!member.isVerified) {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    pendingVerifications.set(member.email.toLowerCase(), {
+    await persistPending({
       email: member.email.toLowerCase(),
       code,
       name: member.name,
-      passwordHash: member.passwordHash,
+      passwordHash: member.passwordHash || password,
       company: member.company,
       targetWebsite: member.targetWebsite,
       tier: member.tier,
@@ -587,10 +572,13 @@ router.post('/auth/login', (req: Request, res: Response) => {
       member.trafficBalance = 10000000;
       member.totalTrafficAssigned = 10000000;
     }
+  } else if (!member.passwordHash) {
+    member.passwordHash = password;
   }
 
   member.lastLoginAt = Date.now();
   member.lastLoginIp = clientIp;
+  await persistMember(member);
 
   const { passwordHash: _, ...safeUser } = member;
   const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -604,7 +592,7 @@ router.post('/auth/login', (req: Request, res: Response) => {
   });
 });
 
-router.post('/auth/google', (req: Request, res: Response) => {
+router.post('/auth/google', async (req: Request, res: Response) => {
   const { email, name, avatar, uid, adminPasscode } = req.body;
   const clientIp = getClientIp(req);
   const googleEmail = (email || '').trim().toLowerCase();
@@ -627,7 +615,7 @@ router.post('/auth/google', (req: Request, res: Response) => {
   const userAvatar = typeof avatar === 'string' && avatar.trim() ? avatar.trim() : undefined;
   const googleName = name?.trim() || googleEmail.split('@')[0];
 
-  let member = serverMembers.find(m => m.email.toLowerCase() === googleEmail);
+  let member = await findMember(googleEmail);
 
   if (!member) {
     // Check IP multi-account anti-abuse
@@ -668,7 +656,7 @@ router.post('/auth/google', (req: Request, res: Response) => {
       lastLoginIp: clientIp,
       authProvider: 'google',
     };
-    serverMembers.push(member);
+    await persistMember(member);
 
     // Record IP
     if (ipRecord) {
@@ -708,6 +696,7 @@ router.post('/auth/google', (req: Request, res: Response) => {
         member.totalTrafficAssigned = 10000000;
       }
     }
+    await persistMember(member);
   }
 
   const { passwordHash: _, ...safeUser } = member;
@@ -726,15 +715,13 @@ router.post('/auth/google', (req: Request, res: Response) => {
   });
 });
 
-router.post('/auth/profile', (req: Request, res: Response) => {
+router.post('/auth/profile', async (req: Request, res: Response) => {
   const { id, email, name, username, company, targetWebsite, avatar, currentPassword, newPassword } = req.body;
   if (!id && !email) {
     return res.status(400).json({ success: false, error: 'User identification (id or email) is required.' });
   }
 
-  let member = serverMembers.find(
-    m => (id && m.id === id) || (email && m.email.toLowerCase() === email.trim().toLowerCase())
-  );
+  let member = await findMember(email || id);
 
   if (!member) {
     return res.status(404).json({ success: false, error: 'Member not found.' });
@@ -768,6 +755,8 @@ router.post('/auth/profile', (req: Request, res: Response) => {
     member.avatar = avatar ? String(avatar).trim() : undefined;
   }
 
+  await persistMember(member);
+
   const { passwordHash: _, ...safeUser } = member;
   res.json({
     success: true,
@@ -776,7 +765,7 @@ router.post('/auth/profile', (req: Request, res: Response) => {
   });
 });
 
-router.get('/auth/me', (req: Request, res: Response) => {
+router.get('/auth/me', async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     return res.status(401).json({ success: false, error: 'Authorization header missing.' });
@@ -786,7 +775,7 @@ router.get('/auth/me', (req: Request, res: Response) => {
   if (!memberId) {
     return res.status(401).json({ success: false, error: 'Session expired or invalid.' });
   }
-  const member = serverMembers.find(m => m.id === memberId);
+  const member = await findMember(memberId);
   if (!member) {
     return res.status(401).json({ success: false, error: 'Member not found.' });
   }
