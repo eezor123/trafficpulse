@@ -15,9 +15,14 @@ import {
   findPending,
   persistPending,
   removePending,
+  listPendingVerifications,
   type ServerMember,
   type PendingVerification,
 } from './src/server/memberStore.ts';
+import {
+  sendVerificationOtpEmail,
+  getEmailProviderStatus,
+} from './src/server/emailService.ts';
 
 dotenv.config();
 
@@ -116,65 +121,6 @@ async function startServer() {
   }
   const ipRegistry = new Map<string, IpAuditEntry>();
 
-  // Helper to dispatch email verification via SMTP (or log simulation if SMTP unconfigured)
-  async function sendVerificationEmail(toEmail: string, code: string, name: string): Promise<{ sent: boolean; messageId?: string; error?: string }> {
-    console.log(`[EMAIL-VERIFICATION] Dispatching 6-digit code for ${toEmail}: ${code}`);
-
-    const host = process.env.SMTP_HOST;
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    const port = parseInt(process.env.SMTP_PORT || '587', 10);
-    const secure = process.env.SMTP_SECURE === 'true' || port === 465;
-    const from = process.env.EMAIL_FROM || '"TrafficPulse" <no-reply@trafficpulse.io>';
-
-    if (host && user && pass) {
-      try {
-        const nodemailer = await import('nodemailer');
-        const transporter = nodemailer.createTransport({
-          host,
-          port,
-          secure,
-          auth: { user, pass },
-        });
-
-        const html = `
-          <div style="font-family: Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; background: #0f172a; color: #f8fafc; border-radius: 16px; border: 1px solid #1e293b;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <h1 style="color: #10b981; margin: 0; font-size: 26px; font-weight: 800;">TrafficPulse</h1>
-              <p style="color: #94a3b8; font-size: 13px; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px;">Account Email Verification</p>
-            </div>
-            <div style="background: #1e293b; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-              <p style="margin: 0 0 12px; font-size: 16px; color: #e2e8f0;">Hello <strong>${name || 'there'}</strong>,</p>
-              <p style="margin: 0 0 20px; font-size: 14px; color: #94a3b8; line-height: 1.5;">Please enter the 6-digit verification code below to confirm your email and immediately claim your <strong>500 Free Trial Traffic Credits</strong>.</p>
-              <div style="font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #34d399; background: #090d16; padding: 18px 24px; border-radius: 10px; border: 1px dashed #10b981; display: inline-block; font-family: monospace;">
-                ${code}
-              </div>
-              <p style="margin: 20px 0 0; font-size: 12px; color: #64748b;">This verification code is valid for 15 minutes.</p>
-            </div>
-            <p style="font-size: 11px; color: #475569; text-align: center; margin: 0;">If you didn't create a TrafficPulse account, you can ignore this message.</p>
-          </div>
-        `;
-
-        const info = await transporter.sendMail({
-          from,
-          to: toEmail,
-          subject: `Your TrafficPulse Verification Code: ${code}`,
-          text: `Your TrafficPulse email verification code is: ${code}. It expires in 15 minutes.`,
-          html,
-        });
-
-        console.log(`[EMAIL-VERIFICATION] Outbound SMTP email delivered successfully to ${toEmail} (Message ID: ${info.messageId})`);
-        return { sent: true, messageId: info.messageId };
-      } catch (smtpErr: any) {
-        console.warn(`[EMAIL-VERIFICATION] SMTP delivery encountered error:`, smtpErr?.message || smtpErr);
-        return { sent: false, error: smtpErr?.message };
-      }
-    }
-
-    console.log(`[EMAIL-VERIFICATION] [PREVIEW SIMULATION] Code for ${toEmail}: ${code}`);
-    return { sent: true };
-  }
-
   function getClientIp(req: Request): string {
     const forwarded = req.headers['x-forwarded-for'];
     if (typeof forwarded === 'string') {
@@ -195,7 +141,45 @@ async function startServer() {
     return clean === 'saroneedam@gmail.com' || clean === 'saroneedam@yahoo.com';
   }
 
+  // Get current outbound email provider configuration status
+  app.get('/api/auth/email-status', (_req: Request, res: Response) => {
+    const status = getEmailProviderStatus();
+    res.json({
+      success: true,
+      status,
+    });
+  });
+
+  // Get active pending OTP verifications (Super Admin inspection)
+  app.get('/api/auth/pending-otps', (_req: Request, res: Response) => {
+    const pendingList = listPendingVerifications();
+    res.json({
+      success: true,
+      pending: pendingList,
+      totalCount: pendingList.length,
+    });
+  });
+
+  // Test email delivery endpoint for live diagnostics
+  app.post('/api/auth/test-email', async (req: Request, res: Response) => {
+    const { testEmail } = req.body;
+    if (!testEmail || !testEmail.includes('@')) {
+      return res.status(400).json({ success: false, error: 'Valid test email address is required.' });
+    }
+    const testCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const result = await sendVerificationOtpEmail(testEmail, testCode, 'Admin Tester');
+    return res.json({
+      success: true,
+      result,
+      testCode,
+      message: result.sent
+        ? `Test verification email successfully dispatched to ${testEmail} via ${result.provider}.`
+        : `Email delivery not sent (${result.error || 'No provider configured'}). Test code: ${testCode}`,
+    });
+  });
+
   // Get current client IP
+
   app.get('/api/auth/client-ip', (req: Request, res: Response) => {
     const ip = getClientIp(req);
     const existing = ipRegistry.get(ip);
@@ -299,16 +283,22 @@ async function startServer() {
 
     console.log(`[AUTH] Normal registration requested for ${cleanEmail}. Code: ${verificationCode}`);
 
-    // Asynchronously dispatch verification email via SMTP if configured
-    sendVerificationEmail(cleanEmail, verificationCode, name.trim()).catch(err => {
-      console.warn('[AUTH] Error during background verification dispatch:', err);
-    });
+    // Dispatch real email verification via configured provider (or return dev diagnostics if unconfigured)
+    const emailResult = await sendVerificationOtpEmail(cleanEmail, verificationCode, name.trim());
 
     return res.json({
       success: true,
       requiresVerification: true,
       email: cleanEmail,
-      message: `A 6-digit confirmation code has been dispatched to ${cleanEmail}. Please enter the code to verify your account and claim your 500 Free Trial visits.`,
+      emailSent: emailResult.sent,
+      provider: emailResult.provider,
+      deliveryError: emailResult.error,
+      devCode: emailResult.sent ? undefined : verificationCode,
+      message: emailResult.sent
+        ? `A 6-digit confirmation code was sent to ${cleanEmail} via ${emailResult.provider.toUpperCase()}. Please check your inbox and spam folder.`
+        : (emailResult.provider === 'none'
+            ? `Notice: No outbound SMTP/email provider is configured on this server yet. Your verification code is ${verificationCode}. Add GMAIL_USER/GMAIL_APP_PASSWORD or SMTP_HOST in Settings to deliver to real inboxes.`
+            : `Email delivery via ${emailResult.provider} failed (${emailResult.error}). Your verification code is ${verificationCode}.`),
     });
   });
 
@@ -470,13 +460,19 @@ async function startServer() {
 
     console.log(`[AUTH] Resending verification code for ${cleanEmail}: ${pending.code}`);
 
-    sendVerificationEmail(cleanEmail, pending.code, pending.name).catch(err => {
-      console.warn('[AUTH] Error resending verification email:', err);
-    });
+    const emailResult = await sendVerificationOtpEmail(cleanEmail, pending.code, pending.name);
 
     return res.json({
       success: true,
-      message: `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail}.`,
+      emailSent: emailResult.sent,
+      provider: emailResult.provider,
+      deliveryError: emailResult.error,
+      devCode: emailResult.sent ? undefined : pending.code,
+      message: emailResult.sent
+        ? `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail} via ${emailResult.provider.toUpperCase()}.`
+        : (emailResult.provider === 'none'
+            ? `Notice: No outbound SMTP credentials configured on server. Your verification code is ${pending.code}.`
+            : `Email delivery failed (${emailResult.error}). Your verification code is ${pending.code}.`),
     });
   });
 
@@ -564,13 +560,19 @@ async function startServer() {
         attempts: 0,
       });
 
-      sendVerificationEmail(member.email, code, member.name).catch(() => {});
+      const emailResult = await sendVerificationOtpEmail(member.email, code, member.name);
 
       return res.status(403).json({
         success: false,
         requiresVerification: true,
         email: member.email,
-        error: 'Your email address is not verified yet. Please enter the verification code to activate your account.',
+        emailSent: emailResult.sent,
+        provider: emailResult.provider,
+        devCode: emailResult.sent ? undefined : code,
+        deliveryError: emailResult.error,
+        error: emailResult.sent
+          ? `Your email address is not verified yet. A verification code was sent to ${member.email}.`
+          : `Your email address is not verified yet. Verification code: ${code}. Please enter it to activate your account.`,
       });
     }
 

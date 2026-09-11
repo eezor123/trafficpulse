@@ -189,6 +189,10 @@ export async function registerMember(payload: RegisterPayload): Promise<{
   user?: MemberUser;
   token?: string;
   error?: string;
+  emailSent?: boolean;
+  provider?: string;
+  devCode?: string;
+  deliveryError?: string;
 }> {
   const email = payload.email.trim().toLowerCase();
   if (!email || !email.includes('@')) {
@@ -238,6 +242,10 @@ export async function registerMember(payload: RegisterPayload): Promise<{
           requiresVerification: true,
           email: data.email || email,
           message: data.message,
+          emailSent: data.emailSent,
+          provider: data.provider,
+          devCode: data.devCode,
+          deliveryError: data.deliveryError,
         };
       }
       if (data.user && data.token) {
@@ -273,7 +281,11 @@ export async function registerMember(payload: RegisterPayload): Promise<{
     requiresVerification: true,
     email,
     message: `A 6-digit confirmation code has been dispatched to ${email}. Please enter the code to complete registration.`,
+    emailSent: false,
+    provider: 'local',
+    devCode: localCode,
   };
+
 }
 
 export async function verifyEmailCode(
@@ -428,6 +440,10 @@ export async function resendVerificationCode(
   success: boolean;
   message?: string;
   error?: string;
+  emailSent?: boolean;
+  provider?: string;
+  devCode?: string;
+  deliveryError?: string;
 }> {
   const cleanEmail = email.trim().toLowerCase();
   try {
@@ -441,6 +457,10 @@ export async function resendVerificationCode(
       return {
         success: true,
         message: data.message || `A new code has been sent to ${cleanEmail}.`,
+        emailSent: data.emailSent,
+        provider: data.provider,
+        devCode: data.devCode,
+        deliveryError: data.deliveryError,
       };
     }
     if (!resp.ok && data.error) {
@@ -457,13 +477,26 @@ export async function resendVerificationCode(
     return {
       success: true,
       message: `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail}.`,
+      emailSent: false,
+      provider: 'local',
+      devCode: pending.code,
     };
   }
 
   return { success: false, error: 'No pending registration found for this email.' };
 }
 
-export async function loginMember(emailOrUsername: string, password: string): Promise<{ success: boolean; user?: MemberUser; token?: string; requiresVerification?: boolean; email?: string; error?: string }> {
+export async function loginMember(emailOrUsername: string, password: string): Promise<{
+  success: boolean;
+  user?: MemberUser;
+  token?: string;
+  requiresVerification?: boolean;
+  email?: string;
+  emailSent?: boolean;
+  provider?: string;
+  devCode?: string;
+  error?: string;
+}> {
   const query = emailOrUsername.trim().toLowerCase();
   if (!query) {
     return { success: false, error: 'Please enter your email or username.' };
@@ -499,9 +532,13 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
         success: false,
         requiresVerification: true,
         email: data.email || query,
+        emailSent: data.emailSent,
+        provider: data.provider,
+        devCode: data.devCode,
         error: data.error || 'Please verify your email address to activate your account.',
       };
     }
+
     if (resp.status === 401) {
       return { success: false, error: data.error || 'Incorrect password. Please verify and try again.' };
     }
@@ -1149,3 +1186,105 @@ export function adminDeleteUser(userId: string): { success: boolean; error?: str
 
   return { success: true };
 }
+
+/**
+ * Fetches current outbound email provider configuration status from the server
+ */
+export async function fetchEmailProviderStatus(): Promise<{
+  configured: boolean;
+  activeProvider: string;
+  providers: {
+    gmail: boolean;
+    resend: boolean;
+    sendgrid: boolean;
+    brevo: boolean;
+    smtp: boolean;
+  };
+  fromAddress: string;
+}> {
+  try {
+    const res = await fetch('/api/auth/email-status');
+    const data = await res.json();
+    if (res.ok && data.success && data.status) {
+      return data.status;
+    }
+  } catch (err) {
+    console.warn('Failed to fetch email provider status:', err);
+  }
+  return {
+    configured: false,
+    activeProvider: 'none',
+    providers: { gmail: false, resend: false, sendgrid: false, brevo: false, smtp: false },
+    fromAddress: '',
+  };
+}
+
+/**
+ * Super Admin helper to inspect pending OTP verifications
+ */
+export async function fetchPendingOtps(): Promise<Array<{
+  email: string;
+  code: string;
+  name: string;
+  createdAt: number;
+  expiresAt: number;
+  attempts: number;
+}>> {
+  try {
+    const res = await fetch('/api/auth/pending-otps');
+    const data = await res.json();
+    if (res.ok && data.success && Array.isArray(data.pending)) {
+      return data.pending;
+    }
+  } catch (err) {
+    console.warn('Failed to fetch pending OTPs:', err);
+  }
+  return [];
+}
+
+/**
+ * Dispatches a test OTP email to any given address and returns delivery results
+ */
+export async function sendTestEmail(testEmail: string): Promise<{
+  success: boolean;
+  sent: boolean;
+  provider: string;
+  message: string;
+  testCode?: string;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/auth/test-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ testEmail }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return {
+        success: true,
+        sent: !!data.result?.sent,
+        provider: data.result?.provider || 'none',
+        message: data.message || 'Test email dispatched.',
+        testCode: data.testCode,
+        error: data.result?.error,
+      };
+    }
+    return {
+      success: false,
+      sent: false,
+      provider: 'error',
+      message: data.error || 'Test email failed to send',
+      error: data.error,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      sent: false,
+      provider: 'error',
+      message: err.message || 'Network error',
+      error: err.message,
+    };
+  }
+}
+

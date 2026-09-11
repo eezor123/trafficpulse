@@ -276,3 +276,19 @@ export async function removePending(email: string): Promise<void> {
     console.warn('[STORE] Could not remove pending verification from cloud:', err);
   }
 }
+
+/**
+ * Lists all active (unexpired) pending verifications for Super Admin inspection
+ */
+export function listPendingVerifications(): Array<Omit<PendingVerification, 'passwordHash'>> {
+  const now = Date.now();
+  const list: Array<Omit<PendingVerification, 'passwordHash'>> = [];
+  for (const item of memoryPending.values()) {
+    if (item.expiresAt > now) {
+      const { passwordHash: _, ...safe } = item;
+      list.push(safe);
+    }
+  }
+  return list.sort((a, b) => b.createdAt - a.createdAt);
+}
+

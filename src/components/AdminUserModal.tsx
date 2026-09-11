@@ -6,6 +6,9 @@ import {
   adminResetUserTraffic,
   adminTogglePaidStatus,
   adminDeleteUser,
+  fetchEmailProviderStatus,
+  fetchPendingOtps,
+  sendTestEmail,
 } from '../utils/authManager';
 import {
   ShieldCheck,
@@ -21,6 +24,13 @@ import {
   Zap,
   Trash2,
   Globe,
+  Mail,
+  Send,
+  RefreshCw,
+  Copy,
+  Clock,
+  KeyRound,
+  ExternalLink,
 } from 'lucide-react';
 
 interface AdminUserModalProps {
@@ -36,6 +46,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   currentUser,
   onUserUpdated,
 }) => {
+  const [activeTab, setActiveTab] = useState<'members' | 'email'>('members');
   const [members, setMembers] = useState<MemberUser[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUserForAssign, setSelectedUserForAssign] = useState<MemberUser | null>(null);
@@ -44,11 +55,59 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   const [assignTier, setAssignTier] = useState<MemberTier>('pro');
   const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Email Server & OTP Diagnostics State
+  const [emailStatus, setEmailStatus] = useState<{
+    configured: boolean;
+    activeProvider: string;
+    providers: {
+      gmail: boolean;
+      resend: boolean;
+      sendgrid: boolean;
+      brevo: boolean;
+      smtp: boolean;
+    };
+    fromAddress: string;
+  } | null>(null);
+  const [pendingOtps, setPendingOtps] = useState<Array<{
+    email: string;
+    code: string;
+    name: string;
+    createdAt: number;
+    expiresAt: number;
+    attempts: number;
+  }>>([]);
+  const [testEmailAddress, setTestEmailAddress] = useState('saroneedam@gmail.com');
+  const [testSending, setTestSending] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    sent: boolean;
+    provider: string;
+    message: string;
+    testCode?: string;
+    error?: string;
+  } | null>(null);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+
   useEffect(() => {
     if (isOpen) {
       refreshList();
+      refreshEmailDiagnostics();
     }
   }, [isOpen]);
+
+  const refreshEmailDiagnostics = async () => {
+    try {
+      const [status, otps] = await Promise.all([
+        fetchEmailProviderStatus(),
+        fetchPendingOtps(),
+      ]);
+      setEmailStatus(status);
+      setPendingOtps(otps);
+    } catch (err) {
+      console.warn('Failed to refresh email diagnostics:', err);
+    }
+  };
 
   const refreshList = async () => {
     try {
@@ -66,6 +125,41 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
     const list = getAllMembers();
     setMembers(list);
   };
+
+  const handleSendTestEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testEmailAddress.trim()) return;
+    setTestSending(true);
+    setTestResult(null);
+    try {
+      const res = await sendTestEmail(testEmailAddress.trim());
+      setTestResult(res);
+      if (res.sent) {
+        showNotification('success', `Real test OTP email successfully sent to ${testEmailAddress} via ${res.provider.toUpperCase()}!`);
+      } else {
+        showNotification('error', `Outbound delivery note: ${res.message}`);
+      }
+      refreshEmailDiagnostics();
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        sent: false,
+        provider: 'error',
+        message: err.message || 'Failed to dispatch test email',
+      });
+    } finally {
+      setTestSending(false);
+    }
+  };
+
+  const handleCopyCode = (code: string) => {
+    try {
+      navigator.clipboard.writeText(code);
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode(null), 2500);
+    } catch {}
+  };
+
 
   if (!isOpen) return null;
 
@@ -215,8 +309,54 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
           </div>
         )}
 
-        {/* Stats Overview */}
-        <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-3.5 bg-slate-950/40 border-b border-slate-800">
+        {/* Navigation Tabs */}
+        <div className="px-5 pt-3 bg-slate-950/90 border-b border-slate-800 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setActiveTab('members')}
+            className={`pb-3 px-3 text-xs font-semibold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+              activeTab === 'members'
+                ? 'border-amber-500 text-amber-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Member Directory & Traffic ({members.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('email');
+              refreshEmailDiagnostics();
+            }}
+            className={`pb-3 px-3 text-xs font-semibold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+              activeTab === 'email'
+                ? 'border-emerald-500 text-emerald-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Mail className="w-4 h-4" />
+            <span>Email Server & Verification OTPs</span>
+            {emailStatus?.configured ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Outbound Email Configured" />
+            ) : (
+              <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                Setup Needed
+              </span>
+            )}
+            {pendingOtps.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                {pendingOtps.length} active OTPs
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* TAB 1: MEMBERS DIRECTORY */}
+        {activeTab === 'members' && (
+          <>
+            {/* Stats Overview */}
+            <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-3.5 bg-slate-950/40 border-b border-slate-800">
           <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl">
             <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
               <span>Total Members</span>
@@ -442,6 +582,264 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
             </table>
           </div>
         </div>
+          </>
+        )}
+
+        {/* TAB 2: EMAIL SERVER & VERIFICATION OTP DISPATCHER */}
+        {activeTab === 'email' && (
+          <div className="flex-1 overflow-y-auto p-5 space-y-5">
+            {/* Outbound Email Server Configuration Banner */}
+            <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                    emailStatus?.configured
+                      ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                      : 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
+                  }`}>
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-slate-100">Outbound Email Delivery Server</h3>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                        emailStatus?.configured
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      }`}>
+                        {emailStatus?.configured ? `Active: ${emailStatus.activeProvider.toUpperCase()}` : 'No Provider Configured'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {emailStatus?.fromAddress ? `Sending from: ${emailStatus.fromAddress}` : 'Pending SMTP/API credentials in Settings'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={refreshEmailDiagnostics}
+                  className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh Server Status</span>
+                </button>
+              </div>
+
+              {/* Supported Providers Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1 text-xs">
+                <div className={`p-2.5 rounded-xl border flex flex-col gap-1 ${
+                  emailStatus?.providers.gmail ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                }`}>
+                  <span className="font-bold flex items-center gap-1">
+                    <span className={`w-2 h-2 rounded-full ${emailStatus?.providers.gmail ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                    Gmail SMTP
+                  </span>
+                  <span className="text-[10px] opacity-75">GMAIL_USER + APP_PASS</span>
+                </div>
+
+                <div className={`p-2.5 rounded-xl border flex flex-col gap-1 ${
+                  emailStatus?.providers.resend ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                }`}>
+                  <span className="font-bold flex items-center gap-1">
+                    <span className={`w-2 h-2 rounded-full ${emailStatus?.providers.resend ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                    Resend API
+                  </span>
+                  <span className="text-[10px] opacity-75">RESEND_API_KEY</span>
+                </div>
+
+                <div className={`p-2.5 rounded-xl border flex flex-col gap-1 ${
+                  emailStatus?.providers.sendgrid ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                }`}>
+                  <span className="font-bold flex items-center gap-1">
+                    <span className={`w-2 h-2 rounded-full ${emailStatus?.providers.sendgrid ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                    SendGrid API
+                  </span>
+                  <span className="text-[10px] opacity-75">SENDGRID_API_KEY</span>
+                </div>
+
+                <div className={`p-2.5 rounded-xl border flex flex-col gap-1 ${
+                  emailStatus?.providers.brevo ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                }`}>
+                  <span className="font-bold flex items-center gap-1">
+                    <span className={`w-2 h-2 rounded-full ${emailStatus?.providers.brevo ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                    Brevo API
+                  </span>
+                  <span className="text-[10px] opacity-75">BREVO_API_KEY</span>
+                </div>
+
+                <div className={`p-2.5 rounded-xl border flex flex-col gap-1 ${
+                  emailStatus?.providers.smtp ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                }`}>
+                  <span className="font-bold flex items-center gap-1">
+                    <span className={`w-2 h-2 rounded-full ${emailStatus?.providers.smtp ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                    Generic SMTP
+                  </span>
+                  <span className="text-[10px] opacity-75">SMTP_HOST:PORT</span>
+                </div>
+              </div>
+
+              {!emailStatus?.configured && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-200/90 leading-relaxed">
+                  <strong>💡 How to deliver OTP emails to real member inboxes:</strong>
+                  <p className="mt-1 text-[11px]">
+                    Go to <strong>Settings &rarr; Secrets</strong> in AI Studio. Add <code className="bg-black/40 px-1 py-0.5 rounded font-mono text-amber-300">GMAIL_USER</code> and <code className="bg-black/40 px-1 py-0.5 rounded font-mono text-amber-300">GMAIL_APP_PASSWORD</code> (a 16-character Google App Password from your Google Account). Or add <code className="bg-black/40 px-1 py-0.5 rounded font-mono text-amber-300">RESEND_API_KEY</code>. Once saved, TrafficPulse immediately sends real emails to member inboxes!
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Test Email Dispatcher */}
+            <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+              <div className="flex items-center gap-2">
+                <Send className="w-4 h-4 text-emerald-400" />
+                <h4 className="text-xs font-bold text-slate-100 uppercase tracking-wider">Test Real Outbound Email Delivery</h4>
+              </div>
+              <p className="text-xs text-slate-400">
+                Send a test 6-digit verification OTP to any email address to verify your configured SMTP or API keys:
+              </p>
+              <form onSubmit={handleSendTestEmail} className="flex flex-col sm:flex-row items-center gap-2">
+                <input
+                  type="email"
+                  required
+                  placeholder="recipient@example.com"
+                  value={testEmailAddress}
+                  onChange={(e) => setTestEmailAddress(e.target.value)}
+                  className="w-full flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+                <button
+                  type="submit"
+                  disabled={testSending || !testEmailAddress.trim()}
+                  className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow transition-all disabled:opacity-50"
+                >
+                  <Send className={`w-3.5 h-3.5 ${testSending ? 'animate-pulse' : ''}`} />
+                  <span>{testSending ? 'Dispatching...' : 'Send Test OTP'}</span>
+                </button>
+              </form>
+
+              {testResult && (
+                <div className={`p-3 rounded-xl text-xs space-y-1 border ${
+                  testResult.sent
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">
+                      {testResult.sent ? '✓ Email Sent Successfully!' : 'Notice / Fallback Code Generated:'}
+                    </span>
+                    <span className="font-mono text-[10px] opacity-75">Provider: {testResult.provider}</span>
+                  </div>
+                  <p className="text-[11px] opacity-90">{testResult.message}</p>
+                  {testResult.testCode && (
+                    <div className="pt-1 flex items-center gap-2">
+                      <span className="text-slate-400 text-[10px] uppercase font-bold">Generated Test Code:</span>
+                      <span className="font-mono font-bold text-emerald-400 px-2 py-0.5 bg-slate-900 rounded border border-emerald-500/40">
+                        {testResult.testCode}
+                      </span>
+                    </div>
+                  )}
+                  {testResult.error && (
+                    <p className="text-[10px] text-rose-300 font-mono pt-1">Error detail: {testResult.error}</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Active Pending Email Verifications Table */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-amber-400" />
+                    <span>Active Pending Email Verifications ({pendingOtps.length})</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Real-time list of members awaiting email confirmation. If a user didn't get an email, you can view or copy their OTP code here:
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshEmailDiagnostics}
+                  className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              <div className="border border-slate-800 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950/80 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800 font-semibold">
+                    <tr>
+                      <th className="py-3 px-4">Member</th>
+                      <th className="py-3 px-4">6-Digit OTP Code</th>
+                      <th className="py-3 px-4">Created</th>
+                      <th className="py-3 px-4">Expires In</th>
+                      <th className="py-3 px-4 text-right">Quick Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {pendingOtps.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-slate-500 text-xs">
+                          No pending verifications right now. All member emails are verified or expired.
+                        </td>
+                      </tr>
+                    ) : (
+                      pendingOtps.map((otp) => {
+                        const timeLeftMinutes = Math.max(0, Math.round((otp.expiresAt - Date.now()) / 60000));
+                        const isExpired = timeLeftMinutes <= 0;
+                        return (
+                          <tr key={otp.email} className="hover:bg-slate-800/40 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="font-semibold text-slate-200">{otp.name || 'New Member'}</div>
+                              <div className="text-[11px] text-slate-400 font-mono">{otp.email}</div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="inline-flex items-center gap-2 font-mono font-bold text-sm text-emerald-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-emerald-500/30">
+                                <span>{otp.code}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-slate-400 text-[11px]">
+                              {new Date(otp.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                isExpired ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              }`}>
+                                {isExpired ? 'Expired' : `${timeLeftMinutes} mins remaining`}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyCode(otp.code)}
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 ml-auto cursor-pointer transition-colors"
+                              >
+                                {copiedCode === otp.code ? (
+                                  <>
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span className="text-emerald-400">Copied!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>Copy OTP</span>
+                                  </>
+                                )}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
 
         {/* Assign Traffic Sub-Modal */}
         {selectedUserForAssign && (
