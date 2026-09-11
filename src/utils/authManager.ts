@@ -1288,3 +1288,42 @@ export async function sendTestEmail(testEmail: string): Promise<{
   }
 }
 
+/**
+ * Super Admin helper to fetch saved email credentials
+ */
+export async function fetchSavedEmailConfig(): Promise<{
+  success: boolean;
+  config?: any;
+  status?: any;
+}> {
+  try {
+    const res = await fetch('/api/auth/email-config');
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    return { success: false };
+  }
+}
+
+/**
+ * Super Admin helper to save email credentials dynamically
+ */
+export async function saveEmailConfiguration(config: any): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+  status?: any;
+}> {
+  try {
+    const res = await fetch('/api/auth/email-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config }),
+    });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to save configuration' };
+  }
+}
+

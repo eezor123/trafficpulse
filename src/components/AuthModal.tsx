@@ -69,12 +69,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [verifyCode, setVerifyCode] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendLoading, setResendLoading] = useState(false);
-  const [emailDelivery, setEmailDelivery] = useState<{
-    sent: boolean;
-    provider: string;
-    devCode?: string;
-    deliveryError?: string;
-  } | null>(null);
 
   // Status & loading
   const [loading, setLoading] = useState(false);
@@ -130,11 +124,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       } else if (res.requiresVerification) {
         setVerifyEmail(res.email || loginEmail);
         setVerifyCode('');
-        setEmailDelivery({
-          sent: !!res.emailSent,
-          provider: res.provider || 'none',
-          devCode: res.devCode,
-        });
         setErrorMessage(res.error || 'Your email address is not verified yet. Please enter the verification code sent to your inbox.');
         setMode('verify');
         setResendCooldown(30);
@@ -177,13 +166,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (res.success && res.requiresVerification) {
         setVerifyEmail(res.email || regEmail);
         setVerifyCode('');
-        setEmailDelivery({
-          sent: !!(res as any).emailSent,
-          provider: (res as any).provider || 'none',
-          devCode: (res as any).devCode,
-          deliveryError: (res as any).deliveryError,
-        });
-        setSuccessMessage(res.message || `A 6-digit confirmation code was sent to ${res.email || regEmail}.`);
+        setSuccessMessage(res.message || `A 6-digit confirmation code was dispatched to ${res.email || regEmail}.`);
         setMode('verify');
         setResendCooldown(30);
       } else if (res.success && res.user && res.token) {
@@ -240,12 +223,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const res = await resendVerificationCode(verifyEmail);
       if (res.success) {
         setVerifyCode('');
-        setEmailDelivery({
-          sent: !!(res as any).emailSent,
-          provider: (res as any).provider || 'none',
-          devCode: (res as any).devCode,
-          deliveryError: (res as any).deliveryError,
-        });
         setSuccessMessage(res.message || `A fresh 6-digit confirmation code has been dispatched to ${verifyEmail}.`);
         setResendCooldown(30);
       } else {
@@ -683,59 +660,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 Please check your email inbox (and spam/junk folder) and enter the 6-digit verification code below.
               </p>
             </div>
-
-            {/* Outbound Email Delivery Status & Diagnostics */}
-            {emailDelivery && (
-              <div className={`p-3 rounded-xl text-xs space-y-2 border ${
-                emailDelivery.sent
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
-                  : emailDelivery.provider === 'none'
-                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-200'
-              }`}>
-                <div className="flex items-center gap-2 font-semibold">
-                  {emailDelivery.sent ? (
-                    <>
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Real Email Dispatched via {emailDelivery.provider.toUpperCase()}</span>
-                    </>
-                  ) : emailDelivery.provider === 'none' ? (
-                    <>
-                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span>Outbound Email Server Unconfigured</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                      <span>Outbound Delivery Notice ({emailDelivery.provider})</span>
-                    </>
-                  )}
-                </div>
-
-                <p className="text-[11px] leading-relaxed opacity-90">
-                  {emailDelivery.sent
-                    ? `We successfully dispatched the OTP to ${verifyEmail}. Please check your inbox and spam folder.`
-                    : emailDelivery.provider === 'none'
-                    ? `To deliver OTP emails directly to inboxes, configure GMAIL_USER / GMAIL_APP_PASSWORD or SMTP_HOST in Settings. Your generated verification code is shown below:`
-                    : `Email delivery attempt failed (${emailDelivery.deliveryError || 'Check configuration'}). Your code is below:`}
-                </p>
-
-                {emailDelivery.devCode && (
-                  <div className="flex items-center justify-between bg-slate-950/90 p-2 rounded-lg border border-slate-800">
-                    <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold">Verification OTP:</span>
-                    <button
-                      type="button"
-                      onClick={() => setVerifyCode(emailDelivery.devCode!)}
-                      className="px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono font-bold tracking-widest text-xs border border-emerald-500/40 cursor-pointer flex items-center gap-1.5 transition-all"
-                      title="Click to auto-fill"
-                    >
-                      <span>{emailDelivery.devCode}</span>
-                      <span className="text-[10px] font-normal text-emerald-400/80">(Auto-fill)</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Code Input */}
             <div className="space-y-2">

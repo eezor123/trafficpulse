@@ -9,6 +9,8 @@ import {
   fetchEmailProviderStatus,
   fetchPendingOtps,
   sendTestEmail,
+  fetchSavedEmailConfig,
+  saveEmailConfiguration,
 } from '../utils/authManager';
 import {
   ShieldCheck,
@@ -31,6 +33,9 @@ import {
   Clock,
   KeyRound,
   ExternalLink,
+  Settings,
+  Lock,
+  Save,
 } from 'lucide-react';
 
 interface AdminUserModalProps {
@@ -88,6 +93,20 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   } | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
+  // Dynamic Email Configuration Form State
+  const [showConfigForm, setShowConfigForm] = useState(false);
+  const [emailProviderChoice, setEmailProviderChoice] = useState<'gmail' | 'resend' | 'sendgrid' | 'brevo' | 'smtp'>('gmail');
+  const [configGmailUser, setConfigGmailUser] = useState('saroneedam@gmail.com');
+  const [configGmailPassword, setConfigGmailPassword] = useState('');
+  const [configResendKey, setConfigResendKey] = useState('');
+  const [configSendgridKey, setConfigSendgridKey] = useState('');
+  const [configBrevoKey, setConfigBrevoKey] = useState('');
+  const [configSmtpHost, setConfigSmtpHost] = useState('');
+  const [configSmtpPort, setConfigSmtpPort] = useState('587');
+  const [configSmtpUser, setConfigSmtpUser] = useState('');
+  const [configSmtpPass, setConfigSmtpPass] = useState('');
+  const [configFromEmail, setConfigFromEmail] = useState('');
+  const [savingConfig, setSavingConfig] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -98,14 +117,66 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
 
   const refreshEmailDiagnostics = async () => {
     try {
-      const [status, otps] = await Promise.all([
+      const [status, otps, savedConfigRes] = await Promise.all([
         fetchEmailProviderStatus(),
         fetchPendingOtps(),
+        fetchSavedEmailConfig(),
       ]);
       setEmailStatus(status);
       setPendingOtps(otps);
+      if (savedConfigRes.success && savedConfigRes.config) {
+        const c = savedConfigRes.config;
+        if (c.provider) setEmailProviderChoice(c.provider);
+        if (c.gmailUser) setConfigGmailUser(c.gmailUser);
+        if (c.fromEmail) setConfigFromEmail(c.fromEmail);
+        if (c.smtpHost) setConfigSmtpHost(c.smtpHost);
+        if (c.smtpPort) setConfigSmtpPort(String(c.smtpPort));
+        if (c.smtpUser) setConfigSmtpUser(c.smtpUser);
+      }
     } catch (err) {
       console.warn('Failed to refresh email diagnostics:', err);
+    }
+  };
+
+  const handleSaveEmailConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingConfig(true);
+    try {
+      const payload: any = {
+        provider: emailProviderChoice,
+        fromEmail: configFromEmail.trim() || undefined,
+      };
+
+      if (emailProviderChoice === 'gmail') {
+        payload.gmailUser = configGmailUser.trim();
+        if (configGmailPassword.trim()) {
+          payload.gmailAppPassword = configGmailPassword.trim();
+        }
+      } else if (emailProviderChoice === 'resend') {
+        if (configResendKey.trim()) payload.resendApiKey = configResendKey.trim();
+      } else if (emailProviderChoice === 'sendgrid') {
+        if (configSendgridKey.trim()) payload.sendgridApiKey = configSendgridKey.trim();
+      } else if (emailProviderChoice === 'brevo') {
+        if (configBrevoKey.trim()) payload.brevoApiKey = configBrevoKey.trim();
+      } else if (emailProviderChoice === 'smtp') {
+        payload.smtpHost = configSmtpHost.trim();
+        payload.smtpPort = Number(configSmtpPort) || 587;
+        payload.smtpUser = configSmtpUser.trim();
+        if (configSmtpPass.trim()) payload.smtpPass = configSmtpPass.trim();
+      }
+
+      const res = await saveEmailConfiguration(payload);
+      if (res.success) {
+        showNotification('success', res.message || 'Email delivery settings saved successfully!');
+        refreshEmailDiagnostics();
+        setShowConfigForm(false);
+      } else {
+        showNotification('error', res.error || 'Failed to save email configuration');
+      }
+    } catch (err: any) {
+      showNotification('error', err.message || 'Failed to save email settings');
+    } finally {
+      setSavingConfig(false);
     }
   };
 
@@ -683,9 +754,191 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                 <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-200/90 leading-relaxed">
                   <strong>💡 How to deliver OTP emails to real member inboxes:</strong>
                   <p className="mt-1 text-[11px]">
-                    Go to <strong>Settings &rarr; Secrets</strong> in AI Studio. Add <code className="bg-black/40 px-1 py-0.5 rounded font-mono text-amber-300">GMAIL_USER</code> and <code className="bg-black/40 px-1 py-0.5 rounded font-mono text-amber-300">GMAIL_APP_PASSWORD</code> (a 16-character Google App Password from your Google Account). Or add <code className="bg-black/40 px-1 py-0.5 rounded font-mono text-amber-300">RESEND_API_KEY</code>. Once saved, TrafficPulse immediately sends real emails to member inboxes!
+                    Configure your credentials below (such as your Gmail App Password or Resend API key). Once saved, TrafficPulse immediately sends real verification emails to member inboxes!
                   </p>
                 </div>
+              )}
+            </div>
+
+            {/* Email Provider Configuration Panel */}
+            <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-emerald-400" />
+                  <h4 className="text-xs font-bold text-slate-100 uppercase tracking-wider">Configure Outbound Email Credentials</h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowConfigForm(!showConfigForm)}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  {showConfigForm ? 'Collapse Settings' : 'Edit Credentials'}
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-400">
+                Configure your outbound email service credentials here. Settings are securely stored and immediately take effect without restarting the server.
+              </p>
+
+              {showConfigForm && (
+                <form onSubmit={handleSaveEmailConfig} className="space-y-4 pt-2 border-t border-slate-800">
+                  <div className="space-y-1.5">
+                    <label className="block text-[11px] font-bold text-slate-300 uppercase">Provider</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      {(['gmail', 'resend', 'sendgrid', 'brevo', 'smtp'] as const).map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setEmailProviderChoice(p)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold capitalize border transition-all cursor-pointer ${
+                            emailProviderChoice === p
+                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {p === 'smtp' ? 'Custom SMTP' : p}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {emailProviderChoice === 'gmail' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs">
+                      <div className="space-y-1">
+                        <label className="block text-slate-300 font-semibold">Gmail Address (GMAIL_USER)</label>
+                        <input
+                          type="email"
+                          required
+                          value={configGmailUser}
+                          onChange={(e) => setConfigGmailUser(e.target.value)}
+                          placeholder="saroneedam@gmail.com"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-slate-300 font-semibold">16-Character App Password (GMAIL_APP_PASSWORD)</label>
+                        <input
+                          type="password"
+                          value={configGmailPassword}
+                          onChange={(e) => setConfigGmailPassword(e.target.value)}
+                          placeholder="••••••••••••••••"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                        <p className="text-[10px] text-slate-400">Generate from myaccount.google.com &rarr; Security &rarr; 2-Step Verification &rarr; App Passwords</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {emailProviderChoice === 'resend' && (
+                    <div className="space-y-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs">
+                      <div className="space-y-1">
+                        <label className="block text-slate-300 font-semibold">Resend API Key (RESEND_API_KEY)</label>
+                        <input
+                          type="password"
+                          value={configResendKey}
+                          onChange={(e) => setConfigResendKey(e.target.value)}
+                          placeholder="re_123456789..."
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {emailProviderChoice === 'sendgrid' && (
+                    <div className="space-y-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs">
+                      <div className="space-y-1">
+                        <label className="block text-slate-300 font-semibold">SendGrid API Key (SENDGRID_API_KEY)</label>
+                        <input
+                          type="password"
+                          value={configSendgridKey}
+                          onChange={(e) => setConfigSendgridKey(e.target.value)}
+                          placeholder="SG.123456..."
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {emailProviderChoice === 'brevo' && (
+                    <div className="space-y-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs">
+                      <div className="space-y-1">
+                        <label className="block text-slate-300 font-semibold">Brevo API Key (BREVO_API_KEY)</label>
+                        <input
+                          type="password"
+                          value={configBrevoKey}
+                          onChange={(e) => setConfigBrevoKey(e.target.value)}
+                          placeholder="xkeysib-..."
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {emailProviderChoice === 'smtp' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs">
+                      <div className="space-y-1">
+                        <label className="block text-slate-300 font-semibold">SMTP Host</label>
+                        <input
+                          type="text"
+                          value={configSmtpHost}
+                          onChange={(e) => setConfigSmtpHost(e.target.value)}
+                          placeholder="smtp.example.com"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-slate-300 font-semibold">Port (Use 587 or 465)</label>
+                        <input
+                          type="text"
+                          value={configSmtpPort}
+                          onChange={(e) => setConfigSmtpPort(e.target.value)}
+                          placeholder="587"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-slate-300 font-semibold">SMTP Username</label>
+                        <input
+                          type="text"
+                          value={configSmtpUser}
+                          onChange={(e) => setConfigSmtpUser(e.target.value)}
+                          placeholder="username@domain.com"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-slate-300 font-semibold">SMTP Password</label>
+                        <input
+                          type="password"
+                          value={configSmtpPass}
+                          onChange={(e) => setConfigSmtpPass(e.target.value)}
+                          placeholder="••••••••"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex-1 mr-3">
+                      <input
+                        type="email"
+                        value={configFromEmail}
+                        onChange={(e) => setConfigFromEmail(e.target.value)}
+                        placeholder="Sender From Email (Optional, e.g. verify@trafficpulse.online)"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={savingConfig}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow transition-all disabled:opacity-50"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{savingConfig ? 'Saving...' : 'Save Configuration'}</span>
+                    </button>
+                  </div>
+                </form>
               )}
             </div>
 

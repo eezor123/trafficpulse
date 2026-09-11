@@ -1,4 +1,6 @@
 import nodemailer from 'nodemailer';
+import fs from 'fs';
+import path from 'path';
 
 export interface EmailDispatchResult {
   sent: boolean;
@@ -16,13 +18,81 @@ export interface EmailProviderStatus {
   instructions?: string;
 }
 
+export interface SavedEmailConfig {
+  provider?: 'resend' | 'sendgrid' | 'brevo' | 'gmail' | 'smtp' | 'none';
+  gmailUser?: string;
+  gmailAppPassword?: string;
+  resendApiKey?: string;
+  sendgridApiKey?: string;
+  brevoApiKey?: string;
+  smtpHost?: string;
+  smtpPort?: string;
+  smtpUser?: string;
+  smtpPass?: string;
+  smtpSecure?: boolean;
+  emailFrom?: string;
+  updatedAt?: number;
+}
+
+// In-memory runtime cache of active email configuration
+let memoryEmailConfig: SavedEmailConfig | null = null;
+
+function getEmailConfigFilePath(): string {
+  const dir = path.join(process.cwd(), 'data');
+  if (!fs.existsSync(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      // ignore
+    }
+  }
+  return path.join(dir, 'email-config.json');
+}
+
+export function loadSavedEmailConfig(): SavedEmailConfig {
+  if (memoryEmailConfig) return memoryEmailConfig;
+  try {
+    const filePath = getEmailConfigFilePath();
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      memoryEmailConfig = JSON.parse(raw);
+      return memoryEmailConfig || {};
+    }
+  } catch (e) {
+    console.warn('[EMAIL-CONFIG] Error reading saved email config:', e);
+  }
+  return {};
+}
+
+export function saveEmailConfig(cfg: SavedEmailConfig): SavedEmailConfig {
+  try {
+    const updated: SavedEmailConfig = {
+      ...loadSavedEmailConfig(),
+      ...cfg,
+      updatedAt: Date.now(),
+    };
+    memoryEmailConfig = updated;
+    const filePath = getEmailConfigFilePath();
+    fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
+    console.log('[EMAIL-CONFIG] Saved dynamic outbound email configuration.');
+    return updated;
+  } catch (e) {
+    console.error('[EMAIL-CONFIG] Failed writing email config:', e);
+    return cfg;
+  }
+}
+
 /**
- * Inspects active environment variables to report email configuration status.
+ * Inspects active saved config and environment variables to report email configuration status.
  */
 export function getEmailProviderStatus(): EmailProviderStatus {
-  const from = process.env.EMAIL_FROM || process.env.GMAIL_USER || 'TrafficPulse <no-reply@trafficpulse.io>';
+  const saved = loadSavedEmailConfig();
 
-  if (process.env.RESEND_API_KEY) {
+  const from = saved.emailFrom || process.env.EMAIL_FROM || saved.gmailUser || process.env.GMAIL_USER || 'TrafficPulse <no-reply@trafficpulse.io>';
+
+  // 1. Resend API
+  const resendKey = saved.resendApiKey || process.env.RESEND_API_KEY;
+  if (resendKey) {
     return {
       configured: true,
       provider: 'resend',
@@ -31,27 +101,9 @@ export function getEmailProviderStatus(): EmailProviderStatus {
     };
   }
 
-  if (process.env.SENDGRID_API_KEY) {
-    return {
-      configured: true,
-      provider: 'sendgrid',
-      fromAddress: from,
-      details: 'Active via SendGrid v3 Web API',
-    };
-  }
-
-  if (process.env.BREVO_API_KEY) {
-    return {
-      configured: true,
-      provider: 'brevo',
-      fromAddress: from,
-      details: 'Active via Brevo / Sendinblue REST API',
-    };
-  }
-
-  const gmailUser = process.env.GMAIL_USER || (process.env.SMTP_USER?.includes('@gmail.com') ? process.env.SMTP_USER : '');
-  const gmailPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS;
-
+  // 2. Gmail SMTP
+  const gmailUser = saved.gmailUser || process.env.GMAIL_USER || (process.env.SMTP_USER?.includes('@gmail.com') ? process.env.SMTP_USER : '');
+  const gmailPass = saved.gmailAppPassword || process.env.GMAIL_APP_PASSWORD || (gmailUser ? process.env.SMTP_PASS : '');
   if (gmailUser && gmailPass) {
     return {
       configured: true,
@@ -61,12 +113,34 @@ export function getEmailProviderStatus(): EmailProviderStatus {
     };
   }
 
-  const smtpHost = process.env.SMTP_HOST;
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
+  // 3. SendGrid API
+  const sendgridKey = saved.sendgridApiKey || process.env.SENDGRID_API_KEY;
+  if (sendgridKey) {
+    return {
+      configured: true,
+      provider: 'sendgrid',
+      fromAddress: from,
+      details: 'Active via SendGrid v3 Web API',
+    };
+  }
 
+  // 4. Brevo API
+  const brevoKey = saved.brevoApiKey || process.env.BREVO_API_KEY;
+  if (brevoKey) {
+    return {
+      configured: true,
+      provider: 'brevo',
+      fromAddress: from,
+      details: 'Active via Brevo / Sendinblue REST API',
+    };
+  }
+
+  // 5. Custom SMTP
+  const smtpHost = saved.smtpHost || process.env.SMTP_HOST;
+  const smtpUser = saved.smtpUser || process.env.SMTP_USER;
+  const smtpPass = saved.smtpPass || process.env.SMTP_PASS;
   if (smtpHost && smtpUser && smtpPass) {
-    const port = process.env.SMTP_PORT || '587';
+    const port = saved.smtpPort || process.env.SMTP_PORT || '587';
     return {
       configured: true,
       provider: 'smtp',
@@ -80,7 +154,7 @@ export function getEmailProviderStatus(): EmailProviderStatus {
     provider: 'none',
     fromAddress: from,
     details: 'No live outbound email provider configured yet.',
-    instructions: 'Configure GMAIL_USER + GMAIL_APP_PASSWORD, RESEND_API_KEY, or SMTP_HOST + SMTP_USER + SMTP_PASS in your environment / Settings to dispatch real verification emails to recipients.',
+    instructions: 'Add Gmail App Password, Resend API key, or SMTP credentials in the Admin Panel to deliver emails to member inboxes.',
   };
 }
 
@@ -180,22 +254,24 @@ export async function sendVerificationOtpEmail(
   const cleanEmail = toEmail.trim().toLowerCase();
   console.log(`[EMAIL-SERVICE] Preparing OTP delivery for ${cleanEmail}: ${code}`);
 
+  const saved = loadSavedEmailConfig();
   const subject = `Your TrafficPulse Verification Code: ${code}`;
   const text = `Hello ${name || 'there'},\n\nYour TrafficPulse verification code is: ${code}\n\nThis code expires in 15 minutes.\nUse it to activate your account and claim 500 Free Trial Traffic Credits.`;
   const html = buildVerificationHtml(name, code);
-  const from = process.env.EMAIL_FROM || '"TrafficPulse" <no-reply@trafficpulse.io>';
+  const from = saved.emailFrom || process.env.EMAIL_FROM || '"TrafficPulse" <no-reply@trafficpulse.io>';
 
   // 1. Resend REST API (HTTPS - completely firewall-free on Cloud Run)
-  if (process.env.RESEND_API_KEY) {
+  const resendKey = saved.resendApiKey || process.env.RESEND_API_KEY;
+  if (resendKey) {
     try {
       const resp = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Authorization': `Bearer ${resendKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: process.env.EMAIL_FROM || 'TrafficPulse <onboarding@resend.dev>',
+          from: saved.emailFrom || process.env.EMAIL_FROM || 'TrafficPulse <onboarding@resend.dev>',
           to: [cleanEmail],
           subject,
           html,
@@ -208,25 +284,26 @@ export async function sendVerificationOtpEmail(
         return { sent: true, provider: 'resend', messageId: data.id };
       }
       console.warn(`[EMAIL-SERVICE] Resend API error:`, data);
-      return { sent: false, provider: 'resend', error: data?.message || 'Resend API returned error', devCode: code };
+      return { sent: false, provider: 'resend', error: data?.message || 'Resend delivery failed' };
     } catch (err: any) {
       console.warn(`[EMAIL-SERVICE] Resend fetch failed:`, err?.message);
-      return { sent: false, provider: 'resend', error: err?.message, devCode: code };
+      return { sent: false, provider: 'resend', error: err?.message };
     }
   }
 
   // 2. SendGrid v3 API (HTTPS)
-  if (process.env.SENDGRID_API_KEY) {
+  const sendgridKey = saved.sendgridApiKey || process.env.SENDGRID_API_KEY;
+  if (sendgridKey) {
     try {
       const resp = await fetch('https://api.sendgrid.com/v3/mail/send', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.SENDGRID_API_KEY}`,
+          'Authorization': `Bearer ${sendgridKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           personalizations: [{ to: [{ email: cleanEmail }] }],
-          from: { email: process.env.EMAIL_FROM || 'no-reply@trafficpulse.io', name: 'TrafficPulse' },
+          from: { email: saved.emailFrom || process.env.EMAIL_FROM || 'no-reply@trafficpulse.io', name: 'TrafficPulse' },
           subject,
           content: [
             { type: 'text/plain', value: text },
@@ -239,23 +316,24 @@ export async function sendVerificationOtpEmail(
         return { sent: true, provider: 'sendgrid' };
       }
       const errText = await resp.text();
-      return { sent: false, provider: 'sendgrid', error: errText, devCode: code };
+      return { sent: false, provider: 'sendgrid', error: errText };
     } catch (err: any) {
-      return { sent: false, provider: 'sendgrid', error: err?.message, devCode: code };
+      return { sent: false, provider: 'sendgrid', error: err?.message };
     }
   }
 
   // 3. Brevo REST API (HTTPS)
-  if (process.env.BREVO_API_KEY) {
+  const brevoKey = saved.brevoApiKey || process.env.BREVO_API_KEY;
+  if (brevoKey) {
     try {
       const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
-          'api-key': process.env.BREVO_API_KEY,
+          'api-key': brevoKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          sender: { name: 'TrafficPulse', email: process.env.EMAIL_FROM || 'no-reply@trafficpulse.io' },
+          sender: { name: 'TrafficPulse', email: saved.emailFrom || process.env.EMAIL_FROM || 'no-reply@trafficpulse.io' },
           to: [{ email: cleanEmail, name: name || cleanEmail.split('@')[0] }],
           subject,
           htmlContent: html,
@@ -267,15 +345,15 @@ export async function sendVerificationOtpEmail(
         console.log(`[EMAIL-SERVICE] Brevo delivery succeeded for ${cleanEmail} (ID: ${data?.messageId})`);
         return { sent: true, provider: 'brevo', messageId: data?.messageId };
       }
-      return { sent: false, provider: 'brevo', error: data?.message || 'Brevo API error', devCode: code };
+      return { sent: false, provider: 'brevo', error: data?.message || 'Brevo API error' };
     } catch (err: any) {
-      return { sent: false, provider: 'brevo', error: err?.message, devCode: code };
+      return { sent: false, provider: 'brevo', error: err?.message };
     }
   }
 
   // 4. Gmail SMTP with App Password (Nodemailer service: 'gmail')
-  const gmailUser = process.env.GMAIL_USER || (process.env.SMTP_USER?.includes('@gmail.com') ? process.env.SMTP_USER : '');
-  const gmailPass = process.env.GMAIL_APP_PASSWORD || (gmailUser ? process.env.SMTP_PASS : '');
+  const gmailUser = saved.gmailUser || process.env.GMAIL_USER || (process.env.SMTP_USER?.includes('@gmail.com') ? process.env.SMTP_USER : '');
+  const gmailPass = saved.gmailAppPassword || process.env.GMAIL_APP_PASSWORD || (gmailUser ? process.env.SMTP_PASS : '');
 
   if (gmailUser && gmailPass) {
     try {
@@ -299,19 +377,19 @@ export async function sendVerificationOtpEmail(
       return { sent: true, provider: 'gmail', messageId: info.messageId };
     } catch (err: any) {
       console.warn(`[EMAIL-SERVICE] Gmail SMTP error:`, err?.message);
-      return { sent: false, provider: 'gmail', error: err?.message, devCode: code };
+      return { sent: false, provider: 'gmail', error: err?.message };
     }
   }
 
   // 5. Custom SMTP (Nodemailer)
-  const smtpHost = process.env.SMTP_HOST;
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
+  const smtpHost = saved.smtpHost || process.env.SMTP_HOST;
+  const smtpUser = saved.smtpUser || process.env.SMTP_USER;
+  const smtpPass = saved.smtpPass || process.env.SMTP_PASS;
 
   if (smtpHost && smtpUser && smtpPass) {
     try {
-      const port = parseInt(process.env.SMTP_PORT || '587', 10);
-      const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+      const port = parseInt(saved.smtpPort || process.env.SMTP_PORT || '587', 10);
+      const secure = saved.smtpSecure ?? (process.env.SMTP_SECURE === 'true' || port === 465);
 
       const transporter = nodemailer.createTransport({
         host: smtpHost,
@@ -334,16 +412,15 @@ export async function sendVerificationOtpEmail(
       return { sent: true, provider: 'smtp', messageId: info.messageId };
     } catch (err: any) {
       console.warn(`[EMAIL-SERVICE] Custom SMTP error:`, err?.message);
-      return { sent: false, provider: 'smtp', error: err?.message, devCode: code };
+      return { sent: false, provider: 'smtp', error: err?.message };
     }
   }
 
   // 6. No email provider configured on server
-  console.log(`[EMAIL-SERVICE] No live email provider configured in environment. Generated OTP code for ${cleanEmail}: ${code}`);
+  console.log(`[EMAIL-SERVICE] No live email provider configured on server for ${cleanEmail}.`);
   return {
     sent: false,
     provider: 'none',
-    devCode: code,
-    error: 'No outbound email credentials configured on server (SMTP_HOST/SMTP_USER/SMTP_PASS, GMAIL_USER/GMAIL_APP_PASSWORD, or RESEND_API_KEY).',
+    error: 'Outbound email provider is not currently configured on the server.',
   };
 }

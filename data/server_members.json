@@ -1,0 +1,34 @@
+[
+  {
+    "name": "Saroneedam Admin",
+    "role": "admin",
+    "tier": "enterprise",
+    "trafficBalance": 10000000,
+    "email": "saroneedam@gmail.com"
+  },
+  {
+    "id": "user_1789120629850_6bcu1",
+    "email": "testuser999@example.com",
+    "name": "Test User",
+    "username": "testuser999",
+    "company": "Tester Inc",
+    "targetWebsite": "https://example.com",
+    "tier": "starter",
+    "role": "member",
+    "customVisitsLimit": 500,
+    "maxConcurrentVUs": 25,
+    "totalCampaignsRun": 0,
+    "totalVisitsGenerated": 0,
+    "joinedAt": 1789120629850,
+    "lastLoginAt": 1789120629850,
+    "isVerified": true,
+    "passwordHash": "Password123!",
+    "trafficBalance": 500,
+    "totalTrafficAssigned": 500,
+    "isPaidUser": false,
+    "trafficStatus": "trial_active",
+    "registrationIp": "127.0.0.1",
+    "lastLoginIp": "127.0.0.1",
+    "authProvider": "email"
+  }
+]
