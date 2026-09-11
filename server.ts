@@ -317,7 +317,6 @@ async function startServer() {
       success: true,
       requiresVerification: true,
       email: cleanEmail,
-      verificationCodePreview: verificationCode,
       message: `A 6-digit confirmation code has been dispatched to ${cleanEmail}. Please enter the code to verify your account and claim your 500 Free Trial visits.`,
     });
   });
@@ -490,7 +489,6 @@ async function startServer() {
 
     return res.json({
       success: true,
-      verificationCodePreview: pending.code,
       message: `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail}.`,
     });
   });
@@ -550,7 +548,6 @@ async function startServer() {
           success: false,
           requiresVerification: true,
           email: pending.email,
-          verificationCodePreview: pending.code,
           error: 'Your email address is not yet verified. Please enter the verification code sent to your inbox.',
         });
       }
@@ -588,7 +585,6 @@ async function startServer() {
         success: false,
         requiresVerification: true,
         email: member.email,
-        verificationCodePreview: code,
         error: 'Your email address is not verified yet. Please enter the verification code to activate your account.',
       });
     }

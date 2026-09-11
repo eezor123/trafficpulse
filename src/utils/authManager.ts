@@ -139,7 +139,6 @@ export async function registerMember(payload: RegisterPayload): Promise<{
   success: boolean;
   requiresVerification?: boolean;
   email?: string;
-  verificationCodePreview?: string;
   message?: string;
   user?: MemberUser;
   token?: string;
@@ -170,7 +169,6 @@ export async function registerMember(payload: RegisterPayload): Promise<{
           success: true,
           requiresVerification: true,
           email: data.email || email,
-          verificationCodePreview: data.verificationCodePreview,
           message: data.message,
         };
       }
@@ -214,7 +212,6 @@ export async function registerMember(payload: RegisterPayload): Promise<{
     success: true,
     requiresVerification: true,
     email,
-    verificationCodePreview: localCode,
     message: `A 6-digit confirmation code has been dispatched to ${email}. Please enter the code to complete registration.`,
   };
 }
@@ -324,7 +321,6 @@ export async function resendVerificationCode(
   email: string
 ): Promise<{
   success: boolean;
-  verificationCodePreview?: string;
   message?: string;
   error?: string;
 }> {
@@ -339,7 +335,6 @@ export async function resendVerificationCode(
     if (resp.ok && data.success) {
       return {
         success: true,
-        verificationCodePreview: data.verificationCodePreview,
         message: data.message || `A new code has been sent to ${cleanEmail}.`,
       };
     }
@@ -356,7 +351,6 @@ export async function resendVerificationCode(
     pending.expiresAt = Date.now() + 15 * 60 * 1000;
     return {
       success: true,
-      verificationCodePreview: pending.code,
       message: `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail}.`,
     };
   }
@@ -364,7 +358,7 @@ export async function resendVerificationCode(
   return { success: false, error: 'No pending registration found for this email.' };
 }
 
-export async function loginMember(emailOrUsername: string, password: string): Promise<{ success: boolean; user?: MemberUser; token?: string; requiresVerification?: boolean; email?: string; verificationCodePreview?: string; error?: string }> {
+export async function loginMember(emailOrUsername: string, password: string): Promise<{ success: boolean; user?: MemberUser; token?: string; requiresVerification?: boolean; email?: string; error?: string }> {
   const query = emailOrUsername.trim().toLowerCase();
   if (!query) {
     return { success: false, error: 'Please enter your email or username.' };
@@ -398,7 +392,6 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
         success: false,
         requiresVerification: true,
         email: data.email || query,
-        verificationCodePreview: data.verificationCodePreview,
         error: data.error || 'Please verify your email address to activate your account.',
       };
     }

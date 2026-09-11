@@ -66,7 +66,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // Verification state
   const [verifyEmail, setVerifyEmail] = useState('');
   const [verifyCode, setVerifyCode] = useState('');
-  const [verificationCodePreview, setVerificationCodePreview] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendLoading, setResendLoading] = useState(false);
 
@@ -99,7 +98,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setShowRegPassword(false);
       setVerifyEmail('');
       setVerifyCode('');
-      setVerificationCodePreview(null);
       setResendCooldown(0);
       setErrorMessage(null);
       setSuccessMessage(null);
@@ -124,11 +122,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }, 500);
       } else if (res.requiresVerification) {
         setVerifyEmail(res.email || loginEmail);
-        setVerificationCodePreview(res.verificationCodePreview || null);
-        if (res.verificationCodePreview) {
-          setVerifyCode(res.verificationCodePreview);
-        }
-        setErrorMessage(res.error || 'Your email address is not verified yet. Please enter the verification code.');
+        setVerifyCode('');
+        setErrorMessage(res.error || 'Your email address is not verified yet. Please enter the verification code sent to your inbox.');
         setMode('verify');
         setResendCooldown(30);
       } else {
@@ -169,10 +164,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       if (res.success && res.requiresVerification) {
         setVerifyEmail(res.email || regEmail);
-        setVerificationCodePreview(res.verificationCodePreview || null);
-        if (res.verificationCodePreview) {
-          setVerifyCode(res.verificationCodePreview);
-        }
+        setVerifyCode('');
         setSuccessMessage(res.message || `A 6-digit confirmation code was sent to ${res.email || regEmail}.`);
         setMode('verify');
         setResendCooldown(30);
@@ -229,10 +221,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       const res = await resendVerificationCode(verifyEmail);
       if (res.success) {
-        if (res.verificationCodePreview) {
-          setVerificationCodePreview(res.verificationCodePreview);
-          setVerifyCode(res.verificationCodePreview);
-        }
+        setVerifyCode('');
         setSuccessMessage(res.message || `A fresh 6-digit confirmation code has been dispatched to ${verifyEmail}.`);
         setResendCooldown(30);
       } else {
@@ -666,38 +655,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-950 border border-emerald-500/30 text-emerald-300 font-mono text-xs font-semibold">
                 <span>{verifyEmail}</span>
               </div>
+              <p className="text-[11px] text-slate-400 max-w-sm mx-auto pt-1">
+                Please check your email inbox (and spam/junk folder) and enter the 6-digit verification code below.
+              </p>
             </div>
-
-            {/* Email Dispatch & Simulation helper */}
-            {verificationCodePreview && (
-              <div className="p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/30 text-xs space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-emerald-300 font-medium flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                    Mailbox Preview / Fast-Verify
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setVerifyCode(verificationCodePreview);
-                      setErrorMessage(null);
-                    }}
-                    className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
-                  >
-                    Auto-Fill Code
-                  </button>
-                </div>
-                <div className="flex items-center justify-between text-slate-300">
-                  <span>Confirmation Code:</span>
-                  <span className="font-mono font-bold tracking-widest text-emerald-400 bg-slate-950/80 px-2 py-0.5 rounded border border-emerald-500/20">
-                    {verificationCodePreview}
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-400">
-                  Note: A confirmation email has been dispatched. For instant testing in developer mode, your code is displayed above.
-                </p>
-              </div>
-            )}
 
             {/* Code Input */}
             <div className="space-y-2">

@@ -305,7 +305,6 @@ router.post('/auth/register', async (req: Request, res: Response) => {
     success: true,
     requiresVerification: true,
     email: cleanEmail,
-    verificationCodePreview: verificationCode,
     message: `A 6-digit confirmation code has been dispatched to ${cleanEmail}. Please enter the code to verify your account and claim your 500 Free Trial visits.`,
   });
 });
@@ -478,7 +477,6 @@ router.post('/auth/resend-code', async (req: Request, res: Response) => {
 
   return res.json({
     success: true,
-    verificationCodePreview: pending.code,
     message: `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail}.`,
   });
 });
@@ -538,7 +536,6 @@ router.post('/auth/login', (req: Request, res: Response) => {
         success: false,
         requiresVerification: true,
         email: pending.email,
-        verificationCodePreview: pending.code,
         error: 'Your email address is not yet verified. Please enter the verification code sent to your inbox.',
       });
     }
@@ -576,7 +573,6 @@ router.post('/auth/login', (req: Request, res: Response) => {
       success: false,
       requiresVerification: true,
       email: member.email,
-      verificationCodePreview: code,
       error: 'Your email address is not verified yet. Please enter the verification code to activate your account.',
     });
   }
