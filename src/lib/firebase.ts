@@ -15,9 +15,58 @@ import {
   getDoc,
   getDocs,
   collection,
+  query,
+  where,
   deleteDoc,
   type Firestore,
 } from 'firebase/firestore';
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: firebaseAuth.currentUser?.uid,
+      email: firebaseAuth.currentUser?.email,
+      emailVerified: firebaseAuth.currentUser?.emailVerified,
+      isAnonymous: firebaseAuth.currentUser?.isAnonymous,
+      tenantId: firebaseAuth.currentUser?.tenantId,
+      providerInfo: firebaseAuth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 // eezor.com Firebase Project Credentials (associated with jobs.eezor.com)
 export const firebaseConfig = {
@@ -76,18 +125,173 @@ export function docIdToEmail(docId: string): string {
 }
 
 /**
+ * Fetches the targeted member's UID from the Firestore 'users' collection (or email/id fallback)
+ */
+export async function fetchTargetMemberUid(
+  target: { uid?: string; id?: string; email?: string } | string
+): Promise<string> {
+  const cleanId = typeof target === 'string' ? target.trim() : (target?.uid || target?.id || '').trim();
+  const cleanEmail =
+    typeof target === 'string' && target.includes('@')
+      ? target.trim().toLowerCase()
+      : typeof target !== 'string'
+      ? (target?.email || '').trim().toLowerCase()
+      : '';
+
+  try {
+    const db = getFirestoreDb();
+
+    // 1. Direct document lookup in 'users' collection if we have cleanId
+    if (cleanId) {
+      try {
+        const snap = await getDoc(doc(db, 'users', cleanId));
+        if (snap.exists()) {
+          return snap.id;
+        }
+      } catch (err) {
+        console.warn('[FIRESTORE] Direct users doc check error:', err);
+      }
+    }
+
+    // 2. Query 'users' collection by email to find the matching UID
+    if (cleanEmail) {
+      try {
+        const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
+        const qSnap = await getDocs(q);
+        if (!qSnap.empty) {
+          return qSnap.docs[0].id;
+        }
+      } catch (err) {
+        console.warn('[FIRESTORE] Query users collection by email check error:', err);
+      }
+    }
+
+    // 3. Check legacy collection for UID/id
+    if (cleanEmail) {
+      try {
+        const legacyDocId = emailToDocId(cleanEmail);
+        const legSnap = await getDoc(doc(db, 'trafficpulse_members', legacyDocId));
+        if (legSnap.exists()) {
+          const data = legSnap.data();
+          if (data.uid) return String(data.uid);
+          if (data.id) return String(data.id);
+        }
+      } catch {}
+    }
+  } catch (err) {
+    console.warn('[FIRESTORE] Error resolving member UID:', err);
+  }
+
+  // Fallback: return cleanId if available, else derive from email
+  if (cleanId) return cleanId;
+  if (cleanEmail) return emailToDocId(cleanEmail);
+  return `user_${Date.now()}`;
+}
+
+/**
+ * Performs a write operation directly to the Firestore 'users' collection to update the 'trafficBalance' field.
+ */
+export async function writeUserTrafficToFirestore(
+  targetUid: string,
+  trafficBalance: number,
+  additionalFields: {
+    totalTrafficAssigned?: number;
+    isPaidUser?: boolean;
+    trafficStatus?: string;
+    tier?: string;
+    email?: string;
+    name?: string;
+  } = {}
+): Promise<{ success: boolean; targetUid: string; error?: string }> {
+  const path = `users/${targetUid}`;
+  try {
+    const db = getFirestoreDb();
+    const userDocRef = doc(db, 'users', targetUid);
+
+    const payload: Record<string, any> = {
+      uid: targetUid,
+      trafficBalance: Number(trafficBalance),
+      updatedAt: Date.now(),
+    };
+
+    if (additionalFields.totalTrafficAssigned !== undefined) {
+      payload.totalTrafficAssigned = Number(additionalFields.totalTrafficAssigned);
+    }
+    if (additionalFields.isPaidUser !== undefined) {
+      payload.isPaidUser = Boolean(additionalFields.isPaidUser);
+    }
+    if (additionalFields.trafficStatus) {
+      payload.trafficStatus = additionalFields.trafficStatus;
+    }
+    if (additionalFields.tier) {
+      payload.tier = additionalFields.tier;
+    }
+    if (additionalFields.email) {
+      payload.email = additionalFields.email;
+    }
+    if (additionalFields.name) {
+      payload.name = additionalFields.name;
+    }
+
+    // 1. Primary write operation to Firestore 'users' collection
+    await setDoc(userDocRef, payload, { merge: true });
+
+    // 2. Also mirror to 'trafficpulse_members' so all legacy readers stay in sync
+    if (additionalFields.email) {
+      try {
+        const legacyDocId = emailToDocId(additionalFields.email);
+        const legacyRef = doc(db, 'trafficpulse_members', legacyDocId);
+        await setDoc(legacyRef, payload, { merge: true });
+      } catch (legacyErr) {
+        console.warn('[FIRESTORE] Legacy mirror write deferred:', legacyErr);
+      }
+    }
+
+    return { success: true, targetUid };
+  } catch (error: any) {
+    console.error(`[FIRESTORE] Failed to write trafficBalance to 'users/${targetUid}':`, error);
+    try {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    } catch {
+      // logged & tracked
+    }
+    return { success: false, targetUid, error: error?.message || 'Firestore write failed' };
+  }
+}
+
+/**
  * Persists a registered member record to Firestore cloud database
  */
 export async function saveMemberToCloud(member: any): Promise<boolean> {
   if (!member || !member.email) return false;
   try {
     const db = getFirestoreDb();
+    const uid = member.uid || member.id || emailToDocId(member.email);
+
+    // 1. Write to 'users' collection (keyed by UID)
+    const userDocRef = doc(db, 'users', uid);
+    await setDoc(
+      userDocRef,
+      {
+        ...member,
+        uid,
+        updatedAt: Date.now(),
+      },
+      { merge: true }
+    );
+
+    // 2. Mirror to 'trafficpulse_members' collection
     const docId = emailToDocId(member.email);
     const docRef = doc(db, 'trafficpulse_members', docId);
-    await setDoc(docRef, {
-      ...member,
-      updatedAt: Date.now(),
-    }, { merge: true });
+    await setDoc(
+      docRef,
+      {
+        ...member,
+        uid,
+        updatedAt: Date.now(),
+      },
+      { merge: true }
+    );
     return true;
   } catch (e) {
     console.warn('Failed to persist member to Firestore cloud database:', e);
@@ -99,25 +303,60 @@ export async function saveMemberToCloud(member: any): Promise<boolean> {
  * Retrieves a registered member from Firestore cloud database by email or username
  */
 export async function getMemberFromCloud(emailOrUsername: string): Promise<any | null> {
-  const query = (emailOrUsername || '').trim().toLowerCase();
-  if (!query) return null;
+  const queryStr = (emailOrUsername || '').trim().toLowerCase();
+  if (!queryStr) return null;
   try {
     const db = getFirestoreDb();
-    // Direct lookup by email docId first (fastest)
-    if (query.includes('@')) {
-      const docId = emailToDocId(query);
+
+    // 1. Check 'users' collection first by UID or ID
+    try {
+      const snap = await getDoc(doc(db, 'users', queryStr));
+      if (snap.exists()) {
+        return snap.data();
+      }
+    } catch {}
+
+    // 2. Check 'users' collection by email
+    if (queryStr.includes('@')) {
+      try {
+        const q = query(collection(db, 'users'), where('email', '==', queryStr));
+        const qSnap = await getDocs(q);
+        if (!qSnap.empty) {
+          return qSnap.docs[0].data();
+        }
+      } catch {}
+    }
+
+    // 3. Direct lookup by email docId in 'trafficpulse_members'
+    if (queryStr.includes('@')) {
+      const docId = emailToDocId(queryStr);
       const snap = await getDoc(doc(db, 'trafficpulse_members', docId));
       if (snap.exists()) {
         return snap.data();
       }
     }
-    // Fallback: search all documents (handles usernames or alternate email format)
+
+    // 4. Fallback: search 'users' collection
+    try {
+      const usersColSnap = await getDocs(collection(db, 'users'));
+      for (const d of usersColSnap.docs) {
+        const data = d.data();
+        if (
+          data.email?.toLowerCase() === queryStr ||
+          (data.username && data.username.toLowerCase() === queryStr)
+        ) {
+          return data;
+        }
+      }
+    } catch {}
+
+    // 5. Fallback: search 'trafficpulse_members'
     const colSnap = await getDocs(collection(db, 'trafficpulse_members'));
     for (const d of colSnap.docs) {
       const data = d.data();
       if (
-        data.email?.toLowerCase() === query ||
-        (data.username && data.username.toLowerCase() === query)
+        data.email?.toLowerCase() === queryStr ||
+        (data.username && data.username.toLowerCase() === queryStr)
       ) {
         return data;
       }
@@ -135,12 +374,35 @@ export async function getMemberFromCloud(emailOrUsername: string): Promise<any |
 export async function getAllMembersFromCloud(): Promise<any[]> {
   try {
     const db = getFirestoreDb();
-    const colSnap = await getDocs(collection(db, 'trafficpulse_members'));
-    const members: any[] = [];
-    colSnap.forEach(d => {
-      members.push(d.data());
-    });
-    return members;
+    const membersMap = new Map<string, any>();
+
+    // 1. Fetch from 'users' collection
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      usersSnap.forEach((d) => {
+        const data = d.data();
+        if (data && data.email) {
+          membersMap.set(data.email.toLowerCase(), data);
+        }
+      });
+    } catch (err) {
+      console.warn('Failed to get docs from users collection:', err);
+    }
+
+    // 2. Fetch from 'trafficpulse_members'
+    try {
+      const colSnap = await getDocs(collection(db, 'trafficpulse_members'));
+      colSnap.forEach((d) => {
+        const data = d.data();
+        if (data && data.email && !membersMap.has(data.email.toLowerCase())) {
+          membersMap.set(data.email.toLowerCase(), data);
+        }
+      });
+    } catch (err) {
+      console.warn('Failed to get docs from trafficpulse_members collection:', err);
+    }
+
+    return Array.from(membersMap.values());
   } catch (e) {
     console.warn('Failed to get all members from Firestore:', e);
     return [];

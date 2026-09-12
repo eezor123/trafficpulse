@@ -11,7 +11,15 @@ import {
   sendTestEmail,
   fetchSavedEmailConfig,
   saveEmailConfiguration,
+  saveAuthSession,
+  loadStoredAuth,
+  broadcastSessionRefresh,
 } from '../utils/authManager';
+import {
+  fetchTargetMemberUid,
+  writeUserTrafficToFirestore,
+  getAllMembersFromCloud,
+} from '../lib/firebase';
 import {
   ShieldCheck,
   Users,
@@ -58,6 +66,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   const [assignAmount, setAssignAmount] = useState<number>(5000);
   const [assignMarkAsPaid, setAssignMarkAsPaid] = useState<boolean>(true);
   const [assignTier, setAssignTier] = useState<MemberTier>('pro');
+  const [isAssigning, setIsAssigning] = useState<boolean>(false);
   const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Email Server & OTP Diagnostics State
@@ -185,14 +194,21 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
       const res = await fetch('/api/auth/members');
       if (res.ok) {
         const data = await res.json();
-        if (data.success && Array.isArray(data.members)) {
+        if (data.success && Array.isArray(data.members) && data.members.length > 0) {
           setMembers(data.members);
           return;
         }
       }
     } catch {
-      // fallback to local stored members
+      // fallback to Firestore cloud or local store
     }
+    try {
+      const cloudMembers = await getAllMembersFromCloud();
+      if (cloudMembers && cloudMembers.length > 0) {
+        setMembers(cloudMembers);
+        return;
+      }
+    } catch {}
     const list = getAllMembers();
     setMembers(list);
   };
@@ -267,57 +283,171 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
       return;
     }
 
-    const res = await adminAssignTraffic(
-      selectedUserForAssign.id,
-      Number(assignAmount),
-      assignMarkAsPaid,
-      assignTier
-    );
+    setIsAssigning(true);
+    try {
+      // 1. Fetch targeted member's UID from Firestore 'users' collection or existing user identifiers
+      const targetUid = await fetchTargetMemberUid({
+        uid: selectedUserForAssign.uid,
+        id: selectedUserForAssign.id,
+        email: selectedUserForAssign.email,
+      });
 
-    if (res.success && res.user) {
-      showNotification(
-        'success',
-        `Assigned +${Number(assignAmount).toLocaleString()} traffic visits to ${res.user.name}. Balance: ${res.user.trafficBalance.toLocaleString()} visits.`
-      );
-      await refreshList();
-      if (currentUser?.id === res.user.id && onUserUpdated) {
-        onUserUpdated(res.user);
+      const currentBalance = Number(selectedUserForAssign.trafficBalance || 0);
+      const additional = Number(assignAmount);
+      const newBalance = currentBalance + additional;
+      const newTotalAssigned = Number(selectedUserForAssign.totalTrafficAssigned || 0) + additional;
+
+      // 2. Perform a write operation to the Firestore 'users' collection to update the 'trafficBalance' field
+      try {
+        await writeUserTrafficToFirestore(targetUid, newBalance, {
+          totalTrafficAssigned: newTotalAssigned,
+          isPaidUser: assignMarkAsPaid,
+          trafficStatus: assignMarkAsPaid ? 'paid_active' : 'trial_active',
+          tier: assignTier,
+          email: selectedUserForAssign.email,
+          name: selectedUserForAssign.name,
+        });
+      } catch (cloudErr) {
+        console.warn('[FIRESTORE] Direct write deferred:', cloudErr);
       }
-      setSelectedUserForAssign(null);
-    } else {
-      showNotification('error', res.error || 'Failed to assign traffic.');
+
+      // 3. Update server API and local persistence
+      const res = await adminAssignTraffic(
+        targetUid || selectedUserForAssign.id,
+        additional,
+        assignMarkAsPaid,
+        assignTier
+      );
+
+      if (res.success && res.user) {
+        showNotification(
+          'success',
+          `Assigned +${additional.toLocaleString()} traffic visits to ${res.user.name}. New Balance: ${res.user.trafficBalance.toLocaleString()} visits.`
+        );
+
+        // 4. Trigger state refresh for Admin UI
+        await refreshList();
+        setSelectedUserForAssign(null);
+
+        // 5. Trigger state refresh for target user's session
+        const isCurrentActiveSession =
+          currentUser?.id === res.user.id ||
+          currentUser?.uid === targetUid ||
+          currentUser?.email.toLowerCase() === res.user.email.toLowerCase();
+
+        if (isCurrentActiveSession) {
+          saveAuthSession(res.user, loadStoredAuth().token || 'tok_valid');
+          if (onUserUpdated) {
+            onUserUpdated(res.user);
+          }
+        }
+        broadcastSessionRefresh(res.user);
+      } else {
+        showNotification('error', res.error || 'Failed to assign traffic.');
+      }
+    } catch (err: any) {
+      showNotification('error', err?.message || 'Failed assigning traffic quota.');
+    } finally {
+      setIsAssigning(false);
     }
   };
 
   const handleResetTrial = async (user: MemberUser) => {
     if (!window.confirm(`Reset ${user.name}'s account back to the 500 Free Trial quota?`)) return;
 
-    const res = await adminResetUserTraffic(user.id);
-    if (res.success && res.user) {
-      showNotification('success', `Reset ${user.name}'s quota to 500 Free Trial units.`);
-      await refreshList();
-      if (currentUser?.id === res.user.id && onUserUpdated) {
-        onUserUpdated(res.user);
+    try {
+      // 1. Fetch targeted member's UID
+      const targetUid = await fetchTargetMemberUid(user);
+
+      // 2. Write to Firestore 'users' collection
+      try {
+        await writeUserTrafficToFirestore(targetUid, 500, {
+          totalTrafficAssigned: 500,
+          isPaidUser: false,
+          trafficStatus: 'trial_active',
+          email: user.email,
+          name: user.name,
+        });
+      } catch (cloudErr) {
+        console.warn('[FIRESTORE] Reset write deferred:', cloudErr);
       }
-    } else {
-      showNotification('error', res.error || 'Failed resetting user traffic.');
+
+      // 3. Reset on server and local storage
+      const res = await adminResetUserTraffic(targetUid || user.id);
+      if (res.success && res.user) {
+        showNotification('success', `Reset ${user.name}'s quota to 500 Free Trial units.`);
+
+        // 4. Trigger state refresh for Admin UI
+        await refreshList();
+
+        // 5. Trigger state refresh for target user's session
+        const isCurrentActiveSession =
+          currentUser?.id === res.user.id ||
+          currentUser?.uid === targetUid ||
+          currentUser?.email.toLowerCase() === res.user.email.toLowerCase();
+
+        if (isCurrentActiveSession) {
+          saveAuthSession(res.user, loadStoredAuth().token || 'tok_valid');
+          if (onUserUpdated) {
+            onUserUpdated(res.user);
+          }
+        }
+        broadcastSessionRefresh(res.user);
+      } else {
+        showNotification('error', res.error || 'Failed resetting user traffic.');
+      }
+    } catch (err: any) {
+      showNotification('error', err?.message || 'Failed resetting user quota.');
     }
   };
 
   const handleTogglePaid = async (user: MemberUser) => {
     const nextStatus = !user.isPaidUser;
-    const res = await adminTogglePaidStatus(user.id, nextStatus);
-    if (res.success && res.user) {
-      showNotification(
-        'success',
-        `Updated ${user.name} to ${nextStatus ? 'Paid User' : 'Free Trial'}.`
-      );
-      await refreshList();
-      if (currentUser?.id === res.user.id && onUserUpdated) {
-        onUserUpdated(res.user);
+    try {
+      // 1. Fetch targeted member's UID
+      const targetUid = await fetchTargetMemberUid(user);
+
+      // 2. Write to Firestore 'users' collection
+      try {
+        await writeUserTrafficToFirestore(targetUid, user.trafficBalance || 0, {
+          isPaidUser: nextStatus,
+          trafficStatus: nextStatus ? 'paid_active' : 'trial_active',
+          email: user.email,
+          name: user.name,
+        });
+      } catch (cloudErr) {
+        console.warn('[FIRESTORE] Toggle write deferred:', cloudErr);
       }
-    } else {
-      showNotification('error', res.error || 'Failed updating status.');
+
+      // 3. Toggle on server & local storage
+      const res = await adminTogglePaidStatus(targetUid || user.id, nextStatus);
+      if (res.success && res.user) {
+        showNotification(
+          'success',
+          `Updated ${user.name} to ${nextStatus ? 'Paid User' : 'Free Trial'}.`
+        );
+
+        // 4. Trigger state refresh for Admin UI
+        await refreshList();
+
+        // 5. Trigger state refresh for target user's session
+        const isCurrentActiveSession =
+          currentUser?.id === res.user.id ||
+          currentUser?.uid === targetUid ||
+          currentUser?.email.toLowerCase() === res.user.email.toLowerCase();
+
+        if (isCurrentActiveSession) {
+          saveAuthSession(res.user, loadStoredAuth().token || 'tok_valid');
+          if (onUserUpdated) {
+            onUserUpdated(res.user);
+          }
+        }
+        broadcastSessionRefresh(res.user);
+      } else {
+        showNotification('error', res.error || 'Failed updating status.');
+      }
+    } catch (err: any) {
+      showNotification('error', err?.message || 'Failed updating member status.');
     }
   };
 
@@ -1208,10 +1338,20 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                  disabled={isAssigning}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
                 >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Confirm & Assign</span>
+                  {isAssigning ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Writing to Firestore & Syncing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Confirm & Assign</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

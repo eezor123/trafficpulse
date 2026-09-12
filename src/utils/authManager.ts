@@ -5,11 +5,30 @@ import {
   savePendingToCloud,
   getPendingFromCloud,
   deletePendingFromCloud,
+  fetchTargetMemberUid,
+  writeUserTrafficToFirestore,
 } from '../lib/firebase.ts';
 
 const AUTH_STORAGE_KEY = 'trafficpulse_auth_session_v1';
 const MEMBERS_DB_KEY = 'trafficpulse_registered_members_v1';
 const PENDING_REG_KEY = 'trafficpulse_pending_registrations_v1';
+
+/**
+ * Broadcasts a session refresh event across the current window and all browser tabs
+ */
+export function broadcastSessionRefresh(user: MemberUser) {
+  try {
+    window.dispatchEvent(new CustomEvent('trafficpulse_session_refresh', { detail: user }));
+    window.dispatchEvent(new Event('storage'));
+  } catch {}
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel('trafficpulse_auth_channel');
+      bc.postMessage({ type: 'SESSION_REFRESH', user });
+      bc.close();
+    }
+  } catch {}
+}
 
 // No pre-seeded demo or mock members
 const INITIAL_DEMO_MEMBERS: (MemberUser & { passwordHash: string })[] = [];
@@ -1065,14 +1084,17 @@ export async function adminAssignTraffic(
     return { success: false, error: 'Please enter a valid positive number of traffic credits to assign.' };
   }
 
-  // 1. Call server API first
+  // 1. Fetch targeted member's UID from Firestore 'users' collection or local identifiers
+  const targetUid = await fetchTargetMemberUid({ id: userId, email: userId });
+
+  // 2. Call server API
   let serverUser: MemberUser | null = null;
   try {
     const res = await fetch('/api/auth/assign-traffic', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        userId,
+        userId: targetUid || userId,
         additionalTraffic,
         markAsPaid,
         newTier,
@@ -1088,52 +1110,72 @@ export async function adminAssignTraffic(
     console.warn('Backend server assignment unavailable, falling back to local storage:', err);
   }
 
-  // 2. Also update local storage
+  // 3. Update local storage
   const members = getStoredMembers();
-  const match = members.find(m => m.id === userId || m.email.toLowerCase() === userId.toLowerCase());
+  const match = members.find(m => m.id === userId || m.uid === targetUid || m.email.toLowerCase() === userId.toLowerCase());
+
+  let finalUser: MemberUser;
 
   if (serverUser) {
     // If server succeeded, update local store with authoritative server user
-    const updatedMembers = members.map(m => (m.id === serverUser!.id || m.email.toLowerCase() === serverUser!.email.toLowerCase()) ? { ...m, ...serverUser } : m);
-    if (!updatedMembers.some(m => m.id === serverUser!.id)) {
-      updatedMembers.push(serverUser as any);
+    finalUser = { ...serverUser, uid: targetUid };
+    const updatedMembers = members.map(m => (m.id === serverUser!.id || m.uid === targetUid || m.email.toLowerCase() === serverUser!.email.toLowerCase()) ? { ...m, ...finalUser } : m);
+    if (!updatedMembers.some(m => m.id === serverUser!.id || m.uid === targetUid)) {
+      updatedMembers.push(finalUser as any);
     }
     saveMembers(updatedMembers);
+  } else if (match) {
+    // Fallback update in local storage
+    const currentBalance = match.trafficBalance || 0;
+    match.trafficBalance = currentBalance + additionalTraffic;
+    match.totalTrafficAssigned = (match.totalTrafficAssigned || 0) + additionalTraffic;
+    match.uid = targetUid;
 
-    if (currentAuth.user?.id === serverUser.id || currentAuth.user?.email.toLowerCase() === serverUser.email.toLowerCase()) {
-      saveAuthSession(serverUser, currentAuth.token || 'tok_valid');
+    if (markAsPaid) {
+      match.isPaidUser = true;
+      match.trafficStatus = 'paid_active';
+    } else {
+      match.trafficStatus = 'trial_active';
     }
-    return { success: true, user: serverUser };
-  }
 
-  if (!match) {
+    if (newTier) {
+      match.tier = newTier;
+    }
+
+    saveMembers(members);
+    const { passwordHash: _, ...safeUser } = match;
+    finalUser = safeUser;
+  } else {
     return { success: false, error: 'Member account not found.' };
   }
 
-  // Fallback update in local storage
-  const currentBalance = match.trafficBalance || 0;
-  match.trafficBalance = currentBalance + additionalTraffic;
-  match.totalTrafficAssigned = (match.totalTrafficAssigned || 0) + additionalTraffic;
-
-  if (markAsPaid) {
-    match.isPaidUser = true;
-    match.trafficStatus = 'paid_active';
-  } else {
-    match.trafficStatus = 'trial_active';
+  // 4. Perform write operation directly to the Firestore 'users' collection to update the 'trafficBalance' field
+  try {
+    await writeUserTrafficToFirestore(targetUid, finalUser.trafficBalance, {
+      totalTrafficAssigned: finalUser.totalTrafficAssigned,
+      isPaidUser: finalUser.isPaidUser,
+      trafficStatus: finalUser.trafficStatus,
+      tier: finalUser.tier,
+      email: finalUser.email,
+      name: finalUser.name,
+    });
+  } catch (firestoreErr) {
+    console.warn('[FIRESTORE] Cloud update deferred:', firestoreErr);
   }
 
-  if (newTier) {
-    match.tier = newTier;
+  // 5. Trigger state refresh for target user's session if active in this browser
+  if (
+    currentAuth.user?.id === finalUser.id ||
+    currentAuth.user?.uid === targetUid ||
+    currentAuth.user?.email.toLowerCase() === finalUser.email.toLowerCase()
+  ) {
+    saveAuthSession(finalUser, currentAuth.token || 'tok_valid');
   }
 
-  saveMembers(members);
-  const { passwordHash: _, ...safeUser } = match;
+  // Broadcast session refresh across window and other open tabs
+  broadcastSessionRefresh(finalUser);
 
-  if (currentAuth.user?.id === match.id) {
-    saveAuthSession(safeUser, currentAuth.token || 'tok_valid');
-  }
-
-  return { success: true, user: safeUser };
+  return { success: true, user: finalUser };
 }
 
 /**

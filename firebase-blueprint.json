@@ -1,0 +1,29 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Member user profile with traffic balance and quota configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Local identifier" },
+        "uid": { "type": "string", "description": "Firestore or Firebase Auth unique identifier" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "name": { "type": "string", "description": "Full name" },
+        "tier": { "type": "string", "enum": ["starter", "pro", "enterprise"], "description": "Subscription tier" },
+        "role": { "type": "string", "enum": ["member", "admin", "guest"], "description": "Role permissions" },
+        "trafficBalance": { "type": "number", "description": "Remaining traffic visits quota" },
+        "totalTrafficAssigned": { "type": "number", "description": "Total visits quota assigned by admin" },
+        "isPaidUser": { "type": "boolean", "description": "Whether the user has been converted to paid" },
+        "trafficStatus": { "type": "string", "description": "Current traffic status (trial_active, paid_active, etc.)" },
+        "updatedAt": { "type": "number", "description": "Unix timestamp of last modification" }
+      },
+      "required": ["email", "trafficBalance"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Member user documents stored in the users collection keyed by UID"
+    }
+  }
+}

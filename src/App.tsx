@@ -306,6 +306,44 @@ export default function App() {
     setIsAuthModalOpen(true);
   };
 
+  // Live listener for real-time session updates (traffic credit assignments, profile updates, multi-tab sync)
+  useEffect(() => {
+    const handleSessionRefresh = (e: any) => {
+      const stored = loadStoredAuth();
+      if (stored && stored.isAuthenticated && stored.user) {
+        if (e?.detail && (e.detail.id === stored.user.id || e.detail.email?.toLowerCase() === stored.user.email?.toLowerCase())) {
+          setAuthState({
+            ...stored,
+            user: { ...stored.user, ...e.detail },
+          });
+        } else {
+          setAuthState(stored);
+        }
+      }
+    };
+
+    window.addEventListener('trafficpulse_session_refresh', handleSessionRefresh);
+    window.addEventListener('storage', handleSessionRefresh);
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('trafficpulse_auth_channel');
+        bc.onmessage = (event) => {
+          if (event.data?.type === 'SESSION_REFRESH') {
+            handleSessionRefresh({ detail: event.data.user });
+          }
+        };
+      }
+    } catch {}
+
+    return () => {
+      window.removeEventListener('trafficpulse_session_refresh', handleSessionRefresh);
+      window.removeEventListener('storage', handleSessionRefresh);
+      if (bc) bc.close();
+    };
+  }, []);
+
   // ==================== AUTO-PERSISTENCE & SCREEN WAKE-LOCK ====================
   const wakeLockRef = useRef<any>(null);
 

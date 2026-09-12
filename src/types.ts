@@ -639,6 +639,7 @@ export type MemberTier = 'starter' | 'pro' | 'enterprise';
 
 export interface MemberUser {
   id: string;
+  uid?: string;
   email: string;
   name: string;
   username?: string;
