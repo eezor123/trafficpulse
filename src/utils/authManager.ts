@@ -625,7 +625,7 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
       adminUser = {
         id: 'user_admin_saroneedam',
         email: query,
-        name: 'Saroneedam Admin',
+        name: 'Super Administrator',
         username: query.split('@')[0],
         company: 'TrafficPulse HQ (Super Admin)',
         targetWebsite: 'https://jobs.eezor.com',
@@ -740,7 +740,7 @@ export async function loginWithGoogle(customProfile?: {
 
   const googleEmail = providedEmail;
   const isVerifiedAdmin = isSaroneedamAdmin;
-  const googleName = customProfile?.name?.trim() || (isVerifiedAdmin ? 'Saroneedam Admin' : googleEmail.split('@')[0]);
+  const googleName = customProfile?.name?.trim() || (isVerifiedAdmin ? 'Super Administrator' : googleEmail.split('@')[0]);
   const userAvatar = typeof customProfile?.avatar === 'string' && customProfile.avatar.trim() ? customProfile.avatar.trim() : undefined;
 
   // Attempt backend API google login

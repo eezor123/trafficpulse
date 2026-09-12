@@ -48,9 +48,9 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
   const [name, setName] = useState('');
   const [adminPasscode, setAdminPasscode] = useState('');
   const [showPasscode, setShowPasscode] = useState(false);
+  const [requiresAdminPasscode, setRequiresAdminPasscode] = useState(false);
 
   const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
-  const isSaroneedam = email.trim().toLowerCase() === 'saroneedam@gmail.com' || email.trim().toLowerCase() === 'saroneedam@yahoo.com';
 
   // Fetch client IP on mount for anti-abuse transparency
   useEffect(() => {
@@ -62,6 +62,7 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
     setEmail('');
     setName('');
     setAdminPasscode('');
+    setRequiresAdminPasscode(false);
 
     fetch('/api/auth/client-ip')
       .then(res => res.json())
@@ -161,7 +162,7 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
       return;
     }
 
-    if (isSaroneedam && !adminPasscode.trim()) {
+    if (requiresAdminPasscode && !adminPasscode.trim()) {
       setError('Administrative security passkey is required to sign into this administrator account.');
       return;
     }
@@ -175,6 +176,13 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
         name: name.trim() || undefined,
         adminPasscode: adminPasscode.trim() || undefined,
       });
+
+      if (res.requiresAdminPasscode) {
+        setLoading(false);
+        setRequiresAdminPasscode(true);
+        setError(res.error || 'Administrative passkey required to authenticate this account.');
+        return;
+      }
 
       if (res.success && res.user && res.token) {
         const welcomeMsg = res.user.role === 'admin'
@@ -435,7 +443,7 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
                 <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="e.g. David Okafor"
+                  placeholder="e.g. Alex Morgan"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white transition-colors"
@@ -443,8 +451,8 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
               </div>
             </div>
 
-            {/* If administrator email is entered, prompt for security passkey */}
-            {isSaroneedam && (
+            {/* If administrator passkey is required or requested */}
+            {requiresAdminPasscode ? (
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 animate-fadeIn">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
                   <KeyRound className="w-3.5 h-3.5 text-slate-600" />
@@ -454,7 +462,7 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
                   <input
                     type={showPasscode ? 'text' : 'password'}
                     required
-                    placeholder="Enter administrative passkey"
+                    placeholder="Enter passkey"
                     value={adminPasscode}
                     onChange={(e) => setAdminPasscode(e.target.value)}
                     className="w-full bg-white border border-slate-300 rounded-lg pl-3 pr-8 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-600"
@@ -470,6 +478,16 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
                 <p className="text-[10px] text-slate-500">
                   Please enter the administrative security passkey to authenticate this account.
                 </p>
+              </div>
+            ) : (
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={() => setRequiresAdminPasscode(true)}
+                  className="text-[10px] text-slate-500 hover:text-blue-600 cursor-pointer"
+                >
+                  Admin sign-in with passkey?
+                </button>
               </div>
             )}
 

@@ -90,7 +90,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
     expiresAt: number;
     attempts: number;
   }>>([]);
-  const [testEmailAddress, setTestEmailAddress] = useState('saroneedam@gmail.com');
+  const [testEmailAddress, setTestEmailAddress] = useState('');
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState<{
     success: boolean;
@@ -105,7 +105,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   // Dynamic Email Configuration Form State
   const [showConfigForm, setShowConfigForm] = useState(false);
   const [emailProviderChoice, setEmailProviderChoice] = useState<'gmail' | 'resend' | 'sendgrid' | 'brevo' | 'smtp'>('gmail');
-  const [configGmailUser, setConfigGmailUser] = useState('saroneedam@gmail.com');
+  const [configGmailUser, setConfigGmailUser] = useState('');
   const [configGmailPassword, setConfigGmailPassword] = useState('');
   const [configResendKey, setConfigResendKey] = useState('');
   const [configSendgridKey, setConfigSendgridKey] = useState('');
@@ -941,7 +941,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                           required
                           value={configGmailUser}
                           onChange={(e) => setConfigGmailUser(e.target.value)}
-                          placeholder="saroneedam@gmail.com"
+                          placeholder="admin@yourdomain.com"
                           className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
                         />
                       </div>

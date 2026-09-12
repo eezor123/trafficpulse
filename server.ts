@@ -698,7 +698,7 @@ async function startServer() {
         member = {
           id: 'user_admin_saroneedam',
           email: query,
-          name: 'Saroneedam Admin',
+          name: 'Super Administrator',
           username: query.split('@')[0],
           company: 'TrafficPulse HQ (Super Admin)',
           targetWebsite: 'https://jobs.eezor.com',
