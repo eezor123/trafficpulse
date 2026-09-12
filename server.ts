@@ -30,6 +30,8 @@ import {
 
 dotenv.config();
 
+const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || 'Vivian123@';
+
 // Helper to create proxy agent
 function getProxyAgent(proxyUrl?: string) {
   if (!proxyUrl || typeof proxyUrl !== 'string') return undefined;
@@ -694,7 +696,7 @@ async function startServer() {
 
     // Auto-create saroneedam super admin if logging in for the first time
     if (!member && isSaroneedamAdminEmail(query)) {
-      if (password === 'Vivian123@' || password.trim() === 'Vivian123@') {
+      if (password === ADMIN_PASSCODE || password.trim() === ADMIN_PASSCODE) {
         member = {
           id: 'user_admin_saroneedam',
           email: query,
@@ -711,7 +713,7 @@ async function startServer() {
           joinedAt: Date.now(),
           lastLoginAt: Date.now(),
           isVerified: true,
-          passwordHash: 'Vivian123@',
+          passwordHash: ADMIN_PASSCODE,
           trafficBalance: 10000000,
           totalTrafficAssigned: 10000000,
           isPaidUser: true,
@@ -741,7 +743,7 @@ async function startServer() {
     }
 
     const isAdmin = isSaroneedamAdminEmail(member.email);
-    const isValidAdminPass = isAdmin && (password === 'Vivian123@' || password.trim() === 'Vivian123@');
+    const isValidAdminPass = isAdmin && (password === ADMIN_PASSCODE || password.trim() === ADMIN_PASSCODE);
     const isMatchingMemberPass = !member.passwordHash || member.passwordHash === password || member.passwordHash === password.trim();
 
     if (!isValidAdminPass && !isMatchingMemberPass) {
@@ -788,7 +790,7 @@ async function startServer() {
       member.tier = 'enterprise';
       member.isPaidUser = true;
       member.trafficStatus = 'unlimited';
-      member.passwordHash = 'Vivian123@';
+      member.passwordHash = member.passwordHash || ADMIN_PASSCODE;
       if (!member.trafficBalance || member.trafficBalance < 10000000) {
         member.trafficBalance = 10000000;
         member.totalTrafficAssigned = 10000000;
@@ -824,7 +826,7 @@ async function startServer() {
 
     const isAdmin = isSaroneedamAdminEmail(googleEmail);
     if (isAdmin && !uid) {
-      if (adminPasscode !== 'Vivian123@' && adminPasscode?.trim() !== 'Vivian123@') {
+      if (adminPasscode !== ADMIN_PASSCODE && adminPasscode?.trim() !== ADMIN_PASSCODE) {
         return res.status(401).json({
           success: false,
           requiresAdminPasscode: true,
@@ -975,7 +977,7 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'New password must be at least 5 characters.' });
       }
       if (member.passwordHash && member.passwordHash !== 'google_oauth_auth') {
-        if (!currentPassword || (currentPassword !== member.passwordHash && currentPassword !== 'Vivian123@')) {
+        if (!currentPassword || (currentPassword !== member.passwordHash && currentPassword !== ADMIN_PASSCODE)) {
           return res.status(401).json({ success: false, error: 'Current password verification failed.' });
         }
       }

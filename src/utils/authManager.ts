@@ -570,11 +570,9 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
   try {
     const cloudUser = await getMemberFromCloud(query);
     if (cloudUser && cloudUser.email) {
-      const isSaroneedam = cloudUser.email.toLowerCase() === 'saroneedam@gmail.com' || cloudUser.email.toLowerCase() === 'saroneedam@yahoo.com';
-      const isValidAdminPass = isSaroneedam && (password === 'Vivian123@' || password.trim() === 'Vivian123@');
       const isMatchingPass = !cloudUser.passwordHash || cloudUser.passwordHash === password || cloudUser.passwordHash === password.trim();
 
-      if (isValidAdminPass || isMatchingPass) {
+      if (isMatchingPass) {
         const { passwordHash: _, ...safeUser } = cloudUser;
         const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
         saveAuthSession(safeUser, token);
@@ -609,75 +607,6 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
 
   // 3. Local storage registry check
   const members = getStoredMembers();
-  const isSaroneedam = query === 'saroneedam@gmail.com' || query === 'saroneedam@yahoo.com';
-  const isValidAdminPasskey = password === 'Vivian123@' || password.trim() === 'Vivian123@';
-
-  if (isSaroneedam) {
-    if (!isValidAdminPasskey) {
-      return { success: false, error: 'Invalid Super Admin password. Please check the master passkey.' };
-    }
-
-    let adminUser = members.find(
-      m => m.email.toLowerCase() === query || (m.username && m.username.toLowerCase() === query)
-    );
-
-    if (!adminUser) {
-      adminUser = {
-        id: 'user_admin_saroneedam',
-        email: query,
-        name: 'Super Administrator',
-        username: query.split('@')[0],
-        company: 'TrafficPulse HQ (Super Admin)',
-        targetWebsite: 'https://jobs.eezor.com',
-        tier: 'enterprise',
-        role: 'admin',
-        customVisitsLimit: 10000000,
-        maxConcurrentVUs: 250,
-        totalCampaignsRun: 0,
-        totalVisitsGenerated: 0,
-        joinedAt: Date.now(),
-        lastLoginAt: Date.now(),
-        isVerified: true,
-        passwordHash: 'Vivian123@',
-        trafficBalance: 10000000,
-        totalTrafficAssigned: 10000000,
-        isPaidUser: true,
-        trafficStatus: 'unlimited',
-        registrationIp: '127.0.0.1',
-        lastLoginIp: '127.0.0.1',
-        authProvider: 'email',
-      };
-      members.push(adminUser);
-    } else {
-      adminUser.role = 'admin';
-      adminUser.tier = 'enterprise';
-      adminUser.isPaidUser = true;
-      adminUser.trafficStatus = 'unlimited';
-      adminUser.customVisitsLimit = 10000000;
-      adminUser.maxConcurrentVUs = 250;
-      adminUser.lastLoginAt = Date.now();
-      adminUser.passwordHash = 'Vivian123@';
-      if (!adminUser.trafficBalance || adminUser.trafficBalance < 10000000) {
-        adminUser.trafficBalance = 10000000;
-        adminUser.totalTrafficAssigned = 10000000;
-      }
-    }
-    saveMembers(members);
-    saveMemberToCloud(adminUser).catch(() => {});
-
-    // Sync to server
-    fetch('/api/auth/sync-member', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ member: adminUser }),
-    }).catch(() => {});
-
-    const { passwordHash: _, ...safeUser } = adminUser;
-    const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    saveAuthSession(safeUser, token);
-    return { success: true, user: safeUser, token };
-  }
-
   const match = members.find(
     m => m.email.toLowerCase() === query || (m.username && m.username.toLowerCase() === query)
   );
@@ -727,15 +656,13 @@ export async function loginWithGoogle(customProfile?: {
   const isGoogleVerified = Boolean(customProfile?.uid);
   const providedPasscode = customProfile?.adminPasscode?.trim();
 
-  // If someone attempts to claim the Saroneedam Super Admin identity without Google popup verification or valid passkey
-  if (isSaroneedamAdmin && !isGoogleVerified) {
-    if (!providedPasscode || providedPasscode !== 'Vivian123@') {
-      return {
-        success: false,
-        requiresAdminPasscode: true,
-        error: 'Security Verification Required: Administrative security passkey is required to sign into this account on unverified domains.',
-      };
-    }
+  // If administrative account access is requested without verified Google UID, require server passkey validation
+  if (isSaroneedamAdmin && !isGoogleVerified && !providedPasscode) {
+    return {
+      success: false,
+      requiresAdminPasscode: true,
+      error: 'Security Verification Required: Administrative security passkey is required to sign into this account.',
+    };
   }
 
   const googleEmail = providedEmail;
@@ -875,7 +802,7 @@ export async function updateMemberProfile(payload: UpdateProfilePayload): Promis
       return { success: false, error: 'New password must be at least 5 characters long.' };
     }
     if (match.passwordHash && match.passwordHash !== 'google_oauth_auth') {
-      if (!payload.currentPassword || (payload.currentPassword !== match.passwordHash && payload.currentPassword !== 'Vivian123@')) {
+      if (!payload.currentPassword || payload.currentPassword !== match.passwordHash) {
         return { success: false, error: 'Current password verification failed.' };
       }
     }

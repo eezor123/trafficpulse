@@ -276,6 +276,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="button"
               onClick={() => {
                 setMode('login');
+                setLoginEmail('');
+                setLoginPassword('');
                 setErrorMessage(null);
               }}
               className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
@@ -291,6 +293,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="button"
               onClick={() => {
                 setMode('register');
+                setRegName('');
+                setRegEmail('');
+                setRegPassword('');
+                setRegConfirmPassword('');
+                setRegCompany('');
+                setRegWebsite('');
                 setErrorMessage(null);
               }}
               className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
@@ -448,7 +456,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* MODE: REGISTER / JOIN */}
         {mode === 'register' && (
-          <form onSubmit={handleRegisterSubmit} className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+          <form
+            onSubmit={handleRegisterSubmit}
+            autoComplete="off"
+            data-lpignore="true"
+            data-form-type="other"
+            className="space-y-4 max-h-[65vh] overflow-y-auto pr-1"
+          >
+            {/* Decoy fields to capture aggressive browser autofill tools (like Firefox mobile / Samsung Pass) */}
+            <input
+              type="text"
+              name="fake_autofill_decoy_username"
+              tabIndex={-1}
+              autoComplete="off"
+              className="sr-only"
+              aria-hidden="true"
+            />
+            <input
+              type="password"
+              name="fake_autofill_decoy_password"
+              tabIndex={-1}
+              autoComplete="new-password"
+              className="sr-only"
+              aria-hidden="true"
+            />
+
             <div className="space-y-3">
               {/* Member Tier Selector */}
               <div>
@@ -514,9 +546,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
+                      name="tp_new_member_name"
                       required
                       placeholder="Full Name"
                       value={regName}
+                      autoComplete="off"
+                      data-lpignore="true"
                       onChange={(e) => setRegName(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
                     />
@@ -529,9 +564,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="email"
+                      name="tp_new_member_email_addr"
                       required
                       placeholder="name@domain.com"
                       value={regEmail}
+                      autoComplete="off"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      data-lpignore="true"
                       onChange={(e) => setRegEmail(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
                     />
@@ -547,8 +588,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
+                      name="tp_new_member_org"
                       placeholder="e.g. Acme Media"
                       value={regCompany}
+                      autoComplete="off"
+                      data-lpignore="true"
                       onChange={(e) => setRegCompany(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
                     />
@@ -561,8 +605,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <Globe className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
+                      name="tp_new_member_site"
                       placeholder="https://example.com"
                       value={regWebsite}
+                      autoComplete="off"
+                      data-lpignore="true"
                       onChange={(e) => setRegWebsite(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
                     />
@@ -578,9 +625,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type={showRegPassword ? 'text' : 'password'}
+                      name="tp_new_member_pwd_val"
                       required
                       placeholder="At least 5 characters"
                       value={regPassword}
+                      autoComplete="new-password"
+                      data-lpignore="true"
                       onChange={(e) => setRegPassword(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
                     />
@@ -600,9 +650,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type={showRegPassword ? 'text' : 'password'}
+                      name="tp_new_member_pwd_confirm"
                       required
                       placeholder="Re-enter password"
                       value={regConfirmPassword}
+                      autoComplete="new-password"
+                      data-lpignore="true"
                       onChange={(e) => setRegConfirmPassword(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
                     />

@@ -94,8 +94,8 @@ function slugToTitle(slugPath, fallbackText) {
   if (!clean || clean === "/") return "Home";
   return clean.replace(/\b\w/g, (c) => c.toUpperCase());
 }
-function classifyPageCategory(path, linkText = "") {
-  const lowerPath = path.toLowerCase();
+function classifyPageCategory(path3, linkText = "") {
+  const lowerPath = path3.toLowerCase();
   const lowerText = linkText.toLowerCase();
   if (lowerPath.includes("/category/") || lowerPath.includes("/categories/") || lowerPath.includes("/topics/") || lowerPath.includes("/section/") || lowerPath.includes("/collections/") || lowerPath.includes("category=") || lowerPath.includes("cat=")) {
     return "category";
@@ -142,7 +142,7 @@ function classifyPageCategory(path, linkText = "") {
   if (standardPages.some((p) => lowerPath === p || lowerPath === `${p}/` || lowerPath.startsWith(`${p}/`))) {
     return "page";
   }
-  if (path.length > 15 && (path.includes("-") || path.includes("_")) || (path.match(/[-_]/g) || []).length >= 2) {
+  if (path3.length > 15 && (path3.includes("-") || path3.includes("_")) || (path3.match(/[-_]/g) || []).length >= 2) {
     return "post";
   }
   return "page";
@@ -1244,6 +1244,738 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
   };
 }
 
+// src/server/memberStore.ts
+import fs from "fs";
+import path from "path";
+
+// src/lib/firebase.ts
+import { initializeApp, getApps, getApp } from "firebase/app";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut
+} from "firebase/auth";
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  collection,
+  query,
+  where,
+  deleteDoc
+} from "firebase/firestore";
+var firebaseConfig = {
+  projectId: "eezor1-1537170168584",
+  appId: "1:840352479509:web:45be19193f0a424b85111c",
+  apiKey: "AIzaSyA9iahgzxM8aLZwUxnqWK5DtQcPTNXpw_Q",
+  authDomain: "eezor1-1537170168584.firebaseapp.com",
+  firestoreDatabaseId: "ai-studio-naijajobsnigeria-f8a2304a-f7d0-471a-a51c-710cdaeeb89e",
+  storageBucket: "eezor1-1537170168584.firebasestorage.app",
+  messagingSenderId: "840352479509"
+};
+var firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+var firebaseAuth = getAuth(firebaseApp);
+var firestoreInstance = null;
+function getFirestoreDb() {
+  if (!firestoreInstance) {
+    try {
+      firestoreInstance = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+    } catch (err) {
+      console.warn("Named Firestore database initialization failed, falling back to default:", err);
+      firestoreInstance = getFirestore(firebaseApp);
+    }
+  }
+  return firestoreInstance;
+}
+function emailToDocId(email) {
+  const clean = (email || "").trim().toLowerCase();
+  let hex = "";
+  for (let i = 0; i < clean.length; i++) {
+    hex += clean.charCodeAt(i).toString(16).padStart(2, "0");
+  }
+  return `member_${hex}`;
+}
+async function saveMemberToCloud(member) {
+  if (!member || !member.email) return false;
+  try {
+    const db = getFirestoreDb();
+    const uid = member.uid || member.id || emailToDocId(member.email);
+    const userDocRef = doc(db, "users", uid);
+    await setDoc(
+      userDocRef,
+      {
+        ...member,
+        uid,
+        updatedAt: Date.now()
+      },
+      { merge: true }
+    );
+    const docId = emailToDocId(member.email);
+    const docRef = doc(db, "trafficpulse_members", docId);
+    await setDoc(
+      docRef,
+      {
+        ...member,
+        uid,
+        updatedAt: Date.now()
+      },
+      { merge: true }
+    );
+    return true;
+  } catch (e) {
+    console.warn("Failed to persist member to Firestore cloud database:", e);
+    return false;
+  }
+}
+async function getMemberFromCloud(emailOrUsername) {
+  const queryStr = (emailOrUsername || "").trim().toLowerCase();
+  if (!queryStr) return null;
+  try {
+    const db = getFirestoreDb();
+    try {
+      const snap = await getDoc(doc(db, "users", queryStr));
+      if (snap.exists()) {
+        return snap.data();
+      }
+    } catch {
+    }
+    if (queryStr.includes("@")) {
+      try {
+        const q = query(collection(db, "users"), where("email", "==", queryStr));
+        const qSnap = await getDocs(q);
+        if (!qSnap.empty) {
+          return qSnap.docs[0].data();
+        }
+      } catch {
+      }
+    }
+    if (queryStr.includes("@")) {
+      const docId = emailToDocId(queryStr);
+      const snap = await getDoc(doc(db, "trafficpulse_members", docId));
+      if (snap.exists()) {
+        return snap.data();
+      }
+    }
+    try {
+      const usersColSnap = await getDocs(collection(db, "users"));
+      for (const d of usersColSnap.docs) {
+        const data = d.data();
+        if (data.email?.toLowerCase() === queryStr || data.username && data.username.toLowerCase() === queryStr) {
+          return data;
+        }
+      }
+    } catch {
+    }
+    const colSnap = await getDocs(collection(db, "trafficpulse_members"));
+    for (const d of colSnap.docs) {
+      const data = d.data();
+      if (data.email?.toLowerCase() === queryStr || data.username && data.username.toLowerCase() === queryStr) {
+        return data;
+      }
+    }
+    return null;
+  } catch (e) {
+    console.warn("Failed to query member from Firestore:", e);
+    return null;
+  }
+}
+async function getAllMembersFromCloud() {
+  try {
+    const db = getFirestoreDb();
+    const membersMap = /* @__PURE__ */ new Map();
+    try {
+      const usersSnap = await getDocs(collection(db, "users"));
+      usersSnap.forEach((d) => {
+        const data = d.data();
+        if (data && data.email) {
+          membersMap.set(data.email.toLowerCase(), data);
+        }
+      });
+    } catch (err) {
+      console.warn("Failed to get docs from users collection:", err);
+    }
+    try {
+      const colSnap = await getDocs(collection(db, "trafficpulse_members"));
+      colSnap.forEach((d) => {
+        const data = d.data();
+        if (data && data.email && !membersMap.has(data.email.toLowerCase())) {
+          membersMap.set(data.email.toLowerCase(), data);
+        }
+      });
+    } catch (err) {
+      console.warn("Failed to get docs from trafficpulse_members collection:", err);
+    }
+    return Array.from(membersMap.values());
+  } catch (e) {
+    console.warn("Failed to get all members from Firestore:", e);
+    return [];
+  }
+}
+async function savePendingToCloud(email, pending) {
+  if (!email || !pending) return false;
+  try {
+    const db = getFirestoreDb();
+    const docId = emailToDocId(email);
+    const docRef = doc(db, "trafficpulse_pending_verifications", docId);
+    await setDoc(docRef, {
+      ...pending,
+      email: email.trim().toLowerCase(),
+      updatedAt: Date.now()
+    });
+    return true;
+  } catch (e) {
+    console.warn("Failed to save pending verification to Firestore:", e);
+    return false;
+  }
+}
+async function getPendingFromCloud(email) {
+  const cleanEmail = (email || "").trim().toLowerCase();
+  if (!cleanEmail) return null;
+  try {
+    const db = getFirestoreDb();
+    const docId = emailToDocId(cleanEmail);
+    const snap = await getDoc(doc(db, "trafficpulse_pending_verifications", docId));
+    if (snap.exists()) {
+      return snap.data();
+    }
+    return null;
+  } catch (e) {
+    console.warn("Failed to get pending verification from Firestore:", e);
+    return null;
+  }
+}
+async function deletePendingFromCloud(email) {
+  const cleanEmail = (email || "").trim().toLowerCase();
+  if (!cleanEmail) return false;
+  try {
+    const db = getFirestoreDb();
+    const docId = emailToDocId(cleanEmail);
+    await deleteDoc(doc(db, "trafficpulse_pending_verifications", docId));
+    return true;
+  } catch (e) {
+    console.warn("Failed to delete pending verification from Firestore:", e);
+    return false;
+  }
+}
+var googleAuthProvider = new GoogleAuthProvider();
+googleAuthProvider.setCustomParameters({
+  prompt: "select_account"
+});
+
+// src/server/memberStore.ts
+var memoryMembers = /* @__PURE__ */ new Map();
+var memoryPending = /* @__PURE__ */ new Map();
+function getStorageFilePath() {
+  const localDataDir = path.join(process.cwd(), "data");
+  try {
+    if (!fs.existsSync(localDataDir)) {
+      fs.mkdirSync(localDataDir, { recursive: true });
+    }
+    const testFile = path.join(localDataDir, ".writable_check");
+    fs.writeFileSync(testFile, "1");
+    fs.unlinkSync(testFile);
+    return path.join(localDataDir, "server_members.json");
+  } catch {
+    const tmpDir = "/tmp";
+    try {
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+    } catch {
+    }
+    return path.join(tmpDir, "trafficpulse_server_members.json");
+  }
+}
+var activeStoragePath = null;
+function getActiveStoragePath() {
+  if (!activeStoragePath) {
+    activeStoragePath = getStorageFilePath();
+  }
+  return activeStoragePath;
+}
+function loadFromFileCache() {
+  try {
+    const filePath = getActiveStoragePath();
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        for (const m of data) {
+          if (m && m.email) {
+            memoryMembers.set(m.email.toLowerCase(), m);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[STORE] Could not read local file cache:", err);
+  }
+}
+function saveToFileCache() {
+  try {
+    const filePath = getActiveStoragePath();
+    const list = Array.from(memoryMembers.values());
+    fs.writeFileSync(filePath, JSON.stringify(list, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[STORE] Could not write to local file cache:", err);
+  }
+}
+loadFromFileCache();
+var hasSyncedWithCloud = false;
+async function syncMembersFromCloud() {
+  if (hasSyncedWithCloud) return;
+  try {
+    const cloudMembers = await getAllMembersFromCloud();
+    if (cloudMembers && cloudMembers.length > 0) {
+      for (const m of cloudMembers) {
+        if (m && m.email) {
+          const emailLower = m.email.toLowerCase();
+          const existing = memoryMembers.get(emailLower);
+          if (!existing || m.lastLoginAt && m.lastLoginAt > (existing.lastLoginAt || 0)) {
+            memoryMembers.set(emailLower, m);
+          }
+        }
+      }
+      saveToFileCache();
+      console.log(`[STORE] Successfully synchronized ${cloudMembers.length} member(s) from Firestore cloud database.`);
+    }
+    hasSyncedWithCloud = true;
+  } catch (e) {
+    console.warn("[STORE] Cloud members sync deferred:", e);
+  }
+}
+syncMembersFromCloud().catch(() => {
+});
+async function findMember(query2) {
+  const clean = (query2 || "").trim().toLowerCase();
+  if (!clean) return null;
+  let member = memoryMembers.get(clean);
+  if (!member) {
+    for (const m of memoryMembers.values()) {
+      if (m.username && m.username.toLowerCase() === clean) {
+        member = m;
+        break;
+      }
+    }
+  }
+  if (member) return member;
+  loadFromFileCache();
+  member = memoryMembers.get(clean);
+  if (member) return member;
+  try {
+    const cloudRecord = await getMemberFromCloud(clean);
+    if (cloudRecord && cloudRecord.email) {
+      const parsed = cloudRecord;
+      memoryMembers.set(parsed.email.toLowerCase(), parsed);
+      saveToFileCache();
+      return parsed;
+    }
+  } catch (err) {
+    console.warn("[STORE] Error querying member from cloud:", err);
+  }
+  return null;
+}
+async function listAllMembers() {
+  if (memoryMembers.size === 0) {
+    loadFromFileCache();
+    await syncMembersFromCloud();
+  }
+  return Array.from(memoryMembers.values());
+}
+async function persistMember(member) {
+  if (!member || !member.email) return;
+  const emailLower = member.email.toLowerCase();
+  memoryMembers.set(emailLower, member);
+  saveToFileCache();
+  try {
+    await saveMemberToCloud(member);
+  } catch (err) {
+    console.warn("[STORE] Could not save member to cloud database:", err);
+  }
+}
+async function persistPending(pending) {
+  if (!pending || !pending.email) return;
+  const emailLower = pending.email.toLowerCase();
+  memoryPending.set(emailLower, pending);
+  try {
+    await savePendingToCloud(emailLower, pending);
+  } catch (err) {
+    console.warn("[STORE] Could not save pending verification to cloud:", err);
+  }
+}
+async function findPending(email) {
+  const clean = (email || "").trim().toLowerCase();
+  if (!clean) return null;
+  const mem = memoryPending.get(clean);
+  if (mem) return mem;
+  try {
+    const cloudPending = await getPendingFromCloud(clean);
+    if (cloudPending && cloudPending.code) {
+      const parsed = cloudPending;
+      memoryPending.set(clean, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.warn("[STORE] Could not get pending verification from cloud:", err);
+  }
+  return null;
+}
+async function removePending(email) {
+  const clean = (email || "").trim().toLowerCase();
+  if (!clean) return;
+  memoryPending.delete(clean);
+  try {
+    await deletePendingFromCloud(clean);
+  } catch (err) {
+    console.warn("[STORE] Could not remove pending verification from cloud:", err);
+  }
+}
+function listPendingVerifications() {
+  const now = Date.now();
+  const list = [];
+  for (const item of memoryPending.values()) {
+    if (item.expiresAt > now) {
+      const { passwordHash: _, ...safe } = item;
+      list.push(safe);
+    }
+  }
+  return list.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+// src/server/emailService.ts
+import nodemailer from "nodemailer";
+import fs2 from "fs";
+import path2 from "path";
+var memoryEmailConfig = null;
+function getEmailConfigFilePath() {
+  const dir = path2.join(process.cwd(), "data");
+  if (!fs2.existsSync(dir)) {
+    try {
+      fs2.mkdirSync(dir, { recursive: true });
+    } catch {
+    }
+  }
+  return path2.join(dir, "email-config.json");
+}
+function loadSavedEmailConfig() {
+  if (memoryEmailConfig) return memoryEmailConfig;
+  try {
+    const filePath = getEmailConfigFilePath();
+    if (fs2.existsSync(filePath)) {
+      const raw = fs2.readFileSync(filePath, "utf-8");
+      memoryEmailConfig = JSON.parse(raw);
+      return memoryEmailConfig || {};
+    }
+  } catch (e) {
+    console.warn("[EMAIL-CONFIG] Error reading saved email config:", e);
+  }
+  return {};
+}
+function getEmailProviderStatus() {
+  const saved = loadSavedEmailConfig();
+  const from = saved.emailFrom || process.env.EMAIL_FROM || saved.gmailUser || process.env.GMAIL_USER || "TrafficPulse <no-reply@trafficpulse.io>";
+  const resendKey = saved.resendApiKey || process.env.RESEND_API_KEY;
+  if (resendKey) {
+    return {
+      configured: true,
+      provider: "resend",
+      fromAddress: from,
+      details: "Active via Resend REST API (HTTPS port 443)"
+    };
+  }
+  const gmailUser = saved.gmailUser || process.env.GMAIL_USER || (process.env.SMTP_USER?.includes("@gmail.com") ? process.env.SMTP_USER : "");
+  const gmailPass = saved.gmailAppPassword || process.env.GMAIL_APP_PASSWORD || (gmailUser ? process.env.SMTP_PASS : "");
+  if (gmailUser && gmailPass) {
+    return {
+      configured: true,
+      provider: "gmail",
+      fromAddress: gmailUser,
+      details: `Active via Gmail SMTP (${gmailUser})`
+    };
+  }
+  const sendgridKey = saved.sendgridApiKey || process.env.SENDGRID_API_KEY;
+  if (sendgridKey) {
+    return {
+      configured: true,
+      provider: "sendgrid",
+      fromAddress: from,
+      details: "Active via SendGrid v3 Web API"
+    };
+  }
+  const brevoKey = saved.brevoApiKey || process.env.BREVO_API_KEY;
+  if (brevoKey) {
+    return {
+      configured: true,
+      provider: "brevo",
+      fromAddress: from,
+      details: "Active via Brevo / Sendinblue REST API"
+    };
+  }
+  const smtpHost = saved.smtpHost || process.env.SMTP_HOST;
+  const smtpUser = saved.smtpUser || process.env.SMTP_USER;
+  const smtpPass = saved.smtpPass || process.env.SMTP_PASS;
+  if (smtpHost && smtpUser && smtpPass) {
+    const port = saved.smtpPort || process.env.SMTP_PORT || "587";
+    return {
+      configured: true,
+      provider: "smtp",
+      fromAddress: from,
+      details: `Active via Custom SMTP (${smtpHost}:${port})`
+    };
+  }
+  return {
+    configured: false,
+    provider: "none",
+    fromAddress: from,
+    details: "No live outbound email provider configured yet.",
+    instructions: "Add Gmail App Password, Resend API key, or SMTP credentials in the Admin Panel to deliver emails to member inboxes."
+  };
+}
+function buildVerificationHtml(name, code) {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>TrafficPulse Email Verification</title>
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #090d16; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #f8fafc;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #090d16; padding: 40px 10px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" style="max-width: 560px; background-color: #0f172a; border-radius: 16px; border: 1px solid #1e293b; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+                <!-- Header -->
+                <tr>
+                  <td style="padding: 32px 32px 20px 32px; text-align: center; background: linear-gradient(180deg, #131c31 0%, #0f172a 100%); border-bottom: 1px solid #1e293b;">
+                    <div style="display: inline-block; padding: 8px 16px; border-radius: 9999px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); margin-bottom: 12px;">
+                      <span style="color: #34d399; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;">Account Security</span>
+                    </div>
+                    <h1 style="color: #ffffff; margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.5px;">TrafficPulse</h1>
+                    <p style="color: #94a3b8; font-size: 13px; margin: 6px 0 0 0;">High-Concurrency Traffic Simulation Platform</p>
+                  </td>
+                </tr>
+
+                <!-- Content -->
+                <tr>
+                  <td style="padding: 32px;">
+                    <p style="margin: 0 0 16px; font-size: 16px; color: #e2e8f0; font-weight: 600;">
+                      Hello ${name ? escapeHtml(name) : "there"},
+                    </p>
+                    <p style="margin: 0 0 24px; font-size: 14px; color: #94a3b8; line-height: 1.6;">
+                      Thank you for registering. Please enter the 6-digit confirmation code below to verify your email address and immediately unlock your <strong>500 Free Trial Traffic Credits</strong>.
+                    </p>
+
+                    <!-- OTP Code Box -->
+                    <div style="background-color: #090d16; border: 2px dashed #10b981; border-radius: 12px; padding: 24px 16px; text-align: center; margin: 24px 0;">
+                      <span style="font-family: 'SF Mono', Consolas, Monaco, monospace; font-size: 38px; font-weight: 800; letter-spacing: 12px; color: #10b981; display: inline-block;">
+                        ${code}
+                      </span>
+                    </div>
+
+                    <p style="margin: 0 0 16px; font-size: 12px; color: #64748b; text-align: center;">
+                      \u23F1 This code will expire in <strong>15 minutes</strong>.
+                    </p>
+
+                    <div style="background-color: #1e293b; border-radius: 10px; padding: 14px 18px; margin-top: 24px; border-left: 4px solid #10b981;">
+                      <p style="margin: 0; font-size: 12px; color: #cbd5e1; line-height: 1.5;">
+                        <strong>Quick Tip:</strong> Once verified, you can immediately configure custom target URLs, test residential proxy cascades, and launch live simulation campaigns.
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                  <td style="padding: 20px 32px; background-color: #090d16; border-top: 1px solid #1e293b; text-align: center;">
+                    <p style="margin: 0; font-size: 11px; color: #475569; line-height: 1.5;">
+                      If you did not initiate this registration request, please disregard this email.<br/>
+                      \xA9 TrafficPulse. All rights reserved.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+  `;
+}
+function escapeHtml(str) {
+  return str.replace(/[&<>'"]/g, (tag) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "'": "&#39;",
+    '"': "&quot;"
+  })[tag] || tag);
+}
+async function sendVerificationOtpEmail(toEmail, code, name) {
+  const cleanEmail = toEmail.trim().toLowerCase();
+  console.log(`[EMAIL-SERVICE] Preparing OTP delivery for ${cleanEmail}: ${code}`);
+  const saved = loadSavedEmailConfig();
+  const subject = `Your TrafficPulse Verification Code: ${code}`;
+  const text = `Hello ${name || "there"},
+
+Your TrafficPulse verification code is: ${code}
+
+This code expires in 15 minutes.
+Use it to activate your account and claim 500 Free Trial Traffic Credits.`;
+  const html = buildVerificationHtml(name, code);
+  const from = saved.emailFrom || process.env.EMAIL_FROM || '"TrafficPulse" <no-reply@trafficpulse.io>';
+  const resendKey = saved.resendApiKey || process.env.RESEND_API_KEY;
+  if (resendKey) {
+    try {
+      const resp = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${resendKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          from: saved.emailFrom || process.env.EMAIL_FROM || "TrafficPulse <onboarding@resend.dev>",
+          to: [cleanEmail],
+          subject,
+          html,
+          text
+        })
+      });
+      const data = await resp.json();
+      if (resp.ok && data?.id) {
+        console.log(`[EMAIL-SERVICE] Resend delivery succeeded for ${cleanEmail} (ID: ${data.id})`);
+        return { sent: true, provider: "resend", messageId: data.id };
+      }
+      console.warn(`[EMAIL-SERVICE] Resend API error:`, data);
+      return { sent: false, provider: "resend", error: data?.message || "Resend delivery failed" };
+    } catch (err) {
+      console.warn(`[EMAIL-SERVICE] Resend fetch failed:`, err?.message);
+      return { sent: false, provider: "resend", error: err?.message };
+    }
+  }
+  const sendgridKey = saved.sendgridApiKey || process.env.SENDGRID_API_KEY;
+  if (sendgridKey) {
+    try {
+      const resp = await fetch("https://api.sendgrid.com/v3/mail/send", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${sendgridKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          personalizations: [{ to: [{ email: cleanEmail }] }],
+          from: { email: saved.emailFrom || process.env.EMAIL_FROM || "no-reply@trafficpulse.io", name: "TrafficPulse" },
+          subject,
+          content: [
+            { type: "text/plain", value: text },
+            { type: "text/html", value: html }
+          ]
+        })
+      });
+      if (resp.ok) {
+        console.log(`[EMAIL-SERVICE] SendGrid delivery succeeded for ${cleanEmail}`);
+        return { sent: true, provider: "sendgrid" };
+      }
+      const errText = await resp.text();
+      return { sent: false, provider: "sendgrid", error: errText };
+    } catch (err) {
+      return { sent: false, provider: "sendgrid", error: err?.message };
+    }
+  }
+  const brevoKey = saved.brevoApiKey || process.env.BREVO_API_KEY;
+  if (brevoKey) {
+    try {
+      const resp = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": brevoKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          sender: { name: "TrafficPulse", email: saved.emailFrom || process.env.EMAIL_FROM || "no-reply@trafficpulse.io" },
+          to: [{ email: cleanEmail, name: name || cleanEmail.split("@")[0] }],
+          subject,
+          htmlContent: html,
+          textContent: text
+        })
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        console.log(`[EMAIL-SERVICE] Brevo delivery succeeded for ${cleanEmail} (ID: ${data?.messageId})`);
+        return { sent: true, provider: "brevo", messageId: data?.messageId };
+      }
+      return { sent: false, provider: "brevo", error: data?.message || "Brevo API error" };
+    } catch (err) {
+      return { sent: false, provider: "brevo", error: err?.message };
+    }
+  }
+  const gmailUser = saved.gmailUser || process.env.GMAIL_USER || (process.env.SMTP_USER?.includes("@gmail.com") ? process.env.SMTP_USER : "");
+  const gmailPass = saved.gmailAppPassword || process.env.GMAIL_APP_PASSWORD || (gmailUser ? process.env.SMTP_PASS : "");
+  if (gmailUser && gmailPass) {
+    try {
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: gmailUser,
+          pass: gmailPass
+        }
+      });
+      const info = await transporter.sendMail({
+        from: `TrafficPulse <${gmailUser}>`,
+        to: cleanEmail,
+        subject,
+        text,
+        html
+      });
+      console.log(`[EMAIL-SERVICE] Gmail SMTP delivery succeeded for ${cleanEmail} (ID: ${info.messageId})`);
+      return { sent: true, provider: "gmail", messageId: info.messageId };
+    } catch (err) {
+      console.warn(`[EMAIL-SERVICE] Gmail SMTP error:`, err?.message);
+      return { sent: false, provider: "gmail", error: err?.message };
+    }
+  }
+  const smtpHost = saved.smtpHost || process.env.SMTP_HOST;
+  const smtpUser = saved.smtpUser || process.env.SMTP_USER;
+  const smtpPass = saved.smtpPass || process.env.SMTP_PASS;
+  if (smtpHost && smtpUser && smtpPass) {
+    try {
+      const port = parseInt(saved.smtpPort || process.env.SMTP_PORT || "587", 10);
+      const secure = saved.smtpSecure ?? (process.env.SMTP_SECURE === "true" || port === 465);
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port,
+        secure,
+        auth: { user: smtpUser, pass: smtpPass },
+        connectionTimeout: 8e3,
+        greetingTimeout: 5e3
+      });
+      const info = await transporter.sendMail({
+        from,
+        to: cleanEmail,
+        subject,
+        text,
+        html
+      });
+      console.log(`[EMAIL-SERVICE] Custom SMTP delivery succeeded for ${cleanEmail} (ID: ${info.messageId})`);
+      return { sent: true, provider: "smtp", messageId: info.messageId };
+    } catch (err) {
+      console.warn(`[EMAIL-SERVICE] Custom SMTP error:`, err?.message);
+      return { sent: false, provider: "smtp", error: err?.message };
+    }
+  }
+  console.log(`[EMAIL-SERVICE] No live email provider configured on server for ${cleanEmail}.`);
+  return {
+    sent: false,
+    provider: "none",
+    error: "Outbound email provider is not currently configured on the server."
+  };
+}
+
 // api-src/index.ts
 dotenv.config();
 function getProxyAgent(proxyUrl) {
@@ -1305,61 +2037,8 @@ app.use((req, res, next) => {
   next();
 });
 var router = express.Router();
-var serverMembers = [];
 var activeSessions = /* @__PURE__ */ new Map();
 var ipRegistry = /* @__PURE__ */ new Map();
-var pendingVerifications = /* @__PURE__ */ new Map();
-async function sendVerificationEmail(toEmail, code, name) {
-  console.log(`[EMAIL-VERIFICATION] Dispatching 6-digit code for ${toEmail}: ${code}`);
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const port = parseInt(process.env.SMTP_PORT || "587", 10);
-  const secure = process.env.SMTP_SECURE === "true" || port === 465;
-  const from = process.env.EMAIL_FROM || '"TrafficPulse" <no-reply@trafficpulse.io>';
-  if (host && user && pass) {
-    try {
-      const nodemailer = await import("nodemailer");
-      const transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: { user, pass }
-      });
-      const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; background: #0f172a; color: #f8fafc; border-radius: 16px; border: 1px solid #1e293b;">
-          <div style="text-align: center; margin-bottom: 24px;">
-            <h1 style="color: #10b981; margin: 0; font-size: 26px; font-weight: 800;">TrafficPulse</h1>
-            <p style="color: #94a3b8; font-size: 13px; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px;">Account Email Verification</p>
-          </div>
-          <div style="background: #1e293b; padding: 24px; border-radius: 12px; text-align: center; margin-bottom: 24px;">
-            <p style="margin: 0 0 12px; font-size: 16px; color: #e2e8f0;">Hello <strong>${name || "there"}</strong>,</p>
-            <p style="margin: 0 0 20px; font-size: 14px; color: #94a3b8; line-height: 1.5;">Please enter the 6-digit verification code below to confirm your email and immediately claim your <strong>500 Free Trial Traffic Credits</strong>.</p>
-            <div style="font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #34d399; background: #090d16; padding: 18px 24px; border-radius: 10px; border: 1px dashed #10b981; display: inline-block; font-family: monospace;">
-              ${code}
-            </div>
-            <p style="margin: 20px 0 0; font-size: 12px; color: #64748b;">This verification code is valid for 15 minutes.</p>
-          </div>
-          <p style="font-size: 11px; color: #475569; text-align: center; margin: 0;">If you didn't create a TrafficPulse account, you can ignore this message.</p>
-        </div>
-      `;
-      const info = await transporter.sendMail({
-        from,
-        to: toEmail,
-        subject: `Your TrafficPulse Verification Code: ${code}`,
-        text: `Your TrafficPulse email verification code is: ${code}. It expires in 15 minutes.`,
-        html
-      });
-      console.log(`[EMAIL-VERIFICATION] Outbound SMTP email delivered successfully to ${toEmail} (Message ID: ${info.messageId})`);
-      return { sent: true, messageId: info.messageId };
-    } catch (smtpErr) {
-      console.warn(`[EMAIL-VERIFICATION] SMTP delivery encountered error:`, smtpErr?.message || smtpErr);
-      return { sent: false, error: smtpErr?.message };
-    }
-  }
-  console.log(`[EMAIL-VERIFICATION] [PREVIEW SIMULATION] Code for ${toEmail}: ${code}`);
-  return { sent: true };
-}
 function getClientIp(req) {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string") {
@@ -1378,6 +2057,35 @@ function isSaroneedamAdminEmail(email) {
   const clean = email.trim().toLowerCase();
   return clean === "saroneedam@gmail.com" || clean === "saroneedam@yahoo.com";
 }
+router.get("/auth/email-status", (_req, res) => {
+  const status = getEmailProviderStatus();
+  res.json({
+    success: true,
+    status
+  });
+});
+router.get("/auth/pending-otps", (_req, res) => {
+  const pendingList = listPendingVerifications();
+  res.json({
+    success: true,
+    pending: pendingList,
+    totalCount: pendingList.length
+  });
+});
+router.post("/auth/test-email", async (req, res) => {
+  const { testEmail } = req.body;
+  if (!testEmail || !testEmail.includes("@")) {
+    return res.status(400).json({ success: false, error: "Valid test email address is required." });
+  }
+  const testCode = Math.floor(1e5 + Math.random() * 9e5).toString();
+  const result = await sendVerificationOtpEmail(testEmail, testCode, "Admin Tester");
+  return res.json({
+    success: true,
+    result,
+    testCode,
+    message: result.sent ? `Test verification email successfully dispatched to ${testEmail} via ${result.provider}.` : `Email delivery not sent (${result.error || "No provider configured"}). Test code: ${testCode}`
+  });
+});
 router.get("/auth/client-ip", (req, res) => {
   const ip = getClientIp(req);
   const existing = ipRegistry.get(ip);
@@ -1388,13 +2096,38 @@ router.get("/auth/client-ip", (req, res) => {
     accountsOnIp: existing ? existing.count : 0
   });
 });
-router.get("/auth/members", (req, res) => {
-  const safeList = serverMembers.map(({ passwordHash: _, ...safe }) => safe);
-  res.json({
-    success: true,
-    members: safeList,
-    totalCount: safeList.length
-  });
+router.get("/auth/members", async (req, res) => {
+  try {
+    const allMembers = await listAllMembers();
+    const safeList = allMembers.map(({ passwordHash: _, ...safe }) => safe);
+    res.json({
+      success: true,
+      members: safeList,
+      totalCount: safeList.length
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err?.message || "Failed to list members" });
+  }
+});
+router.post("/auth/sync-member", async (req, res) => {
+  const { member } = req.body;
+  if (!member || !member.email) {
+    return res.status(400).json({ success: false, error: "Member data with valid email is required." });
+  }
+  try {
+    const cleanEmail = String(member.email).trim().toLowerCase();
+    const existing = await findMember(cleanEmail);
+    const updated = {
+      ...existing || {},
+      ...member,
+      email: cleanEmail,
+      lastLoginAt: Date.now()
+    };
+    await persistMember(updated);
+    return res.json({ success: true, message: "Member synchronized successfully." });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err?.message || "Failed to sync member" });
+  }
 });
 router.post("/auth/register", async (req, res) => {
   const { name, email, password, company, targetWebsite, tier = "starter" } = req.body;
@@ -1409,7 +2142,7 @@ router.post("/auth/register", async (req, res) => {
     return res.status(400).json({ success: false, error: "Password must be at least 5 characters." });
   }
   const cleanEmail = email.trim().toLowerCase();
-  const existing = serverMembers.find((m) => m.email.toLowerCase() === cleanEmail);
+  const existing = await findMember(cleanEmail);
   if (existing && existing.isVerified) {
     return res.status(409).json({ success: false, error: "An account with this email already exists and is verified. Please sign in." });
   }
@@ -1425,7 +2158,7 @@ router.post("/auth/register", async (req, res) => {
   const memberTier = isAdmin ? "enterprise" : tier === "enterprise" ? "enterprise" : tier === "starter" ? "starter" : "pro";
   const verificationCode = Math.floor(1e5 + Math.random() * 9e5).toString();
   const expiresAt = Date.now() + 15 * 60 * 1e3;
-  pendingVerifications.set(cleanEmail, {
+  await persistPending({
     email: cleanEmail,
     code: verificationCode,
     name: name.trim(),
@@ -1439,17 +2172,19 @@ router.post("/auth/register", async (req, res) => {
     attempts: 0
   });
   console.log(`[AUTH] Normal registration requested for ${cleanEmail}. Code: ${verificationCode}`);
-  sendVerificationEmail(cleanEmail, verificationCode, name.trim()).catch((err) => {
-    console.warn("[AUTH] Error during background verification dispatch:", err);
-  });
+  const emailResult = await sendVerificationOtpEmail(cleanEmail, verificationCode, name.trim());
   return res.json({
     success: true,
     requiresVerification: true,
     email: cleanEmail,
-    message: `A 6-digit confirmation code has been dispatched to ${cleanEmail}. Please enter the code to verify your account and claim your 500 Free Trial visits.`
+    emailSent: emailResult.sent,
+    provider: emailResult.provider,
+    deliveryError: emailResult.error,
+    devCode: emailResult.sent ? void 0 : verificationCode,
+    message: emailResult.sent ? `A 6-digit confirmation code was sent to ${cleanEmail} via ${emailResult.provider.toUpperCase()}. Please check your inbox and spam folder.` : emailResult.provider === "none" ? `Notice: No outbound SMTP/email provider is configured on this server yet. Your verification code is ${verificationCode}. Add GMAIL_USER/GMAIL_APP_PASSWORD or SMTP_HOST in Settings to deliver to real inboxes.` : `Email delivery via ${emailResult.provider} failed (${emailResult.error}). Your verification code is ${verificationCode}.`
   });
 });
-router.post("/auth/verify-email", (req, res) => {
+router.post("/auth/verify-email", async (req, res) => {
   const { email, code } = req.body;
   const clientIp = getClientIp(req);
   if (!email || !code) {
@@ -1457,7 +2192,7 @@ router.post("/auth/verify-email", (req, res) => {
   }
   const cleanEmail = String(email).trim().toLowerCase();
   const inputCode = String(code).trim();
-  const pending = pendingVerifications.get(cleanEmail);
+  const pending = await findPending(cleanEmail);
   if (!pending) {
     return res.status(400).json({
       success: false,
@@ -1465,14 +2200,14 @@ router.post("/auth/verify-email", (req, res) => {
     });
   }
   if (Date.now() > pending.expiresAt) {
-    pendingVerifications.delete(cleanEmail);
+    await removePending(cleanEmail);
     return res.status(400).json({
       success: false,
       error: "Verification code has expired (15-minute validity limit). Please request a new code."
     });
   }
   if (pending.attempts >= 5) {
-    pendingVerifications.delete(cleanEmail);
+    await removePending(cleanEmail);
     return res.status(429).json({
       success: false,
       error: "Too many incorrect verification attempts. For your security, please restart registration."
@@ -1480,6 +2215,7 @@ router.post("/auth/verify-email", (req, res) => {
   }
   if (pending.code !== inputCode) {
     pending.attempts += 1;
+    await persistPending(pending);
     const remaining = 5 - pending.attempts;
     return res.status(400).json({
       success: false,
@@ -1491,10 +2227,6 @@ router.post("/auth/verify-email", (req, res) => {
   const initialBalance = isAdmin ? 1e7 : 500;
   const customLimit = isAdmin ? 1e7 : 500;
   const maxVUs = isAdmin ? 250 : 25;
-  const existingIdx = serverMembers.findIndex((m) => m.email.toLowerCase() === cleanEmail);
-  if (existingIdx !== -1) {
-    serverMembers.splice(existingIdx, 1);
-  }
   const newMember = {
     id: isAdmin ? "user_admin_saroneedam" : `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     email: cleanEmail,
@@ -1520,8 +2252,8 @@ router.post("/auth/verify-email", (req, res) => {
     lastLoginIp: clientIp,
     authProvider: "email"
   };
-  serverMembers.push(newMember);
-  pendingVerifications.delete(cleanEmail);
+  await persistMember(newMember);
+  await removePending(cleanEmail);
   const ipRecord = ipRegistry.get(clientIp);
   if (ipRecord) {
     ipRecord.count += 1;
@@ -1555,9 +2287,9 @@ router.post("/auth/resend-code", async (req, res) => {
     return res.status(400).json({ success: false, error: "Email address is required to resend verification code." });
   }
   const cleanEmail = String(email).trim().toLowerCase();
-  let pending = pendingVerifications.get(cleanEmail);
+  let pending = await findPending(cleanEmail);
   if (!pending) {
-    const existing = serverMembers.find((m) => m.email.toLowerCase() === cleanEmail);
+    const existing = await findMember(cleanEmail);
     if (existing && !existing.isVerified) {
       pending = {
         email: cleanEmail,
@@ -1572,7 +2304,7 @@ router.post("/auth/resend-code", async (req, res) => {
         expiresAt: Date.now() + 15 * 60 * 1e3,
         attempts: 0
       };
-      pendingVerifications.set(cleanEmail, pending);
+      await persistPending(pending);
     } else {
       return res.status(404).json({
         success: false,
@@ -1583,33 +2315,35 @@ router.post("/auth/resend-code", async (req, res) => {
     pending.code = Math.floor(1e5 + Math.random() * 9e5).toString();
     pending.expiresAt = Date.now() + 15 * 60 * 1e3;
     pending.attempts = 0;
+    await persistPending(pending);
   }
   console.log(`[AUTH] Resending verification code for ${cleanEmail}: ${pending.code}`);
-  sendVerificationEmail(cleanEmail, pending.code, pending.name).catch((err) => {
-    console.warn("[AUTH] Error resending verification email:", err);
-  });
+  const emailResult = await sendVerificationOtpEmail(cleanEmail, pending.code, pending.name);
   return res.json({
     success: true,
-    message: `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail}.`
+    emailSent: emailResult.sent,
+    provider: emailResult.provider,
+    deliveryError: emailResult.error,
+    devCode: emailResult.sent ? void 0 : pending.code,
+    message: emailResult.sent ? `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail} via ${emailResult.provider.toUpperCase()}.` : emailResult.provider === "none" ? `Notice: No outbound SMTP credentials configured on server. Your verification code is ${pending.code}.` : `Email delivery failed (${emailResult.error}). Your verification code is ${pending.code}.`
   });
 });
-router.post("/auth/login", (req, res) => {
+const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || "Vivian123@";
+router.post("/auth/login", async (req, res) => {
   const { emailOrUsername, password } = req.body;
   const clientIp = getClientIp(req);
   if (!emailOrUsername || !password) {
     return res.status(400).json({ success: false, error: "Email/Username and password required." });
   }
-  const query = String(emailOrUsername).trim().toLowerCase();
-  let member = serverMembers.find(
-    (m) => m.email.toLowerCase() === query || m.username.toLowerCase() === query
-  );
-  if (!member && isSaroneedamAdminEmail(query)) {
-    if (password === "Vivian123@" || password.trim() === "Vivian123@") {
+  const query2 = String(emailOrUsername).trim().toLowerCase();
+  let member = await findMember(query2);
+  if (!member && isSaroneedamAdminEmail(query2)) {
+    if (password === ADMIN_PASSCODE || password.trim() === ADMIN_PASSCODE) {
       member = {
         id: "user_admin_saroneedam",
-        email: query,
+        email: query2,
         name: "Saroneedam Admin",
-        username: query.split("@")[0],
+        username: query2.split("@")[0],
         company: "TrafficPulse HQ (Super Admin)",
         targetWebsite: "https://jobs.eezor.com",
         tier: "enterprise",
@@ -1621,7 +2355,7 @@ router.post("/auth/login", (req, res) => {
         joinedAt: Date.now(),
         lastLoginAt: Date.now(),
         isVerified: true,
-        passwordHash: "Vivian123@",
+        passwordHash: ADMIN_PASSCODE,
         trafficBalance: 1e7,
         totalTrafficAssigned: 1e7,
         isPaidUser: true,
@@ -1630,13 +2364,13 @@ router.post("/auth/login", (req, res) => {
         lastLoginIp: clientIp,
         authProvider: "email"
       };
-      serverMembers.push(member);
+      await persistMember(member);
     } else {
       return res.status(401).json({ success: false, error: "Invalid Super Admin password credentials." });
     }
   }
   if (!member) {
-    const pending = pendingVerifications.get(query);
+    const pending = await findPending(query2);
     if (pending) {
       return res.status(403).json({
         success: false,
@@ -1648,18 +2382,18 @@ router.post("/auth/login", (req, res) => {
     return res.status(404).json({ success: false, error: "No member account found with this email or username. Please register first." });
   }
   const isAdmin = isSaroneedamAdminEmail(member.email);
-  const isValidAdminPass = isAdmin && (password === "Vivian123@" || password.trim() === "Vivian123@");
-  const isMatchingMemberPass = member.passwordHash === password || member.passwordHash === password.trim();
+  const isValidAdminPass = isAdmin && (password === ADMIN_PASSCODE || password.trim() === ADMIN_PASSCODE);
+  const isMatchingMemberPass = !member.passwordHash || member.passwordHash === password || member.passwordHash === password.trim();
   if (!isValidAdminPass && !isMatchingMemberPass) {
     return res.status(401).json({ success: false, error: "Invalid password credentials." });
   }
   if (!member.isVerified) {
     const code = Math.floor(1e5 + Math.random() * 9e5).toString();
-    pendingVerifications.set(member.email.toLowerCase(), {
+    await persistPending({
       email: member.email.toLowerCase(),
       code,
       name: member.name,
-      passwordHash: member.passwordHash,
+      passwordHash: member.passwordHash || password,
       company: member.company,
       targetWebsite: member.targetWebsite,
       tier: member.tier,
@@ -1668,13 +2402,16 @@ router.post("/auth/login", (req, res) => {
       expiresAt: Date.now() + 15 * 60 * 1e3,
       attempts: 0
     });
-    sendVerificationEmail(member.email, code, member.name).catch(() => {
-    });
+    const emailResult = await sendVerificationOtpEmail(member.email, code, member.name);
     return res.status(403).json({
       success: false,
       requiresVerification: true,
       email: member.email,
-      error: "Your email address is not verified yet. Please enter the verification code to activate your account."
+      emailSent: emailResult.sent,
+      provider: emailResult.provider,
+      devCode: emailResult.sent ? void 0 : code,
+      deliveryError: emailResult.error,
+      error: emailResult.sent ? `Your email address is not verified yet. A verification code was sent to ${member.email}.` : `Your email address is not verified yet. Verification code: ${code}. Please enter it to activate your account.`
     });
   }
   if (isAdmin) {
@@ -1682,14 +2419,17 @@ router.post("/auth/login", (req, res) => {
     member.tier = "enterprise";
     member.isPaidUser = true;
     member.trafficStatus = "unlimited";
-    member.passwordHash = "Vivian123@";
+    member.passwordHash = member.passwordHash || ADMIN_PASSCODE;
     if (!member.trafficBalance || member.trafficBalance < 1e7) {
       member.trafficBalance = 1e7;
       member.totalTrafficAssigned = 1e7;
     }
+  } else if (!member.passwordHash) {
+    member.passwordHash = password;
   }
   member.lastLoginAt = Date.now();
   member.lastLoginIp = clientIp;
+  await persistMember(member);
   const { passwordHash: _, ...safeUser } = member;
   const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   activeSessions.set(token, member.id);
@@ -1700,7 +2440,7 @@ router.post("/auth/login", (req, res) => {
     message: "Logged in successfully."
   });
 });
-router.post("/auth/google", (req, res) => {
+router.post("/auth/google", async (req, res) => {
   const { email, name, avatar, uid, adminPasscode } = req.body;
   const clientIp = getClientIp(req);
   const googleEmail = (email || "").trim().toLowerCase();
@@ -1709,7 +2449,7 @@ router.post("/auth/google", (req, res) => {
   }
   const isAdmin = isSaroneedamAdminEmail(googleEmail);
   if (isAdmin && !uid) {
-    if (adminPasscode !== "Vivian123@" && adminPasscode?.trim() !== "Vivian123@") {
+    if (adminPasscode !== ADMIN_PASSCODE && adminPasscode?.trim() !== ADMIN_PASSCODE) {
       return res.status(401).json({
         success: false,
         requiresAdminPasscode: true,
@@ -1719,7 +2459,7 @@ router.post("/auth/google", (req, res) => {
   }
   const userAvatar = typeof avatar === "string" && avatar.trim() ? avatar.trim() : void 0;
   const googleName = name?.trim() || googleEmail.split("@")[0];
-  let member = serverMembers.find((m) => m.email.toLowerCase() === googleEmail);
+  let member = await findMember(googleEmail);
   if (!member) {
     const ipRecord = ipRegistry.get(clientIp);
     if (ipRecord && ipRecord.count >= 1 && !isAdmin) {
@@ -1756,7 +2496,7 @@ router.post("/auth/google", (req, res) => {
       lastLoginIp: clientIp,
       authProvider: "google"
     };
-    serverMembers.push(member);
+    await persistMember(member);
     if (ipRecord) {
       ipRecord.count += 1;
       ipRecord.accountIds.push(member.id);
@@ -1792,6 +2532,7 @@ router.post("/auth/google", (req, res) => {
         member.totalTrafficAssigned = 1e7;
       }
     }
+    await persistMember(member);
   }
   const { passwordHash: _, ...safeUser } = member;
   const token = `tp_google_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -1803,14 +2544,12 @@ router.post("/auth/google", (req, res) => {
     message: isAdmin ? "Super Admin authenticated via Google." : member.joinedAt === member.lastLoginAt ? "Welcome! 500 Free Trial traffic credits have been credited to your account." : "Google login successful."
   });
 });
-router.post("/auth/profile", (req, res) => {
+router.post("/auth/profile", async (req, res) => {
   const { id, email, name, username, company, targetWebsite, avatar, currentPassword, newPassword } = req.body;
   if (!id && !email) {
     return res.status(400).json({ success: false, error: "User identification (id or email) is required." });
   }
-  let member = serverMembers.find(
-    (m) => id && m.id === id || email && m.email.toLowerCase() === email.trim().toLowerCase()
-  );
+  let member = await findMember(email || id);
   if (!member) {
     return res.status(404).json({ success: false, error: "Member not found." });
   }
@@ -1819,7 +2558,7 @@ router.post("/auth/profile", (req, res) => {
       return res.status(400).json({ success: false, error: "New password must be at least 5 characters." });
     }
     if (member.passwordHash && member.passwordHash !== "firebase_google_auth") {
-      if (!currentPassword || currentPassword !== member.passwordHash && currentPassword !== "Vivian123@") {
+      if (!currentPassword || currentPassword !== member.passwordHash && currentPassword !== ADMIN_PASSCODE) {
         return res.status(401).json({ success: false, error: "Current password verification failed." });
       }
     }
@@ -1840,6 +2579,7 @@ router.post("/auth/profile", (req, res) => {
   if (avatar !== void 0) {
     member.avatar = avatar ? String(avatar).trim() : void 0;
   }
+  await persistMember(member);
   const { passwordHash: _, ...safeUser } = member;
   res.json({
     success: true,
@@ -1847,7 +2587,7 @@ router.post("/auth/profile", (req, res) => {
     message: "Profile updated successfully."
   });
 });
-router.get("/auth/me", (req, res) => {
+router.get("/auth/me", async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     return res.status(401).json({ success: false, error: "Authorization header missing." });
@@ -1857,7 +2597,7 @@ router.get("/auth/me", (req, res) => {
   if (!memberId) {
     return res.status(401).json({ success: false, error: "Session expired or invalid." });
   }
-  const member = serverMembers.find((m) => m.id === memberId);
+  const member = await findMember(memberId);
   if (!member) {
     return res.status(401).json({ success: false, error: "Member not found." });
   }

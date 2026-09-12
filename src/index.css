@@ -1,1 +1,17 @@
 @import "tailwindcss";
+
+/* Prevent aggressive browser autofill background styles from breaking dark mode */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #020617 inset !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: #f8fafc;
+}
+
+input:autofill {
+  background-color: #020617 !important;
+  color: #f8fafc !important;
+}
