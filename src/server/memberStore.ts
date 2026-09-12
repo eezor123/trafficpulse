@@ -292,3 +292,28 @@ export function listPendingVerifications(): Array<Omit<PendingVerification, 'pas
   return list.sort((a, b) => b.createdAt - a.createdAt);
 }
 
+/**
+ * Deletes a member from memory and file cache
+ */
+export async function deleteMember(userIdOrEmail: string): Promise<boolean> {
+  const clean = (userIdOrEmail || '').trim().toLowerCase();
+  if (!clean) return false;
+  let targetKey: string | null = null;
+  if (memoryMembers.has(clean)) {
+    targetKey = clean;
+  } else {
+    for (const [em, m] of memoryMembers.entries()) {
+      if (m.id === userIdOrEmail || em === clean) {
+        targetKey = em;
+        break;
+      }
+    }
+  }
+  if (targetKey) {
+    memoryMembers.delete(targetKey);
+    saveToFileCache();
+    return true;
+  }
+  return false;
+}
+

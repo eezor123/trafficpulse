@@ -1048,14 +1048,14 @@ export function getAllMembers(): MemberUser[] {
 
 /**
  * Admin assigns any custom number of traffic visits to a member.
- * Also upgrades the user to a paid member if markAsPaid is true.
+ * Persists to server API and local storage.
  */
-export function adminAssignTraffic(
+export async function adminAssignTraffic(
   userId: string,
   additionalTraffic: number,
   markAsPaid: boolean = true,
   newTier?: MemberTier
-): { success: boolean; user?: MemberUser; error?: string } {
+): Promise<{ success: boolean; user?: MemberUser; error?: string }> {
   const currentAuth = loadStoredAuth();
   if (!currentAuth.isAuthenticated || currentAuth.user?.role !== 'admin') {
     return { success: false, error: 'Unauthorized: Only an Administrator can assign traffic quotas.' };
@@ -1065,14 +1065,52 @@ export function adminAssignTraffic(
     return { success: false, error: 'Please enter a valid positive number of traffic credits to assign.' };
   }
 
+  // 1. Call server API first
+  let serverUser: MemberUser | null = null;
+  try {
+    const res = await fetch('/api/auth/assign-traffic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        additionalTraffic,
+        markAsPaid,
+        newTier,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success && data.user) {
+      serverUser = data.user;
+    } else if (!res.ok) {
+      return { success: false, error: data.error || 'Server rejected traffic assignment.' };
+    }
+  } catch (err: any) {
+    console.warn('Backend server assignment unavailable, falling back to local storage:', err);
+  }
+
+  // 2. Also update local storage
   const members = getStoredMembers();
   const match = members.find(m => m.id === userId || m.email.toLowerCase() === userId.toLowerCase());
+
+  if (serverUser) {
+    // If server succeeded, update local store with authoritative server user
+    const updatedMembers = members.map(m => (m.id === serverUser!.id || m.email.toLowerCase() === serverUser!.email.toLowerCase()) ? { ...m, ...serverUser } : m);
+    if (!updatedMembers.some(m => m.id === serverUser!.id)) {
+      updatedMembers.push(serverUser as any);
+    }
+    saveMembers(updatedMembers);
+
+    if (currentAuth.user?.id === serverUser.id || currentAuth.user?.email.toLowerCase() === serverUser.email.toLowerCase()) {
+      saveAuthSession(serverUser, currentAuth.token || 'tok_valid');
+    }
+    return { success: true, user: serverUser };
+  }
 
   if (!match) {
     return { success: false, error: 'Member account not found.' };
   }
 
-  // Update balances
+  // Fallback update in local storage
   const currentBalance = match.trafficBalance || 0;
   match.trafficBalance = currentBalance + additionalTraffic;
   match.totalTrafficAssigned = (match.totalTrafficAssigned || 0) + additionalTraffic;
@@ -1089,10 +1127,8 @@ export function adminAssignTraffic(
   }
 
   saveMembers(members);
-
   const { passwordHash: _, ...safeUser } = match;
 
-  // If the admin is updating the currently active session, sync it
   if (currentAuth.user?.id === match.id) {
     saveAuthSession(safeUser, currentAuth.token || 'tok_valid');
   }
@@ -1103,14 +1139,38 @@ export function adminAssignTraffic(
 /**
  * Admin resets a user's traffic balance back to the 500 free trial quota.
  */
-export function adminResetUserTraffic(userId: string): { success: boolean; user?: MemberUser; error?: string } {
+export async function adminResetUserTraffic(userId: string): Promise<{ success: boolean; user?: MemberUser; error?: string }> {
   const currentAuth = loadStoredAuth();
   if (!currentAuth.isAuthenticated || currentAuth.user?.role !== 'admin') {
     return { success: false, error: 'Unauthorized: Administrator rights required.' };
   }
 
+  let serverUser: MemberUser | null = null;
+  try {
+    const res = await fetch('/api/auth/reset-traffic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success && data.user) {
+      serverUser = data.user;
+    }
+  } catch (e) {
+    console.warn('Server reset call deferred:', e);
+  }
+
   const members = getStoredMembers();
   const match = members.find(m => m.id === userId || m.email.toLowerCase() === userId.toLowerCase());
+
+  if (serverUser) {
+    const updatedMembers = members.map(m => (m.id === serverUser!.id || m.email.toLowerCase() === serverUser!.email.toLowerCase()) ? { ...m, ...serverUser } : m);
+    saveMembers(updatedMembers);
+    if (currentAuth.user?.id === serverUser.id) {
+      saveAuthSession(serverUser, currentAuth.token || 'tok_valid');
+    }
+    return { success: true, user: serverUser };
+  }
 
   if (!match) {
     return { success: false, error: 'Member account not found.' };
@@ -1134,14 +1194,38 @@ export function adminResetUserTraffic(userId: string): { success: boolean; user?
 /**
  * Admin toggles user's paid user status.
  */
-export function adminTogglePaidStatus(userId: string, isPaid: boolean): { success: boolean; user?: MemberUser; error?: string } {
+export async function adminTogglePaidStatus(userId: string, isPaid: boolean): Promise<{ success: boolean; user?: MemberUser; error?: string }> {
   const currentAuth = loadStoredAuth();
   if (!currentAuth.isAuthenticated || currentAuth.user?.role !== 'admin') {
     return { success: false, error: 'Unauthorized: Administrator rights required.' };
   }
 
+  let serverUser: MemberUser | null = null;
+  try {
+    const res = await fetch('/api/auth/toggle-paid', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, isPaid }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success && data.user) {
+      serverUser = data.user;
+    }
+  } catch (e) {
+    console.warn('Server toggle paid call deferred:', e);
+  }
+
   const members = getStoredMembers();
   const match = members.find(m => m.id === userId || m.email.toLowerCase() === userId.toLowerCase());
+
+  if (serverUser) {
+    const updatedMembers = members.map(m => (m.id === serverUser!.id || m.email.toLowerCase() === serverUser!.email.toLowerCase()) ? { ...m, ...serverUser } : m);
+    saveMembers(updatedMembers);
+    if (currentAuth.user?.id === serverUser.id) {
+      saveAuthSession(serverUser, currentAuth.token || 'tok_valid');
+    }
+    return { success: true, user: serverUser };
+  }
 
   if (!match) {
     return { success: false, error: 'Member account not found.' };
@@ -1163,14 +1247,14 @@ export function adminTogglePaidStatus(userId: string, isPaid: boolean): { succes
 /**
  * Admin deletes a member account.
  */
-export function adminDeleteUser(userId: string): { success: boolean; error?: string } {
+export async function adminDeleteUser(userId: string): Promise<{ success: boolean; error?: string }> {
   const currentAuth = loadStoredAuth();
   if (!currentAuth.isAuthenticated || currentAuth.user?.role !== 'admin') {
     return { success: false, error: 'Unauthorized: Administrator rights required.' };
   }
 
   let members = getStoredMembers();
-  const match = members.find(m => m.id === userId);
+  const match = members.find(m => m.id === userId || m.email.toLowerCase() === userId.toLowerCase());
 
   if (!match) {
     return { success: false, error: 'Member not found.' };
@@ -1181,7 +1265,17 @@ export function adminDeleteUser(userId: string): { success: boolean; error?: str
     return { success: false, error: 'Root Super Admin account cannot be deleted.' };
   }
 
-  members = members.filter(m => m.id !== userId);
+  try {
+    await fetch('/api/auth/delete-member', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+  } catch (e) {
+    console.warn('Server delete member deferred:', e);
+  }
+
+  members = members.filter(m => m.id !== userId && m.email.toLowerCase() !== userId.toLowerCase());
   saveMembers(members);
 
   return { success: true };

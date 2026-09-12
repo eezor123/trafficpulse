@@ -258,7 +258,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
     setAssignAmount(5000);
   };
 
-  const handleConfirmAssign = (e: React.FormEvent) => {
+  const handleConfirmAssign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserForAssign) return;
 
@@ -267,7 +267,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
       return;
     }
 
-    const res = adminAssignTraffic(
+    const res = await adminAssignTraffic(
       selectedUserForAssign.id,
       Number(assignAmount),
       assignMarkAsPaid,
@@ -279,7 +279,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
         'success',
         `Assigned +${Number(assignAmount).toLocaleString()} traffic visits to ${res.user.name}. Balance: ${res.user.trafficBalance.toLocaleString()} visits.`
       );
-      refreshList();
+      await refreshList();
       if (currentUser?.id === res.user.id && onUserUpdated) {
         onUserUpdated(res.user);
       }
@@ -289,13 +289,13 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
     }
   };
 
-  const handleResetTrial = (user: MemberUser) => {
+  const handleResetTrial = async (user: MemberUser) => {
     if (!window.confirm(`Reset ${user.name}'s account back to the 500 Free Trial quota?`)) return;
 
-    const res = adminResetUserTraffic(user.id);
+    const res = await adminResetUserTraffic(user.id);
     if (res.success && res.user) {
       showNotification('success', `Reset ${user.name}'s quota to 500 Free Trial units.`);
-      refreshList();
+      await refreshList();
       if (currentUser?.id === res.user.id && onUserUpdated) {
         onUserUpdated(res.user);
       }
@@ -304,15 +304,15 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
     }
   };
 
-  const handleTogglePaid = (user: MemberUser) => {
+  const handleTogglePaid = async (user: MemberUser) => {
     const nextStatus = !user.isPaidUser;
-    const res = adminTogglePaidStatus(user.id, nextStatus);
+    const res = await adminTogglePaidStatus(user.id, nextStatus);
     if (res.success && res.user) {
       showNotification(
         'success',
         `Updated ${user.name} to ${nextStatus ? 'Paid User' : 'Free Trial'}.`
       );
-      refreshList();
+      await refreshList();
       if (currentUser?.id === res.user.id && onUserUpdated) {
         onUserUpdated(res.user);
       }
@@ -321,13 +321,13 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
     }
   };
 
-  const handleDelete = (user: MemberUser) => {
+  const handleDelete = async (user: MemberUser) => {
     if (!window.confirm(`Are you sure you want to remove user "${user.name}" (${user.email})?`)) return;
 
-    const res = adminDeleteUser(user.id);
+    const res = await adminDeleteUser(user.id);
     if (res.success) {
       showNotification('success', `Removed user account: ${user.name}.`);
-      refreshList();
+      await refreshList();
     } else {
       showNotification('error', res.error || 'Failed deleting user.');
     }

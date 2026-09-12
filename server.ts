@@ -11,6 +11,7 @@ import { executeUniversalCrawl, type FetchFunction } from './src/utils/universal
 import {
   findMember,
   persistMember,
+  deleteMember,
   listAllMembers,
   findPending,
   persistPending,
@@ -265,6 +266,108 @@ async function startServer() {
       return res.json({ success: true, message: 'Member synchronized successfully.' });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to sync member' });
+    }
+  });
+
+  // Admin endpoint: Assign traffic credits to a member
+  app.post('/api/auth/assign-traffic', async (req: Request, res: Response) => {
+    const { userId, additionalTraffic, markAsPaid = true, newTier } = req.body;
+    if (!userId || !additionalTraffic || Number(additionalTraffic) <= 0) {
+      return res.status(400).json({ success: false, error: 'Valid userId and positive additionalTraffic amount are required.' });
+    }
+    try {
+      const all = await listAllMembers();
+      const cleanTarget = String(userId).trim().toLowerCase();
+      let target = all.find(m => m.id === userId || m.email.toLowerCase() === cleanTarget);
+      if (!target) {
+        target = await findMember(cleanTarget);
+      }
+      if (!target) {
+        return res.status(404).json({ success: false, error: 'Member not found on server.' });
+      }
+
+      const trafficNum = Number(additionalTraffic);
+      target.trafficBalance = (target.trafficBalance || 0) + trafficNum;
+      target.totalTrafficAssigned = (target.totalTrafficAssigned || 0) + trafficNum;
+
+      if (markAsPaid) {
+        target.isPaidUser = true;
+        target.trafficStatus = 'paid_active';
+      } else if (!target.isPaidUser) {
+        target.trafficStatus = 'trial_active';
+      }
+
+      if (newTier) {
+        target.tier = newTier;
+      }
+
+      await persistMember(target);
+      const { passwordHash: _, ...safeUser } = target;
+      return res.json({
+        success: true,
+        user: safeUser,
+        message: `Successfully assigned +${trafficNum.toLocaleString()} traffic visits to ${target.name}. New Balance: ${target.trafficBalance.toLocaleString()} visits.`,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed assigning traffic' });
+    }
+  });
+
+  // Admin endpoint: Reset member traffic to trial quota
+  app.post('/api/auth/reset-traffic', async (req: Request, res: Response) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
+    try {
+      const all = await listAllMembers();
+      const cleanTarget = String(userId).trim().toLowerCase();
+      let target = all.find(m => m.id === userId || m.email.toLowerCase() === cleanTarget) || await findMember(cleanTarget);
+      if (!target) return res.status(404).json({ success: false, error: 'Member not found' });
+
+      target.trafficBalance = 500;
+      target.totalTrafficAssigned = 500;
+      target.isPaidUser = false;
+      target.trafficStatus = 'trial_active';
+      await persistMember(target);
+      const { passwordHash: _, ...safeUser } = target;
+      return res.json({ success: true, user: safeUser, message: `Reset ${target.name}'s quota to 500 Free Trial units.` });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed resetting traffic' });
+    }
+  });
+
+  // Admin endpoint: Toggle member paid status
+  app.post('/api/auth/toggle-paid', async (req: Request, res: Response) => {
+    const { userId, isPaid } = req.body;
+    if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
+    try {
+      const all = await listAllMembers();
+      const cleanTarget = String(userId).trim().toLowerCase();
+      let target = all.find(m => m.id === userId || m.email.toLowerCase() === cleanTarget) || await findMember(cleanTarget);
+      if (!target) return res.status(404).json({ success: false, error: 'Member not found' });
+
+      target.isPaidUser = Boolean(isPaid);
+      target.trafficStatus = isPaid ? 'paid_active' : 'trial_active';
+      await persistMember(target);
+      const { passwordHash: _, ...safeUser } = target;
+      return res.json({ success: true, user: safeUser, message: `Updated ${target.name} status.` });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed toggling paid status' });
+    }
+  });
+
+  // Admin endpoint: Delete member account
+  app.post('/api/auth/delete-member', async (req: Request, res: Response) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
+    try {
+      const cleanTarget = String(userId).trim().toLowerCase();
+      if (cleanTarget === 'saroneedam@yahoo.com' || cleanTarget === 'saroneedam@gmail.com') {
+        return res.status(403).json({ success: false, error: 'Cannot delete primary root super administrator.' });
+      }
+      await deleteMember(cleanTarget);
+      return res.json({ success: true, message: 'Member deleted successfully from server.' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed deleting member' });
     }
   });
 
