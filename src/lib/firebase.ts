@@ -68,15 +68,30 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
+// Helper to safely read env variables in both browser Vite and Node.js backend
+function getEnv(key: string): string | undefined {
+  if (typeof process !== 'undefined' && process.env && process.env[key]) {
+    return process.env[key];
+  }
+  try {
+    if (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.[key]) {
+      return (import.meta as any).env[key];
+    }
+  } catch (e) {
+    // Ignore in non-ESM environments
+  }
+  return undefined;
+}
+
 // eezor.com Firebase Project Credentials (associated with jobs.eezor.com)
 export const firebaseConfig = {
-  projectId: 'eezor1-1537170168584',
-  appId: '1:840352479509:web:45be19193f0a424b85111c',
-  apiKey: 'AIzaSyA9iahgzxM8aLZwUxnqWK5DtQcPTNXpw_Q',
-  authDomain: 'eezor1-1537170168584.firebaseapp.com',
-  firestoreDatabaseId: 'ai-studio-naijajobsnigeria-f8a2304a-f7d0-471a-a51c-710cdaeeb89e',
-  storageBucket: 'eezor1-1537170168584.firebasestorage.app',
-  messagingSenderId: '840352479509',
+  projectId: getEnv('VITE_FIREBASE_PROJECT_ID') || 'eezor1-1537170168584',
+  appId: getEnv('VITE_FIREBASE_APP_ID') || '1:840352479509:web:45be19193f0a424b85111c',
+  apiKey: getEnv('VITE_FIREBASE_API_KEY') || 'AIzaSyA9iahgzxM8aLZwUxnqWK5DtQcPTNXpw_Q',
+  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN') || 'eezor1-1537170168584.firebaseapp.com',
+  firestoreDatabaseId: getEnv('VITE_FIREBASE_DATABASE_ID') || 'ai-studio-naijajobsnigeria-f8a2304a-f7d0-471a-a51c-710cdaeeb89e',
+  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET') || 'eezor1-1537170168584.firebasestorage.app',
+  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || '840352479509',
 };
 
 // Initialize Firebase App singleton

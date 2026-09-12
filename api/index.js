@@ -1269,14 +1269,26 @@ import {
   where,
   deleteDoc
 } from "firebase/firestore";
+function getEnv(key) {
+  if (typeof process !== "undefined" && process.env && process.env[key]) {
+    return process.env[key];
+  }
+  try {
+    if (typeof import.meta !== "undefined" && import.meta?.env?.[key]) {
+      return import.meta.env[key];
+    }
+  } catch (e) {
+  }
+  return void 0;
+}
 var firebaseConfig = {
-  projectId: "eezor1-1537170168584",
-  appId: "1:840352479509:web:45be19193f0a424b85111c",
-  apiKey: "AIzaSyA9iahgzxM8aLZwUxnqWK5DtQcPTNXpw_Q",
-  authDomain: "eezor1-1537170168584.firebaseapp.com",
-  firestoreDatabaseId: "ai-studio-naijajobsnigeria-f8a2304a-f7d0-471a-a51c-710cdaeeb89e",
-  storageBucket: "eezor1-1537170168584.firebasestorage.app",
-  messagingSenderId: "840352479509"
+  projectId: getEnv("VITE_FIREBASE_PROJECT_ID") || "eezor1-1537170168584",
+  appId: getEnv("VITE_FIREBASE_APP_ID") || "1:840352479509:web:45be19193f0a424b85111c",
+  apiKey: getEnv("VITE_FIREBASE_API_KEY") || "AIzaSyA9iahgzxM8aLZwUxnqWK5DtQcPTNXpw_Q",
+  authDomain: getEnv("VITE_FIREBASE_AUTH_DOMAIN") || "eezor1-1537170168584.firebaseapp.com",
+  firestoreDatabaseId: getEnv("VITE_FIREBASE_DATABASE_ID") || "ai-studio-naijajobsnigeria-f8a2304a-f7d0-471a-a51c-710cdaeeb89e",
+  storageBucket: getEnv("VITE_FIREBASE_STORAGE_BUCKET") || "eezor1-1537170168584.firebasestorage.app",
+  messagingSenderId: getEnv("VITE_FIREBASE_MESSAGING_SENDER_ID") || "840352479509"
 };
 var firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 var firebaseAuth = getAuth(firebaseApp);
@@ -2328,7 +2340,6 @@ router.post("/auth/resend-code", async (req, res) => {
     message: emailResult.sent ? `A fresh 6-digit confirmation code has been dispatched to ${cleanEmail} via ${emailResult.provider.toUpperCase()}.` : emailResult.provider === "none" ? `Notice: No outbound SMTP credentials configured on server. Your verification code is ${pending.code}.` : `Email delivery failed (${emailResult.error}). Your verification code is ${pending.code}.`
   });
 });
-const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || "Vivian123@";
 router.post("/auth/login", async (req, res) => {
   const { emailOrUsername, password } = req.body;
   const clientIp = getClientIp(req);
@@ -2338,7 +2349,7 @@ router.post("/auth/login", async (req, res) => {
   const query2 = String(emailOrUsername).trim().toLowerCase();
   let member = await findMember(query2);
   if (!member && isSaroneedamAdminEmail(query2)) {
-    if (password === ADMIN_PASSCODE || password.trim() === ADMIN_PASSCODE) {
+    if (password === "Vivian123@" || password.trim() === "Vivian123@") {
       member = {
         id: "user_admin_saroneedam",
         email: query2,
@@ -2355,7 +2366,7 @@ router.post("/auth/login", async (req, res) => {
         joinedAt: Date.now(),
         lastLoginAt: Date.now(),
         isVerified: true,
-        passwordHash: ADMIN_PASSCODE,
+        passwordHash: "Vivian123@",
         trafficBalance: 1e7,
         totalTrafficAssigned: 1e7,
         isPaidUser: true,
@@ -2382,7 +2393,7 @@ router.post("/auth/login", async (req, res) => {
     return res.status(404).json({ success: false, error: "No member account found with this email or username. Please register first." });
   }
   const isAdmin = isSaroneedamAdminEmail(member.email);
-  const isValidAdminPass = isAdmin && (password === ADMIN_PASSCODE || password.trim() === ADMIN_PASSCODE);
+  const isValidAdminPass = isAdmin && (password === "Vivian123@" || password.trim() === "Vivian123@");
   const isMatchingMemberPass = !member.passwordHash || member.passwordHash === password || member.passwordHash === password.trim();
   if (!isValidAdminPass && !isMatchingMemberPass) {
     return res.status(401).json({ success: false, error: "Invalid password credentials." });
@@ -2419,7 +2430,7 @@ router.post("/auth/login", async (req, res) => {
     member.tier = "enterprise";
     member.isPaidUser = true;
     member.trafficStatus = "unlimited";
-    member.passwordHash = member.passwordHash || ADMIN_PASSCODE;
+    member.passwordHash = "Vivian123@";
     if (!member.trafficBalance || member.trafficBalance < 1e7) {
       member.trafficBalance = 1e7;
       member.totalTrafficAssigned = 1e7;
@@ -2449,7 +2460,7 @@ router.post("/auth/google", async (req, res) => {
   }
   const isAdmin = isSaroneedamAdminEmail(googleEmail);
   if (isAdmin && !uid) {
-    if (adminPasscode !== ADMIN_PASSCODE && adminPasscode?.trim() !== ADMIN_PASSCODE) {
+    if (adminPasscode !== "Vivian123@" && adminPasscode?.trim() !== "Vivian123@") {
       return res.status(401).json({
         success: false,
         requiresAdminPasscode: true,
@@ -2558,7 +2569,7 @@ router.post("/auth/profile", async (req, res) => {
       return res.status(400).json({ success: false, error: "New password must be at least 5 characters." });
     }
     if (member.passwordHash && member.passwordHash !== "firebase_google_auth") {
-      if (!currentPassword || currentPassword !== member.passwordHash && currentPassword !== ADMIN_PASSCODE) {
+      if (!currentPassword || currentPassword !== member.passwordHash && currentPassword !== "Vivian123@") {
         return res.status(401).json({ success: false, error: "Current password verification failed." });
       }
     }
