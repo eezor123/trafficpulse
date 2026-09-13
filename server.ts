@@ -1,4 +1,5 @@
 import express, { type Request, type Response } from 'express';
+import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import https from 'https';
@@ -273,22 +274,28 @@ async function startServer() {
 
   // Admin endpoint: Assign traffic credits to a member
   app.post('/api/auth/assign-traffic', async (req: Request, res: Response) => {
-    const { userId, additionalTraffic, markAsPaid = true, newTier } = req.body;
-    if (!userId || !additionalTraffic || Number(additionalTraffic) <= 0) {
-      return res.status(400).json({ success: false, error: 'Valid userId and positive additionalTraffic amount are required.' });
+    const { userId, email, additionalTraffic, visitsToAdd, markAsPaid = true, newTier, tier } = req.body;
+    const trafficNum = Number(additionalTraffic ?? visitsToAdd ?? 0);
+    if ((!userId && !email) || isNaN(trafficNum) || trafficNum <= 0) {
+      return res.status(400).json({ success: false, error: 'Valid user identifier and positive traffic amount are required.' });
     }
     try {
       const all = await listAllMembers();
-      const cleanTarget = String(userId).trim().toLowerCase();
-      let target = all.find(m => m.id === userId || m.email.toLowerCase() === cleanTarget);
+      const cleanTarget = String(userId || email).trim().toLowerCase();
+      const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+      let target = all.find(m =>
+        (userId && m.id === userId) ||
+        (cleanEmail && m.email.toLowerCase() === cleanEmail) ||
+        m.email.toLowerCase() === cleanTarget ||
+        ((m as any).uid && (m as any).uid === userId)
+      );
       if (!target) {
-        target = await findMember(cleanTarget);
+        target = (userId ? await findMember(userId) : null) || (cleanEmail ? await findMember(cleanEmail) : null) || await findMember(cleanTarget);
       }
       if (!target) {
-        return res.status(404).json({ success: false, error: 'Member not found on server.' });
+        return res.status(404).json({ success: false, error: `Member "${userId || email}" not found on server.` });
       }
 
-      const trafficNum = Number(additionalTraffic);
       target.trafficBalance = (target.trafficBalance || 0) + trafficNum;
       target.totalTrafficAssigned = (target.totalTrafficAssigned || 0) + trafficNum;
 
@@ -299,8 +306,9 @@ async function startServer() {
         target.trafficStatus = 'trial_active';
       }
 
-      if (newTier) {
-        target.tier = newTier;
+      const assignedTier = newTier || tier;
+      if (assignedTier) {
+        target.tier = assignedTier;
       }
 
       await persistMember(target);
@@ -317,21 +325,26 @@ async function startServer() {
 
   // Admin endpoint: Reset member traffic to trial quota
   app.post('/api/auth/reset-traffic', async (req: Request, res: Response) => {
-    const { userId } = req.body;
-    if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
+    const { userId, email } = req.body;
+    if (!userId && !email) return res.status(400).json({ success: false, error: 'userId or email is required' });
     try {
       const all = await listAllMembers();
-      const cleanTarget = String(userId).trim().toLowerCase();
-      let target = all.find(m => m.id === userId || m.email.toLowerCase() === cleanTarget) || await findMember(cleanTarget);
+      const cleanTarget = String(userId || email).trim().toLowerCase();
+      const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+      let target = all.find(m =>
+        (userId && m.id === userId) ||
+        (cleanEmail && m.email.toLowerCase() === cleanEmail) ||
+        m.email.toLowerCase() === cleanTarget
+      ) || (userId ? await findMember(userId) : null) || (cleanEmail ? await findMember(cleanEmail) : null) || await findMember(cleanTarget);
       if (!target) return res.status(404).json({ success: false, error: 'Member not found' });
 
-      target.trafficBalance = 500;
-      target.totalTrafficAssigned = 500;
+      target.trafficBalance = 100;
+      target.totalTrafficAssigned = 100;
       target.isPaidUser = false;
       target.trafficStatus = 'trial_active';
       await persistMember(target);
       const { passwordHash: _, ...safeUser } = target;
-      return res.json({ success: true, user: safeUser, message: `Reset ${target.name}'s quota to 500 Free Trial units.` });
+      return res.json({ success: true, user: safeUser, message: `Reset ${target.name}'s quota to 100 Free Trial units.` });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed resetting traffic' });
     }
@@ -359,15 +372,21 @@ async function startServer() {
 
   // Admin endpoint: Delete member account
   app.post('/api/auth/delete-member', async (req: Request, res: Response) => {
-    const { userId } = req.body;
-    if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
+    const { userId, email } = req.body;
+    if (!userId && !email) return res.status(400).json({ success: false, error: 'userId or email is required' });
     try {
-      const cleanTarget = String(userId).trim().toLowerCase();
-      if (cleanTarget === 'saroneedam@yahoo.com' || cleanTarget === 'saroneedam@gmail.com') {
+      const cleanTarget = String(userId || email).trim().toLowerCase();
+      const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+      if (
+        cleanTarget === 'saroneedam@yahoo.com' ||
+        cleanTarget === 'saroneedam@gmail.com' ||
+        cleanEmail === 'saroneedam@yahoo.com' ||
+        cleanEmail === 'saroneedam@gmail.com'
+      ) {
         return res.status(403).json({ success: false, error: 'Cannot delete primary root super administrator.' });
       }
-      await deleteMember(cleanTarget);
-      return res.json({ success: true, message: 'Member deleted successfully from server.' });
+      await deleteMember(userId || email, cleanEmail);
+      return res.json({ success: true, message: 'Member deleted successfully from server and database.' });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed deleting member' });
     }
@@ -398,11 +417,11 @@ async function startServer() {
     // IP Logging & Multi-Account Anti-Abuse Check
     const ipRecord = ipRegistry.get(clientIp);
     if (ipRecord && ipRecord.count >= 1 && !isAdmin) {
-      // Prevent multiple accounts from creating duplicate 500-credit trials
+      // Prevent multiple accounts from creating duplicate 100-credit trials
       console.warn(`[ANTI-ABUSE] Multiple account creation attempt from IP ${clientIp} for email ${cleanEmail}. Existing accounts:`, ipRecord.emails);
       return res.status(429).json({
         success: false,
-        error: `Anti-Abuse Verification: An account (${ipRecord.emails[0]}) has already been created from this IP address (${clientIp}). The 500 Free Trial traffic quota is restricted to 1 account per network. Please log into your existing account.`,
+        error: `Anti-Abuse Verification: An account (${ipRecord.emails[0]}) has already been created from this IP address (${clientIp}). The 100 Free Trial traffic quota is restricted to 1 account per network. Please log into your existing account.`,
       });
     }
 
@@ -445,10 +464,10 @@ async function startServer() {
     }
 
     // 2. If no outbound email provider is configured yet on the server:
-    // Auto-activate member account seamlessly with 500 Free Trial Traffic Credits!
+    // Auto-activate member account seamlessly with 100 Free Trial Traffic Credits!
     // Never trap users on unresolvable verification screens or show developer warnings.
-    const initialBalance = isAdmin ? 10000000 : 500;
-    const customLimit = isAdmin ? 10000000 : 500;
+    const initialBalance = isAdmin ? 10000000 : 100;
+    const customLimit = isAdmin ? 10000000 : 100;
     const maxVUs = isAdmin ? 250 : 25;
 
     const newMember: ServerMember = {
@@ -509,7 +528,7 @@ async function startServer() {
       token,
       message: isAdmin
         ? 'Super Admin account initialized with full enterprise privileges.'
-        : 'Welcome to TrafficPulse! Your account is active and 500 Free Trial Traffic Credits have been activated.',
+        : 'Welcome to TrafficPulse! Your account is active and 100 Free Trial Traffic Credits have been activated.',
     });
   });
 
@@ -562,8 +581,8 @@ async function startServer() {
     // Code verified! Create active member
     const isAdmin = isSaroneedamAdminEmail(cleanEmail);
     const memberTier = isAdmin ? 'enterprise' : pending.tier;
-    const initialBalance = isAdmin ? 10000000 : 500;
-    const customLimit = isAdmin ? 10000000 : 500;
+    const initialBalance = isAdmin ? 10000000 : 100;
+    const customLimit = isAdmin ? 10000000 : 100;
     const maxVUs = isAdmin ? 250 : 25;
 
     const newMember: ServerMember = {
@@ -625,7 +644,7 @@ async function startServer() {
       token,
       message: isAdmin
         ? 'Super Admin email verified! Unlimited enterprise session initialized.'
-        : 'Email verified! 500 Free Trial traffic credits have been credited to your account.',
+        : 'Email verified! 100 Free Trial traffic credits have been credited to your account.',
     });
   });
 
@@ -847,11 +866,11 @@ async function startServer() {
         console.warn(`[ANTI-ABUSE] Google registration blocked on IP ${clientIp} for ${googleEmail}.`);
         return res.status(429).json({
           success: false,
-          error: `Anti-Abuse Verification: An account was already registered from this network (${clientIp}). The 500 Free Trial credits are limited to 1 per network. Please sign in with your original account.`,
+          error: `Anti-Abuse Verification: An account was already registered from this network (${clientIp}). The 100 Free Trial credits are limited to 1 per network. Please sign in with your original account.`,
         });
       }
 
-      const initialCredits = isAdmin ? 10000000 : 500;
+      const initialCredits = isAdmin ? 10000000 : 100;
 
       member = {
         id: uid ? `user_google_${uid}` : (isAdmin ? 'user_admin_saroneedam' : `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
@@ -862,7 +881,7 @@ async function startServer() {
         targetWebsite: 'https://jobs.eezor.com',
         tier: isAdmin ? 'enterprise' : 'starter',
         role: isAdmin ? 'admin' : 'member',
-        customVisitsLimit: isAdmin ? 10000000 : 500,
+        customVisitsLimit: isAdmin ? 10000000 : 100,
         maxConcurrentVUs: isAdmin ? 250 : 25,
         totalCampaignsRun: 0,
         totalVisitsGenerated: 0,
@@ -898,7 +917,7 @@ async function startServer() {
         });
       }
 
-      console.log(`[AUTH] New Google user registered: ${googleEmail} (IP: ${clientIp}, Assigned 500 Free Trial)`);
+      console.log(`[AUTH] New Google user registered: ${googleEmail} (IP: ${clientIp}, Assigned 100 Free Trial)`);
     } else {
       // Existing Google user login
       member.lastLoginAt = Date.now();
@@ -934,28 +953,6 @@ async function startServer() {
         ? 'Super Admin authenticated via Google.'
         : `Google authentication successful. Remaining traffic balance: ${safeUser.trafficBalance} visits.`,
     });
-  });
-
-  // Admin traffic assignment endpoint
-  app.post('/api/auth/assign-traffic', async (req: Request, res: Response) => {
-    const { userId, visitsToAdd, markAsPaid = true, tier = 'pro' } = req.body;
-    const member = await findMember(userId);
-    if (!member) {
-      return res.status(404).json({ success: false, error: 'Member account not found.' });
-    }
-
-    const amount = Number(visitsToAdd) || 0;
-    member.trafficBalance = (member.trafficBalance || 0) + amount;
-    member.totalTrafficAssigned = (member.totalTrafficAssigned || 0) + amount;
-    if (markAsPaid) {
-      member.isPaidUser = true;
-      member.trafficStatus = 'paid_active';
-      member.tier = tier;
-    }
-    await persistMember(member);
-
-    const { passwordHash: _, ...safeUser } = member;
-    res.json({ success: true, user: safeUser, message: `Assigned +${amount} visits to ${member.name}.` });
   });
 
   // Profile update endpoint
@@ -2718,26 +2715,56 @@ Return ONLY valid JSON matching this schema:
   });
 
   // ----------------------------------------------------
-  // 5. VITE MIDDLEWARE SETUP
+  // 5. VITE MIDDLEWARE SETUP & STATIC SERVING
   // ----------------------------------------------------
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
+  const distPath = path.join(process.cwd(), 'dist');
+  const hasDist = fs.existsSync(path.join(distPath, 'index.html'));
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (isProduction || hasDist) {
     app.use(express.static(distPath));
     app.get('*', (req: Request, res: Response) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
+  } else {
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr) {
+      console.warn('Vite middleware initialization failed, falling back to static files:', viteErr);
+      if (hasDist) {
+        app.use(express.static(distPath));
+        app.get('*', (req: Request, res: Response) => {
+          res.sendFile(path.join(distPath, 'index.html'));
+        });
+      }
+    }
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`TrafficPulse server running on http://0.0.0.0:${PORT}`);
   });
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[PORT] Port ${PORT} already in use; server process continuing.`);
+    } else {
+      console.error('[SERVER] Server runtime error:', err);
+    }
+  });
 }
+
+// Global safety guards to prevent unhandled background task rejections from terminating the container
+process.on('unhandledRejection', (reason, promise) => {
+  console.warn('[PROCESS] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[PROCESS] Uncaught Exception caught:', err);
+});
 
 startServer().catch(err => {
   console.error('Failed to start server:', err);

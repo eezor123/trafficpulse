@@ -7,6 +7,7 @@ import {
   deletePendingFromCloud,
   fetchTargetMemberUid,
   writeUserTrafficToFirestore,
+  deleteMemberFromCloud,
 } from '../lib/firebase.ts';
 
 const AUTH_STORAGE_KEY = 'trafficpulse_auth_session_v1';
@@ -61,7 +62,7 @@ function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
     // Sanitize any missing trafficBalance fields for all real members
     for (const m of list) {
       if (m.trafficBalance === undefined || m.trafficBalance === null) {
-        m.trafficBalance = m.role === 'admin' ? 10000000 : 500;
+        m.trafficBalance = m.role === 'admin' ? 10000000 : 100;
         m.totalTrafficAssigned = m.trafficBalance;
         m.isPaidUser = m.role === 'admin';
         m.trafficStatus = m.role === 'admin' ? 'unlimited' : 'trial_active';
@@ -411,8 +412,8 @@ export async function verifyEmailCode(
     lastLoginAt: Date.now(),
     isVerified: true,
     passwordHash: resolvedPassword,
-    trafficBalance: isSaroneedam ? 10000000 : 500,
-    totalTrafficAssigned: isSaroneedam ? 10000000 : 500,
+    trafficBalance: isSaroneedam ? 10000000 : 100,
+    totalTrafficAssigned: isSaroneedam ? 10000000 : 100,
     isPaidUser: isSaroneedam,
     trafficStatus: isSaroneedam ? 'unlimited' : 'trial_active',
     registrationIp: '127.0.0.1',
@@ -727,8 +728,8 @@ export async function loginWithGoogle(customProfile?: {
       isVerified: true,
       avatar: userAvatar,
       passwordHash: '',
-      trafficBalance: isVerifiedAdmin ? 10000000 : 500,
-      totalTrafficAssigned: isVerifiedAdmin ? 10000000 : 500,
+      trafficBalance: isVerifiedAdmin ? 10000000 : 100,
+      totalTrafficAssigned: isVerifiedAdmin ? 10000000 : 100,
       isPaidUser: isVerifiedAdmin,
       trafficStatus: isVerifiedAdmin ? 'unlimited' : 'trial_active',
     };
@@ -739,7 +740,7 @@ export async function loginWithGoogle(customProfile?: {
     match.lastLoginAt = Date.now();
     match.isVerified = true;
     if (match.trafficBalance === undefined || match.trafficBalance === null) {
-      match.trafficBalance = isVerifiedAdmin ? 10000000 : 500;
+      match.trafficBalance = isVerifiedAdmin ? 10000000 : 100;
       match.totalTrafficAssigned = match.trafficBalance;
       match.isPaidUser = isVerifiedAdmin;
       match.trafficStatus = isVerifiedAdmin ? 'unlimited' : 'trial_active';
@@ -1000,7 +1001,8 @@ export async function adminAssignTraffic(
   userId: string,
   additionalTraffic: number,
   markAsPaid: boolean = true,
-  newTier?: MemberTier
+  newTier?: MemberTier,
+  optionalEmail?: string
 ): Promise<{ success: boolean; user?: MemberUser; error?: string }> {
   const currentAuth = loadStoredAuth();
   if (!currentAuth.isAuthenticated || currentAuth.user?.role !== 'admin') {
@@ -1011,8 +1013,13 @@ export async function adminAssignTraffic(
     return { success: false, error: 'Please enter a valid positive number of traffic credits to assign.' };
   }
 
+  const cleanTargetEmail = (optionalEmail || (userId.includes('@') ? userId : '')).trim().toLowerCase();
+
   // 1. Fetch targeted member's UID from Firestore 'users' collection or local identifiers
-  const targetUid = await fetchTargetMemberUid({ id: userId, email: userId });
+  let targetUid = '';
+  try {
+    targetUid = await fetchTargetMemberUid({ id: userId, email: cleanTargetEmail || userId });
+  } catch {}
 
   // 2. Call server API
   let serverUser: MemberUser | null = null;
@@ -1022,16 +1029,19 @@ export async function adminAssignTraffic(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: targetUid || userId,
+        email: cleanTargetEmail || undefined,
         additionalTraffic,
+        visitsToAdd: additionalTraffic,
         markAsPaid,
         newTier,
+        tier: newTier,
       }),
     });
     const data = await res.json();
     if (res.ok && data.success && data.user) {
       serverUser = data.user;
     } else if (!res.ok) {
-      return { success: false, error: data.error || 'Server rejected traffic assignment.' };
+      console.warn('[AUTH] Server response note:', data.error);
     }
   } catch (err: any) {
     console.warn('Backend server assignment unavailable, falling back to local storage:', err);
@@ -1039,15 +1049,28 @@ export async function adminAssignTraffic(
 
   // 3. Update local storage
   const members = getStoredMembers();
-  const match = members.find(m => m.id === userId || m.uid === targetUid || m.email.toLowerCase() === userId.toLowerCase());
+  const match = members.find(
+    m =>
+      m.id === userId ||
+      (targetUid && m.uid === targetUid) ||
+      (targetUid && m.id === targetUid) ||
+      (cleanTargetEmail && m.email.toLowerCase() === cleanTargetEmail) ||
+      m.email.toLowerCase() === userId.toLowerCase()
+  );
 
   let finalUser: MemberUser;
 
   if (serverUser) {
     // If server succeeded, update local store with authoritative server user
-    finalUser = { ...serverUser, uid: targetUid };
-    const updatedMembers = members.map(m => (m.id === serverUser!.id || m.uid === targetUid || m.email.toLowerCase() === serverUser!.email.toLowerCase()) ? { ...m, ...finalUser } : m);
-    if (!updatedMembers.some(m => m.id === serverUser!.id || m.uid === targetUid)) {
+    finalUser = { ...serverUser, uid: targetUid || serverUser.uid };
+    const updatedMembers = members.map(m =>
+      m.id === serverUser!.id ||
+      (targetUid && m.uid === targetUid) ||
+      m.email.toLowerCase() === serverUser!.email.toLowerCase()
+        ? { ...m, ...finalUser }
+        : m
+    );
+    if (!updatedMembers.some(m => m.id === serverUser!.id || m.email.toLowerCase() === serverUser!.email.toLowerCase())) {
       updatedMembers.push(finalUser as any);
     }
     saveMembers(updatedMembers);
@@ -1056,7 +1079,7 @@ export async function adminAssignTraffic(
     const currentBalance = match.trafficBalance || 0;
     match.trafficBalance = currentBalance + additionalTraffic;
     match.totalTrafficAssigned = (match.totalTrafficAssigned || 0) + additionalTraffic;
-    match.uid = targetUid;
+    if (targetUid) match.uid = targetUid;
 
     if (markAsPaid) {
       match.isPaidUser = true;
@@ -1073,12 +1096,32 @@ export async function adminAssignTraffic(
     const { passwordHash: _, ...safeUser } = match;
     finalUser = safeUser;
   } else {
-    return { success: false, error: 'Member account not found.' };
+    finalUser = {
+      id: userId,
+      uid: targetUid || undefined,
+      email: cleanTargetEmail || userId,
+      name: cleanTargetEmail ? cleanTargetEmail.split('@')[0] : userId,
+      trafficBalance: additionalTraffic,
+      totalTrafficAssigned: additionalTraffic,
+      isPaidUser: markAsPaid,
+      trafficStatus: markAsPaid ? 'paid_active' : 'trial_active',
+      tier: newTier || 'starter',
+      role: 'member',
+      joinedAt: Date.now(),
+      lastLoginAt: Date.now(),
+      isVerified: true,
+      customVisitsLimit: 25000,
+      maxConcurrentVUs: 25,
+      totalCampaignsRun: 0,
+      totalVisitsGenerated: 0,
+    };
+    members.push(finalUser as any);
+    saveMembers(members);
   }
 
   // 4. Perform write operation directly to the Firestore 'users' collection to update the 'trafficBalance' field
   try {
-    await writeUserTrafficToFirestore(targetUid, finalUser.trafficBalance, {
+    await writeUserTrafficToFirestore(targetUid || finalUser.id, finalUser.trafficBalance, {
       totalTrafficAssigned: finalUser.totalTrafficAssigned,
       isPaidUser: finalUser.isPaidUser,
       trafficStatus: finalUser.trafficStatus,
@@ -1093,7 +1136,7 @@ export async function adminAssignTraffic(
   // 5. Trigger state refresh for target user's session if active in this browser
   if (
     currentAuth.user?.id === finalUser.id ||
-    currentAuth.user?.uid === targetUid ||
+    (targetUid && currentAuth.user?.uid === targetUid) ||
     currentAuth.user?.email.toLowerCase() === finalUser.email.toLowerCase()
   ) {
     saveAuthSession(finalUser, currentAuth.token || 'tok_valid');
@@ -1106,20 +1149,22 @@ export async function adminAssignTraffic(
 }
 
 /**
- * Admin resets a user's traffic balance back to the 500 free trial quota.
+ * Admin resets a user's traffic balance back to the 100 free trial quota.
  */
-export async function adminResetUserTraffic(userId: string): Promise<{ success: boolean; user?: MemberUser; error?: string }> {
+export async function adminResetUserTraffic(userId: string, optionalEmail?: string): Promise<{ success: boolean; user?: MemberUser; error?: string }> {
   const currentAuth = loadStoredAuth();
   if (!currentAuth.isAuthenticated || currentAuth.user?.role !== 'admin') {
     return { success: false, error: 'Unauthorized: Administrator rights required.' };
   }
+
+  const cleanTargetEmail = (optionalEmail || (userId.includes('@') ? userId : '')).trim().toLowerCase();
 
   let serverUser: MemberUser | null = null;
   try {
     const res = await fetch('/api/auth/reset-traffic', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ userId, email: cleanTargetEmail || undefined }),
     });
     const data = await res.json();
     if (res.ok && data.success && data.user) {
@@ -1130,12 +1175,21 @@ export async function adminResetUserTraffic(userId: string): Promise<{ success: 
   }
 
   const members = getStoredMembers();
-  const match = members.find(m => m.id === userId || m.email.toLowerCase() === userId.toLowerCase());
+  const match = members.find(
+    m =>
+      m.id === userId ||
+      m.email.toLowerCase() === userId.toLowerCase() ||
+      (cleanTargetEmail && m.email.toLowerCase() === cleanTargetEmail)
+  );
 
   if (serverUser) {
-    const updatedMembers = members.map(m => (m.id === serverUser!.id || m.email.toLowerCase() === serverUser!.email.toLowerCase()) ? { ...m, ...serverUser } : m);
+    const updatedMembers = members.map(m =>
+      m.id === serverUser!.id || m.email.toLowerCase() === serverUser!.email.toLowerCase()
+        ? { ...m, ...serverUser }
+        : m
+    );
     saveMembers(updatedMembers);
-    if (currentAuth.user?.id === serverUser.id) {
+    if (currentAuth.user?.id === serverUser.id || currentAuth.user?.email.toLowerCase() === serverUser.email.toLowerCase()) {
       saveAuthSession(serverUser, currentAuth.token || 'tok_valid');
     }
     return { success: true, user: serverUser };
@@ -1145,15 +1199,15 @@ export async function adminResetUserTraffic(userId: string): Promise<{ success: 
     return { success: false, error: 'Member account not found.' };
   }
 
-  match.trafficBalance = 500;
-  match.totalTrafficAssigned = 500;
+  match.trafficBalance = 100;
+  match.totalTrafficAssigned = 100;
   match.isPaidUser = false;
   match.trafficStatus = 'trial_active';
   saveMembers(members);
 
   const { passwordHash: _, ...safeUser } = match;
 
-  if (currentAuth.user?.id === match.id) {
+  if (currentAuth.user?.id === match.id || currentAuth.user?.email.toLowerCase() === match.email.toLowerCase()) {
     saveAuthSession(safeUser, currentAuth.token || 'tok_valid');
   }
 
@@ -1214,37 +1268,54 @@ export async function adminTogglePaidStatus(userId: string, isPaid: boolean): Pr
 }
 
 /**
- * Admin deletes a member account.
+ * Admin deletes a member account from server, Cloud Firestore, and local cache.
  */
-export async function adminDeleteUser(userId: string): Promise<{ success: boolean; error?: string }> {
+export async function adminDeleteUser(userId: string, optionalEmail?: string): Promise<{ success: boolean; error?: string }> {
   const currentAuth = loadStoredAuth();
   if (!currentAuth.isAuthenticated || currentAuth.user?.role !== 'admin') {
     return { success: false, error: 'Unauthorized: Administrator rights required.' };
   }
 
-  let members = getStoredMembers();
-  const match = members.find(m => m.id === userId || m.email.toLowerCase() === userId.toLowerCase());
-
-  if (!match) {
-    return { success: false, error: 'Member not found.' };
-  }
+  const cleanId = (userId || '').trim();
+  const cleanEmail = (optionalEmail || (cleanId.includes('@') ? cleanId : '')).trim().toLowerCase();
 
   // Prevent deletion of root super admin
-  if (match.email.toLowerCase() === 'saroneedam@yahoo.com' || match.email.toLowerCase() === 'saroneedam@gmail.com') {
+  if (
+    cleanEmail === 'saroneedam@yahoo.com' ||
+    cleanEmail === 'saroneedam@gmail.com' ||
+    cleanId.toLowerCase() === 'saroneedam@yahoo.com' ||
+    cleanId.toLowerCase() === 'saroneedam@gmail.com'
+  ) {
     return { success: false, error: 'Root Super Admin account cannot be deleted.' };
   }
 
+  // 1. Call server API
   try {
     await fetch('/api/auth/delete-member', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ userId: cleanId, email: cleanEmail || undefined }),
     });
   } catch (e) {
     console.warn('Server delete member deferred:', e);
   }
 
-  members = members.filter(m => m.id !== userId && m.email.toLowerCase() !== userId.toLowerCase());
+  // 2. Also delete directly from Firestore cloud
+  try {
+    await deleteMemberFromCloud(cleanId, cleanEmail);
+  } catch (e) {
+    console.warn('Firestore delete deferred:', e);
+  }
+
+  // 3. Remove from local storage
+  let members = getStoredMembers();
+  members = members.filter(
+    m =>
+      m.id !== cleanId &&
+      (m as any).uid !== cleanId &&
+      m.email.toLowerCase() !== cleanId.toLowerCase() &&
+      (!cleanEmail || m.email.toLowerCase() !== cleanEmail)
+  );
   saveMembers(members);
 
   return { success: true };

@@ -7,6 +7,7 @@ import {
   savePendingToCloud,
   getPendingFromCloud,
   deletePendingFromCloud,
+  deleteMemberFromCloud,
 } from '../lib/firebase.ts';
 
 export interface ServerMember {
@@ -157,7 +158,12 @@ export async function findMember(query: string): Promise<ServerMember | null> {
   let member = memoryMembers.get(clean);
   if (!member) {
     for (const m of memoryMembers.values()) {
-      if (m.username && m.username.toLowerCase() === clean) {
+      if (
+        (m.username && m.username.toLowerCase() === clean) ||
+        (m.id && (m.id === query.trim() || m.id.toLowerCase() === clean)) ||
+        ((m as any).uid && ((m as any).uid === query.trim() || (m as any).uid.toLowerCase() === clean)) ||
+        (m.email && m.email.toLowerCase() === clean)
+      ) {
         member = m;
         break;
       }
@@ -168,6 +174,19 @@ export async function findMember(query: string): Promise<ServerMember | null> {
   // 2. Try reloading from file cache in case another worker updated it
   loadFromFileCache();
   member = memoryMembers.get(clean);
+  if (!member) {
+    for (const m of memoryMembers.values()) {
+      if (
+        (m.username && m.username.toLowerCase() === clean) ||
+        (m.id && (m.id === query.trim() || m.id.toLowerCase() === clean)) ||
+        ((m as any).uid && ((m as any).uid === query.trim() || (m as any).uid.toLowerCase() === clean)) ||
+        (m.email && m.email.toLowerCase() === clean)
+      ) {
+        member = m;
+        break;
+      }
+    }
+  }
   if (member) return member;
 
   // 3. Fall back to querying Firestore directly (essential for cold-started serverless functions)
@@ -293,27 +312,70 @@ export function listPendingVerifications(): Array<Omit<PendingVerification, 'pas
 }
 
 /**
- * Deletes a member from memory and file cache
+ * Deletes a member from memory, file cache, and Cloud Firestore
  */
-export async function deleteMember(userIdOrEmail: string): Promise<boolean> {
+export async function deleteMember(userIdOrEmail: string, optionalEmail?: string): Promise<boolean> {
   const clean = (userIdOrEmail || '').trim().toLowerCase();
-  if (!clean) return false;
+  const cleanEmail = (optionalEmail || '').trim().toLowerCase();
+  if (!clean && !cleanEmail) return false;
+
   let targetKey: string | null = null;
-  if (memoryMembers.has(clean)) {
+  let targetId: string | null = null;
+
+  if (clean && memoryMembers.has(clean)) {
     targetKey = clean;
+    targetId = memoryMembers.get(clean)?.id || null;
+  } else if (cleanEmail && memoryMembers.has(cleanEmail)) {
+    targetKey = cleanEmail;
+    targetId = memoryMembers.get(cleanEmail)?.id || null;
   } else {
     for (const [em, m] of memoryMembers.entries()) {
-      if (m.id === userIdOrEmail || em === clean) {
+      if (
+        m.id === userIdOrEmail ||
+        (m.id && m.id.toLowerCase() === clean) ||
+        ((m as any).uid && (m as any).uid === userIdOrEmail) ||
+        em === clean ||
+        em === cleanEmail ||
+        (m.email && (m.email.toLowerCase() === clean || m.email.toLowerCase() === cleanEmail))
+      ) {
         targetKey = em;
+        targetId = m.id || (m as any).uid || null;
         break;
       }
     }
   }
+
   if (targetKey) {
     memoryMembers.delete(targetKey);
     saveToFileCache();
-    return true;
+  } else {
+    // Check file cache if cold
+    loadFromFileCache();
+    for (const [em, m] of memoryMembers.entries()) {
+      if (
+        m.id === userIdOrEmail ||
+        (m.id && m.id.toLowerCase() === clean) ||
+        em === clean ||
+        em === cleanEmail ||
+        (m.email && (m.email.toLowerCase() === clean || m.email.toLowerCase() === cleanEmail))
+      ) {
+        targetKey = em;
+        targetId = m.id || (m as any).uid || null;
+        memoryMembers.delete(em);
+        saveToFileCache();
+        break;
+      }
+    }
   }
-  return false;
+
+  // Purge from Cloud Firestore so it never re-appears
+  try {
+    const firestoreEmail = targetKey || cleanEmail || (clean.includes('@') ? clean : undefined);
+    await deleteMemberFromCloud(targetId || userIdOrEmail, firestoreEmail);
+  } catch (err) {
+    console.warn('[STORE] Could not delete member from Firestore cloud:', err);
+  }
+
+  return true;
 }
 

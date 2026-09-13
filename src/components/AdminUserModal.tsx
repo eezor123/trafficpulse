@@ -316,7 +316,8 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
         targetUid || selectedUserForAssign.id,
         additional,
         assignMarkAsPaid,
-        assignTier
+        assignTier,
+        selectedUserForAssign.email
       );
 
       if (res.success && res.user) {
@@ -353,7 +354,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   };
 
   const handleResetTrial = async (user: MemberUser) => {
-    if (!window.confirm(`Reset ${user.name}'s account back to the 500 Free Trial quota?`)) return;
+    if (!window.confirm(`Reset ${user.name}'s account back to the 100 Free Trial quota?`)) return;
 
     try {
       // 1. Fetch targeted member's UID
@@ -361,8 +362,8 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
 
       // 2. Write to Firestore 'users' collection
       try {
-        await writeUserTrafficToFirestore(targetUid, 500, {
-          totalTrafficAssigned: 500,
+        await writeUserTrafficToFirestore(targetUid, 100, {
+          totalTrafficAssigned: 100,
           isPaidUser: false,
           trafficStatus: 'trial_active',
           email: user.email,
@@ -373,9 +374,9 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
       }
 
       // 3. Reset on server and local storage
-      const res = await adminResetUserTraffic(targetUid || user.id);
+      const res = await adminResetUserTraffic(targetUid || user.id, user.email);
       if (res.success && res.user) {
-        showNotification('success', `Reset ${user.name}'s quota to 500 Free Trial units.`);
+        showNotification('success', `Reset ${user.name}'s quota to 100 Free Trial units.`);
 
         // 4. Trigger state refresh for Admin UI
         await refreshList();
@@ -454,7 +455,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   const handleDelete = async (user: MemberUser) => {
     if (!window.confirm(`Are you sure you want to remove user "${user.name}" (${user.email})?`)) return;
 
-    const res = await adminDeleteUser(user.id);
+    const res = await adminDeleteUser(user.id || (user as any).uid, user.email);
     if (res.success) {
       showNotification('success', `Removed user account: ${user.name}.`);
       await refreshList();
