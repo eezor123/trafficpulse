@@ -238,7 +238,8 @@ async function startServer() {
   // Get all members for Admin Modal
   app.get('/api/auth/members', async (req: Request, res: Response) => {
     try {
-      const allMembers = await listAllMembers();
+      const forceFresh = req.query.fresh === 'true' || req.query.force === 'true';
+      const allMembers = await listAllMembers(forceFresh);
       const safeList = allMembers.map(({ passwordHash: _, ...safe }) => safe);
       res.json({
         success: true,
@@ -247,6 +248,39 @@ async function startServer() {
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'Failed listing members' });
+    }
+  });
+
+  // GET /api/auth/profile - Fetch fresh member profile & quota with Firestore backing
+  app.get('/api/auth/profile', async (req: Request, res: Response) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const token = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+      const queryEmail = (req.query.email as string || '').trim().toLowerCase();
+      const queryUserId = (req.query.userId as string || req.query.id as string || '').trim();
+
+      let targetIdentifier = '';
+      if (token && activeSessions.has(token)) {
+        targetIdentifier = activeSessions.get(token)!;
+      } else if (queryEmail) {
+        targetIdentifier = queryEmail;
+      } else if (queryUserId) {
+        targetIdentifier = queryUserId;
+      }
+
+      if (!targetIdentifier) {
+        return res.status(400).json({ success: false, error: 'User identifier or active session token required.' });
+      }
+
+      const member = await findMember(targetIdentifier, true);
+      if (!member) {
+        return res.status(404).json({ success: false, error: 'Member not found.' });
+      }
+
+      const { passwordHash: _, ...safeUser } = member;
+      return res.json({ success: true, user: safeUser });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch user profile' });
     }
   });
 
@@ -711,7 +745,7 @@ async function startServer() {
     }
 
     const query = String(emailOrUsername).trim().toLowerCase();
-    let member = await findMember(query);
+    let member = await findMember(query, true);
 
     // Auto-create saroneedam super admin if logging in for the first time
     if (!member && isSaroneedamAdminEmail(query)) {
@@ -857,7 +891,7 @@ async function startServer() {
     const userAvatar = typeof avatar === 'string' && avatar.trim() ? avatar.trim() : undefined;
     const googleName = name?.trim() || googleEmail.split('@')[0];
 
-    let member = await findMember(googleEmail);
+    let member = await findMember(googleEmail, true);
 
     if (!member) {
       // Check IP multi-account anti-abuse
@@ -1010,15 +1044,15 @@ async function startServer() {
 
   app.get('/api/auth/me', async (req: Request, res: Response) => {
     const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({ success: false, error: 'Authorization header missing.' });
-    }
-    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-    const memberId = activeSessions.get(token);
+    const token = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+    const queryEmail = (req.query.email as string || '').trim().toLowerCase();
+    const queryUserId = (req.query.userId as string || req.query.id as string || '').trim();
+
+    const memberId = (token ? activeSessions.get(token) : null) || queryEmail || queryUserId;
     if (!memberId) {
       return res.status(401).json({ success: false, error: 'Session expired or invalid.' });
     }
-    const member = await findMember(memberId);
+    const member = await findMember(memberId, true);
     if (!member) {
       return res.status(401).json({ success: false, error: 'Member not found.' });
     }

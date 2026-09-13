@@ -100,7 +100,7 @@ export function loadStoredAuth(): AuthState {
         const user = parsed.user as MemberUser;
         // Ensure traffic balance fields exist
         if (user.trafficBalance === undefined || user.trafficBalance === null) {
-          user.trafficBalance = user.role === 'admin' ? 10000000 : 500;
+          user.trafficBalance = user.role === 'admin' ? 10000000 : 100;
           user.totalTrafficAssigned = user.trafficBalance;
           user.isPaidUser = user.role === 'admin';
           user.trafficStatus = user.role === 'admin' ? 'unlimited' : 'trial_active';
@@ -450,7 +450,7 @@ export async function verifyEmailCode(
     success: true,
     user: safeUser,
     token,
-    message: 'Email verified successfully! 500 Free Trial traffic credits assigned.',
+    message: 'Email verified successfully! 100 Free Trial traffic credits assigned.',
   };
 }
 
@@ -506,6 +506,96 @@ export async function resendVerificationCode(
   return { success: false, error: 'No pending registration found for this email.' };
 }
 
+/**
+ * Fetches the freshest member profile, credit balance, and subscription tier from server & Firestore.
+ * Automatically synchronizes with local session storage and broadcasts state across open tabs.
+ */
+export async function fetchFreshUserProfile(userHint?: {
+  email?: string;
+  id?: string;
+  uid?: string;
+}): Promise<MemberUser | null> {
+  const currentAuth = loadStoredAuth();
+  const targetEmail = userHint?.email || currentAuth.user?.email;
+  const targetId = userHint?.id || currentAuth.user?.id;
+  const targetUid = userHint?.uid || (currentAuth.user as any)?.uid;
+
+  if (!targetEmail && !targetId && !targetUid) {
+    return currentAuth.user || null;
+  }
+
+  let freshUser: MemberUser | null = null;
+
+  // 1. Check server profile endpoint with timeout safeguard
+  try {
+    const params = new URLSearchParams();
+    if (targetEmail) params.append('email', targetEmail);
+    if (targetId) params.append('userId', targetId);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const resp = await fetch(`/api/auth/profile?${params.toString()}`, {
+      headers: {
+        ...(currentAuth.token ? { Authorization: `Bearer ${currentAuth.token}` } : {}),
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.success && data.user) {
+        freshUser = data.user;
+      }
+    }
+  } catch (err) {
+    console.info('[AUTH] Server profile sync deferred, checking cloud database.');
+  }
+
+  // 2. Check Firestore directly (authoritative cloud truth)
+  try {
+    const queryTarget = targetUid || targetEmail || targetId;
+    if (queryTarget) {
+      const cloudUser = await getMemberFromCloud(queryTarget);
+      if (cloudUser && cloudUser.email) {
+        const { passwordHash: _, ...safeCloudUser } = cloudUser;
+        if (!freshUser) {
+          freshUser = safeCloudUser as MemberUser;
+        } else {
+          // Merge prioritizing highest balance and authoritative fields
+          freshUser = {
+            ...freshUser,
+            ...safeCloudUser,
+            trafficBalance: safeCloudUser.trafficBalance !== undefined ? Math.max(freshUser.trafficBalance || 0, safeCloudUser.trafficBalance) : freshUser.trafficBalance,
+            totalTrafficAssigned: Math.max(freshUser.totalTrafficAssigned || 0, safeCloudUser.totalTrafficAssigned || 0),
+            isPaidUser: (safeCloudUser.isPaidUser !== undefined ? safeCloudUser.isPaidUser : freshUser.isPaidUser),
+            trafficStatus: safeCloudUser.trafficStatus || freshUser.trafficStatus,
+            tier: safeCloudUser.tier || freshUser.tier,
+          };
+        }
+      }
+    }
+  } catch (cloudErr) {
+    console.warn('[AUTH] Direct Firestore profile query deferred:', cloudErr);
+  }
+
+  if (freshUser) {
+    // If the authenticated session matches, update localStorage and broadcast refresh
+    if (currentAuth.isAuthenticated && currentAuth.user && 
+        (currentAuth.user.email?.toLowerCase() === freshUser.email?.toLowerCase() || currentAuth.user.id === freshUser.id)) {
+      const mergedUser: MemberUser = {
+        ...currentAuth.user,
+        ...freshUser,
+      };
+      saveAuthSession(mergedUser, currentAuth.token || 'tok_valid');
+      broadcastSessionRefresh(mergedUser);
+      return mergedUser;
+    }
+    return freshUser;
+  }
+
+  return currentAuth.user || null;
+}
+
 export async function loginMember(emailOrUsername: string, password: string): Promise<{
   success: boolean;
   user?: MemberUser;
@@ -534,18 +624,35 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
     });
     const data = await resp.json();
     if (resp.ok && data.success && data.user && data.token) {
-      saveAuthSession(data.user, data.token);
+      let finalUser: MemberUser = data.user;
+      // Cross-verify with Firestore for any immediately assigned balance
+      try {
+        const cloudUser = await getMemberFromCloud(finalUser.email);
+        if (cloudUser && cloudUser.email) {
+          finalUser = {
+            ...finalUser,
+            trafficBalance: cloudUser.trafficBalance !== undefined ? Math.max(finalUser.trafficBalance || 0, cloudUser.trafficBalance) : finalUser.trafficBalance,
+            totalTrafficAssigned: Math.max(finalUser.totalTrafficAssigned || 0, cloudUser.totalTrafficAssigned || finalUser.trafficBalance || 0),
+            isPaidUser: (cloudUser.isPaidUser !== undefined ? cloudUser.isPaidUser : finalUser.isPaidUser),
+            trafficStatus: cloudUser.trafficStatus || finalUser.trafficStatus,
+            tier: cloudUser.tier || finalUser.tier,
+          };
+        }
+      } catch {}
+
+      saveAuthSession(finalUser, data.token);
       const members = getStoredMembers();
-      const idx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === data.user.email.toLowerCase());
+      const idx = members.findIndex(m => m.id === finalUser.id || m.email.toLowerCase() === finalUser.email.toLowerCase());
       if (idx !== -1) {
-        members[idx] = { ...members[idx], ...data.user, passwordHash: password };
+        members[idx] = { ...members[idx], ...finalUser, passwordHash: password };
       } else {
-        members.push({ ...data.user, passwordHash: password });
+        members.push({ ...finalUser, passwordHash: password });
       }
       saveMembers(members);
       // Persist to Cloud Firestore database
-      saveMemberToCloud({ ...data.user, passwordHash: password }).catch(() => {});
-      return { success: true, user: data.user, token: data.token };
+      saveMemberToCloud({ ...finalUser, passwordHash: password }).catch(() => {});
+      broadcastSessionRefresh(finalUser);
+      return { success: true, user: finalUser, token: data.token };
     }
     if (!resp.ok && data.requiresVerification) {
       return {
@@ -689,17 +796,34 @@ export async function loginWithGoogle(customProfile?: {
       return { success: false, error: data.error || 'Google authentication error.' };
     }
     if (data.success && data.user && data.token) {
-      saveAuthSession(data.user, data.token);
+      let finalUser: MemberUser = data.user;
+      // Cross-verify with Firestore for any immediately assigned balance
+      try {
+        const cloudUser = await getMemberFromCloud(finalUser.email);
+        if (cloudUser && cloudUser.email) {
+          finalUser = {
+            ...finalUser,
+            trafficBalance: cloudUser.trafficBalance !== undefined ? Math.max(finalUser.trafficBalance || 0, cloudUser.trafficBalance) : finalUser.trafficBalance,
+            totalTrafficAssigned: Math.max(finalUser.totalTrafficAssigned || 0, cloudUser.totalTrafficAssigned || finalUser.trafficBalance || 0),
+            isPaidUser: (cloudUser.isPaidUser !== undefined ? cloudUser.isPaidUser : finalUser.isPaidUser),
+            trafficStatus: cloudUser.trafficStatus || finalUser.trafficStatus,
+            tier: cloudUser.tier || finalUser.tier,
+          };
+        }
+      } catch {}
+
+      saveAuthSession(finalUser, data.token);
       // Sync local members
       const members = getStoredMembers();
-      const existingIdx = members.findIndex(m => m.id === data.user.id || m.email.toLowerCase() === data.user.email.toLowerCase());
+      const existingIdx = members.findIndex(m => m.id === finalUser.id || m.email.toLowerCase() === finalUser.email.toLowerCase());
       if (existingIdx !== -1) {
-        members[existingIdx] = { ...members[existingIdx], ...data.user };
+        members[existingIdx] = { ...members[existingIdx], ...finalUser };
       } else {
-        members.push({ ...data.user, passwordHash: '' });
+        members.push({ ...finalUser, passwordHash: '' });
       }
       saveMembers(members);
-      return { success: true, user: data.user, token: data.token };
+      broadcastSessionRefresh(finalUser);
+      return { success: true, user: finalUser, token: data.token };
     }
   } catch (err) {
     console.info('Server Google auth endpoint unavailable, handling client-side verification.');
@@ -707,6 +831,20 @@ export async function loginWithGoogle(customProfile?: {
 
   const members = getStoredMembers();
   let match = members.find(m => m.email.toLowerCase() === googleEmail);
+
+  // Check Firestore cloud registry before falling back to local defaults
+  if (!match || match.trafficBalance === undefined) {
+    try {
+      const cloudUser = await getMemberFromCloud(googleEmail);
+      if (cloudUser && cloudUser.email) {
+        match = {
+          ...(match || {}),
+          ...cloudUser,
+          passwordHash: cloudUser.passwordHash || '',
+        };
+      }
+    } catch {}
+  }
 
   if (!match) {
     // Create new google member (regular member by default, admin ONLY if verified)
@@ -931,8 +1069,8 @@ export function deductTrafficCredit(amount: number = 1): {
 
   // Initialize balance if missing
   if (match.trafficBalance === undefined || match.trafficBalance === null) {
-    match.trafficBalance = 500;
-    match.totalTrafficAssigned = 500;
+    match.trafficBalance = 100;
+    match.totalTrafficAssigned = 100;
     match.isPaidUser = false;
     match.trafficStatus = 'trial_active';
   }

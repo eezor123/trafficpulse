@@ -25,7 +25,9 @@ import { HistoryPanel } from './components/HistoryPanel';
 
 import { DEFAULT_ORGANIC_CONFIG, ORGANIC_PRESETS } from './data/organicPresets';
 import { getClientSideCrawledPages, generateClientSideCampaign, crawlWebsiteLiveInBrowser } from './utils/clientFallbackEngine';
-import { loadStoredAuth, saveAuthSession, clearAuthSession, incrementMemberStats, deductTrafficCredit } from './utils/authManager';
+import { loadStoredAuth, saveAuthSession, clearAuthSession, incrementMemberStats, deductTrafficCredit, fetchFreshUserProfile } from './utils/authManager';
+import { getFirestoreDb, emailToDocId } from './lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { TRAFFIC_PRESETS } from './data/presets';
 import { 
   ActiveVisitorSession,
@@ -337,12 +339,104 @@ export default function App() {
       }
     } catch {}
 
+    // Immediate and on-focus profile sync to keep credit balance current
+    const syncProfile = () => {
+      const stored = loadStoredAuth();
+      if (stored?.isAuthenticated && stored.user) {
+        fetchFreshUserProfile({
+          id: stored.user.id,
+          uid: (stored.user as any).uid,
+          email: stored.user.email,
+        }).then(fresh => {
+          if (fresh) {
+            setAuthState(prev => ({
+              ...prev,
+              user: fresh,
+            }));
+          }
+        }).catch(() => {});
+      }
+    };
+
+    syncProfile();
+    window.addEventListener('focus', syncProfile);
+    const syncInterval = setInterval(syncProfile, 15000);
+
     return () => {
       window.removeEventListener('trafficpulse_session_refresh', handleSessionRefresh);
       window.removeEventListener('storage', handleSessionRefresh);
+      window.removeEventListener('focus', syncProfile);
+      clearInterval(syncInterval);
       if (bc) bc.close();
     };
   }, []);
+
+  // Real-time Firestore sync for active member quota updates
+  useEffect(() => {
+    if (!authState.isAuthenticated || !authState.user) return;
+    const currentUserId = (authState.user as any).uid || authState.user.id;
+    const currentEmail = authState.user.email;
+
+    let unsub1: (() => void) | null = null;
+    let unsub2: (() => void) | null = null;
+
+    try {
+      const db = getFirestoreDb();
+      if (currentUserId) {
+        unsub1 = onSnapshot(doc(db, 'users', currentUserId), (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            if (data && (data.trafficBalance !== undefined || data.totalTrafficAssigned !== undefined)) {
+              setAuthState(prev => {
+                if (!prev.user) return prev;
+                const updated: MemberUser = {
+                  ...prev.user,
+                  trafficBalance: data.trafficBalance !== undefined ? data.trafficBalance : prev.user.trafficBalance,
+                  totalTrafficAssigned: data.totalTrafficAssigned !== undefined ? data.totalTrafficAssigned : prev.user.totalTrafficAssigned,
+                  isPaidUser: (data.isPaidUser !== undefined ? data.isPaidUser : prev.user.isPaidUser),
+                  trafficStatus: data.trafficStatus || prev.user.trafficStatus,
+                  tier: data.tier || prev.user.tier,
+                };
+                saveAuthSession(updated, prev.token || 'tok_valid');
+                return { ...prev, user: updated };
+              });
+            }
+          }
+        }, () => {});
+      }
+
+      if (currentEmail) {
+        const docId = emailToDocId(currentEmail);
+        unsub2 = onSnapshot(doc(db, 'trafficpulse_members', docId), (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            if (data && (data.trafficBalance !== undefined || data.totalTrafficAssigned !== undefined)) {
+              setAuthState(prev => {
+                if (!prev.user) return prev;
+                const updated: MemberUser = {
+                  ...prev.user,
+                  trafficBalance: data.trafficBalance !== undefined ? data.trafficBalance : prev.user.trafficBalance,
+                  totalTrafficAssigned: data.totalTrafficAssigned !== undefined ? data.totalTrafficAssigned : prev.user.totalTrafficAssigned,
+                  isPaidUser: (data.isPaidUser !== undefined ? data.isPaidUser : prev.user.isPaidUser),
+                  trafficStatus: data.trafficStatus || prev.user.trafficStatus,
+                  tier: data.tier || prev.user.tier,
+                };
+                saveAuthSession(updated, prev.token || 'tok_valid');
+                return { ...prev, user: updated };
+              });
+            }
+          }
+        }, () => {});
+      }
+    } catch (err) {
+      console.warn('[FIRESTORE] Real-time quota listener deferred:', err);
+    }
+
+    return () => {
+      if (unsub1) unsub1();
+      if (unsub2) unsub2();
+    };
+  }, [authState.isAuthenticated, authState.user?.id, (authState.user as any)?.uid, authState.user?.email]);
 
   // ==================== AUTO-PERSISTENCE & SCREEN WAKE-LOCK ====================
   const wakeLockRef = useRef<any>(null);

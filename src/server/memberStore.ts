@@ -121,8 +121,8 @@ loadFromFileCache();
 
 // Async background sync with Firestore
 let hasSyncedWithCloud = false;
-export async function syncMembersFromCloud(): Promise<void> {
-  if (hasSyncedWithCloud) return;
+export async function syncMembersFromCloud(force = false): Promise<void> {
+  if (hasSyncedWithCloud && !force) return;
   try {
     const cloudMembers = await getAllMembersFromCloud();
     if (cloudMembers && cloudMembers.length > 0) {
@@ -130,8 +130,19 @@ export async function syncMembersFromCloud(): Promise<void> {
         if (m && m.email) {
           const emailLower = m.email.toLowerCase();
           const existing = memoryMembers.get(emailLower);
-          if (!existing || (m.lastLoginAt && m.lastLoginAt > (existing.lastLoginAt || 0))) {
+          if (!existing) {
             memoryMembers.set(emailLower, m as ServerMember);
+          } else {
+            const merged: ServerMember = {
+              ...existing,
+              ...m,
+              trafficBalance: m.trafficBalance !== undefined ? m.trafficBalance : existing.trafficBalance,
+              totalTrafficAssigned: Math.max(existing.totalTrafficAssigned || 0, m.totalTrafficAssigned || 0),
+              isPaidUser: (m.isPaidUser !== undefined ? m.isPaidUser : existing.isPaidUser),
+              trafficStatus: m.trafficStatus || existing.trafficStatus,
+              tier: m.tier || existing.tier,
+            };
+            memoryMembers.set(emailLower, merged);
           }
         }
       }
@@ -148,13 +159,36 @@ export async function syncMembersFromCloud(): Promise<void> {
 syncMembersFromCloud().catch(() => {});
 
 /**
- * Retrieves a member from memory, file cache, or Firestore
+ * Retrieves a member from memory, file cache, or Firestore.
+ * When forceCloudCheck is true, always queries Firestore to retrieve the absolute latest quota & balance.
  */
-export async function findMember(query: string): Promise<ServerMember | null> {
+export async function findMember(query: string, forceCloudCheck = false): Promise<ServerMember | null> {
   const clean = (query || '').trim().toLowerCase();
   if (!clean) return null;
 
-  // 1. Check memory cache (fastest)
+  // 1. If fresh cloud check is requested, query Firestore first
+  if (forceCloudCheck) {
+    try {
+      const cloudRecord = await getMemberFromCloud(clean);
+      if (cloudRecord && cloudRecord.email) {
+        const parsed = cloudRecord as ServerMember;
+        const existing = memoryMembers.get(parsed.email.toLowerCase());
+        const merged: ServerMember = {
+          ...(existing || {}),
+          ...parsed,
+          trafficBalance: parsed.trafficBalance !== undefined ? parsed.trafficBalance : (existing?.trafficBalance || 0),
+          totalTrafficAssigned: Math.max(existing?.totalTrafficAssigned || 0, parsed.totalTrafficAssigned || 0),
+        };
+        memoryMembers.set(parsed.email.toLowerCase(), merged);
+        saveToFileCache();
+        return merged;
+      }
+    } catch (err) {
+      console.warn('[STORE] Fresh cloud check error, falling back to cache:', err);
+    }
+  }
+
+  // 2. Check memory cache
   let member = memoryMembers.get(clean);
   if (!member) {
     for (const m of memoryMembers.values()) {
@@ -171,7 +205,7 @@ export async function findMember(query: string): Promise<ServerMember | null> {
   }
   if (member) return member;
 
-  // 2. Try reloading from file cache in case another worker updated it
+  // 3. Try reloading from file cache in case another worker updated it
   loadFromFileCache();
   member = memoryMembers.get(clean);
   if (!member) {
@@ -189,7 +223,7 @@ export async function findMember(query: string): Promise<ServerMember | null> {
   }
   if (member) return member;
 
-  // 3. Fall back to querying Firestore directly (essential for cold-started serverless functions)
+  // 4. Fall back to querying Firestore directly (essential for cold-started serverless functions)
   try {
     const cloudRecord = await getMemberFromCloud(clean);
     if (cloudRecord && cloudRecord.email) {
@@ -206,12 +240,12 @@ export async function findMember(query: string): Promise<ServerMember | null> {
 }
 
 /**
- * Returns all members currently in memory, reloading from file/cloud if empty
+ * Returns all members currently in memory, reloading from file/cloud if empty or if forceCloud is specified
  */
-export async function listAllMembers(): Promise<ServerMember[]> {
-  if (memoryMembers.size === 0) {
+export async function listAllMembers(forceCloud = false): Promise<ServerMember[]> {
+  if (memoryMembers.size === 0 || forceCloud) {
     loadFromFileCache();
-    await syncMembersFromCloud();
+    await syncMembersFromCloud(forceCloud);
   }
   return Array.from(memoryMembers.values());
 }
