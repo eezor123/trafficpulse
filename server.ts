@@ -21,6 +21,7 @@ import {
   type ServerMember,
   type PendingVerification,
 } from './src/server/memberStore.ts';
+import { writeUserTrafficToFirestore } from './src/lib/firebase.ts';
 import {
   sendVerificationOtpEmail,
   getEmailProviderStatus,
@@ -238,7 +239,7 @@ async function startServer() {
   // Get all members for Admin Modal
   app.get('/api/auth/members', async (req: Request, res: Response) => {
     try {
-      const forceFresh = req.query.fresh === 'true' || req.query.force === 'true';
+      const forceFresh = req.query.fresh !== 'false';
       const allMembers = await listAllMembers(forceFresh);
       const safeList = allMembers.map(({ passwordHash: _, ...safe }) => safe);
       res.json({
@@ -292,11 +293,13 @@ async function startServer() {
     }
     try {
       const cleanEmail = String(member.email).trim().toLowerCase();
-      const existing = await findMember(cleanEmail);
+      const existing = await findMember(cleanEmail, true);
       const updated: ServerMember = {
         ...(existing || {}),
         ...member,
         email: cleanEmail,
+        trafficBalance: existing?.trafficBalance !== undefined ? Math.max(existing.trafficBalance, Number(member.trafficBalance || 0)) : member.trafficBalance,
+        totalTrafficAssigned: Math.max(existing?.totalTrafficAssigned || 0, Number(member.totalTrafficAssigned || 0)),
         lastLoginAt: Date.now(),
       };
       await persistMember(updated);
@@ -314,7 +317,7 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'Valid user identifier and positive traffic amount are required.' });
     }
     try {
-      const all = await listAllMembers();
+      const all = await listAllMembers(true);
       const cleanTarget = String(userId || email).trim().toLowerCase();
       const cleanEmail = email ? String(email).trim().toLowerCase() : '';
       let target = all.find(m =>
@@ -324,7 +327,7 @@ async function startServer() {
         ((m as any).uid && (m as any).uid === userId)
       );
       if (!target) {
-        target = (userId ? await findMember(userId) : null) || (cleanEmail ? await findMember(cleanEmail) : null) || await findMember(cleanTarget);
+        target = (userId ? await findMember(userId, true) : null) || (cleanEmail ? await findMember(cleanEmail, true) : null) || await findMember(cleanTarget, true);
       }
       if (!target) {
         return res.status(404).json({ success: false, error: `Member "${userId || email}" not found on server.` });
@@ -346,6 +349,17 @@ async function startServer() {
       }
 
       await persistMember(target);
+
+      // Explicitly update all Firestore documents matching this email and UID
+      writeUserTrafficToFirestore(target.id, target.trafficBalance, {
+        totalTrafficAssigned: target.totalTrafficAssigned,
+        isPaidUser: target.isPaidUser,
+        trafficStatus: target.trafficStatus,
+        tier: target.tier,
+        email: target.email,
+        name: target.name,
+      }).catch(err => console.warn('[SERVER] Async Firestore write error:', err));
+
       const { passwordHash: _, ...safeUser } = target;
       return res.json({
         success: true,
@@ -362,14 +376,14 @@ async function startServer() {
     const { userId, email } = req.body;
     if (!userId && !email) return res.status(400).json({ success: false, error: 'userId or email is required' });
     try {
-      const all = await listAllMembers();
+      const all = await listAllMembers(true);
       const cleanTarget = String(userId || email).trim().toLowerCase();
       const cleanEmail = email ? String(email).trim().toLowerCase() : '';
       let target = all.find(m =>
         (userId && m.id === userId) ||
         (cleanEmail && m.email.toLowerCase() === cleanEmail) ||
         m.email.toLowerCase() === cleanTarget
-      ) || (userId ? await findMember(userId) : null) || (cleanEmail ? await findMember(cleanEmail) : null) || await findMember(cleanTarget);
+      ) || (userId ? await findMember(userId, true) : null) || (cleanEmail ? await findMember(cleanEmail, true) : null) || await findMember(cleanTarget, true);
       if (!target) return res.status(404).json({ success: false, error: 'Member not found' });
 
       target.trafficBalance = 100;
@@ -377,6 +391,15 @@ async function startServer() {
       target.isPaidUser = false;
       target.trafficStatus = 'trial_active';
       await persistMember(target);
+
+      writeUserTrafficToFirestore(target.id, 100, {
+        totalTrafficAssigned: 100,
+        isPaidUser: false,
+        trafficStatus: 'trial_active',
+        email: target.email,
+        name: target.name,
+      }).catch(err => console.warn('[SERVER] Async Firestore reset error:', err));
+
       const { passwordHash: _, ...safeUser } = target;
       return res.json({ success: true, user: safeUser, message: `Reset ${target.name}'s quota to 100 Free Trial units.` });
     } catch (err: any) {
@@ -389,14 +412,24 @@ async function startServer() {
     const { userId, isPaid } = req.body;
     if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
     try {
-      const all = await listAllMembers();
+      const all = await listAllMembers(true);
       const cleanTarget = String(userId).trim().toLowerCase();
-      let target = all.find(m => m.id === userId || m.email.toLowerCase() === cleanTarget) || await findMember(cleanTarget);
+      let target = all.find(m => m.id === userId || m.email.toLowerCase() === cleanTarget) || await findMember(cleanTarget, true);
       if (!target) return res.status(404).json({ success: false, error: 'Member not found' });
 
       target.isPaidUser = Boolean(isPaid);
       target.trafficStatus = isPaid ? 'paid_active' : 'trial_active';
       await persistMember(target);
+
+      writeUserTrafficToFirestore(target.id, target.trafficBalance || 0, {
+        totalTrafficAssigned: target.totalTrafficAssigned,
+        isPaidUser: target.isPaidUser,
+        trafficStatus: target.trafficStatus,
+        tier: target.tier,
+        email: target.email,
+        name: target.name,
+      }).catch(err => console.warn('[SERVER] Async Firestore toggle error:', err));
+
       const { passwordHash: _, ...safeUser } = target;
       return res.json({ success: true, user: safeUser, message: `Updated ${target.name} status.` });
     } catch (err: any) {

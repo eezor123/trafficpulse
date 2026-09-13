@@ -191,7 +191,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
 
   const refreshList = async () => {
     try {
-      const res = await fetch('/api/auth/members');
+      const res = await fetch('/api/auth/members?fresh=true&t=' + Date.now());
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.members) && data.members.length > 0) {
@@ -627,7 +627,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                 {filteredMembers.map((user) => {
                   const isAdmin = user.role === 'admin';
                   const isPaid = user.isPaidUser;
-                  const balance = user.trafficBalance ?? (isAdmin ? 10000000 : 500);
+                  const balance = Number(user.trafficBalance ?? (isAdmin ? 10000000 : (user.isPaidUser ? 0 : (user.totalTrafficAssigned || 100))));
 
                   return (
                     <tr key={user.id} className="hover:bg-slate-800/40 transition-colors">
@@ -685,7 +685,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-300 bg-amber-950/40 border border-amber-600/40 px-2 py-0.5 rounded-full">
                             <Zap className="w-3 h-3" />
-                            Free Trial (500)
+                            Free Trial ({(user.totalTrafficAssigned || 100).toLocaleString()})
                           </span>
                         )}
                       </td>

@@ -136,7 +136,7 @@ export async function syncMembersFromCloud(force = false): Promise<void> {
             const merged: ServerMember = {
               ...existing,
               ...m,
-              trafficBalance: m.trafficBalance !== undefined ? m.trafficBalance : existing.trafficBalance,
+              trafficBalance: m.trafficBalance !== undefined ? Math.max(Number(m.trafficBalance), Number(existing.trafficBalance || 0)) : existing.trafficBalance,
               totalTrafficAssigned: Math.max(existing.totalTrafficAssigned || 0, m.totalTrafficAssigned || 0),
               isPaidUser: (m.isPaidUser !== undefined ? m.isPaidUser : existing.isPaidUser),
               trafficStatus: m.trafficStatus || existing.trafficStatus,

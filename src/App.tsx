@@ -27,7 +27,7 @@ import { DEFAULT_ORGANIC_CONFIG, ORGANIC_PRESETS } from './data/organicPresets';
 import { getClientSideCrawledPages, generateClientSideCampaign, crawlWebsiteLiveInBrowser } from './utils/clientFallbackEngine';
 import { loadStoredAuth, saveAuthSession, clearAuthSession, incrementMemberStats, deductTrafficCredit, fetchFreshUserProfile } from './utils/authManager';
 import { getFirestoreDb, emailToDocId } from './lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import { TRAFFIC_PRESETS } from './data/presets';
 import { 
   ActiveVisitorSession,
@@ -379,28 +379,37 @@ export default function App() {
 
     let unsub1: (() => void) | null = null;
     let unsub2: (() => void) | null = null;
+    let unsub3: (() => void) | null = null;
 
     try {
       const db = getFirestoreDb();
+
+      const applyCloudQuotaUpdate = (data: any) => {
+        if (!data) return;
+        setAuthState(prev => {
+          if (!prev.user) return prev;
+          const currentBal = prev.user.trafficBalance ?? 0;
+          const newBal = data.trafficBalance !== undefined ? Math.max(Number(data.trafficBalance), Number(currentBal)) : currentBal;
+          const currentAssigned = prev.user.totalTrafficAssigned ?? 0;
+          const newAssigned = data.totalTrafficAssigned !== undefined ? Math.max(Number(data.totalTrafficAssigned), Number(currentAssigned)) : currentAssigned;
+
+          const updated: MemberUser = {
+            ...prev.user,
+            trafficBalance: newBal,
+            totalTrafficAssigned: newAssigned,
+            isPaidUser: (data.isPaidUser !== undefined ? data.isPaidUser : prev.user.isPaidUser),
+            trafficStatus: data.trafficStatus || prev.user.trafficStatus,
+            tier: data.tier || prev.user.tier,
+          };
+          saveAuthSession(updated, prev.token || 'tok_valid');
+          return { ...prev, user: updated };
+        });
+      };
+
       if (currentUserId) {
         unsub1 = onSnapshot(doc(db, 'users', currentUserId), (snap) => {
           if (snap.exists()) {
-            const data = snap.data();
-            if (data && (data.trafficBalance !== undefined || data.totalTrafficAssigned !== undefined)) {
-              setAuthState(prev => {
-                if (!prev.user) return prev;
-                const updated: MemberUser = {
-                  ...prev.user,
-                  trafficBalance: data.trafficBalance !== undefined ? data.trafficBalance : prev.user.trafficBalance,
-                  totalTrafficAssigned: data.totalTrafficAssigned !== undefined ? data.totalTrafficAssigned : prev.user.totalTrafficAssigned,
-                  isPaidUser: (data.isPaidUser !== undefined ? data.isPaidUser : prev.user.isPaidUser),
-                  trafficStatus: data.trafficStatus || prev.user.trafficStatus,
-                  tier: data.tier || prev.user.tier,
-                };
-                saveAuthSession(updated, prev.token || 'tok_valid');
-                return { ...prev, user: updated };
-              });
-            }
+            applyCloudQuotaUpdate(snap.data());
           }
         }, () => {});
       }
@@ -409,24 +418,21 @@ export default function App() {
         const docId = emailToDocId(currentEmail);
         unsub2 = onSnapshot(doc(db, 'trafficpulse_members', docId), (snap) => {
           if (snap.exists()) {
-            const data = snap.data();
-            if (data && (data.trafficBalance !== undefined || data.totalTrafficAssigned !== undefined)) {
-              setAuthState(prev => {
-                if (!prev.user) return prev;
-                const updated: MemberUser = {
-                  ...prev.user,
-                  trafficBalance: data.trafficBalance !== undefined ? data.trafficBalance : prev.user.trafficBalance,
-                  totalTrafficAssigned: data.totalTrafficAssigned !== undefined ? data.totalTrafficAssigned : prev.user.totalTrafficAssigned,
-                  isPaidUser: (data.isPaidUser !== undefined ? data.isPaidUser : prev.user.isPaidUser),
-                  trafficStatus: data.trafficStatus || prev.user.trafficStatus,
-                  tier: data.tier || prev.user.tier,
-                };
-                saveAuthSession(updated, prev.token || 'tok_valid');
-                return { ...prev, user: updated };
-              });
-            }
+            applyCloudQuotaUpdate(snap.data());
           }
         }, () => {});
+
+        // Also listen to users collection queries matching this email
+        try {
+          const q = query(collection(db, 'users'), where('email', '==', currentEmail.toLowerCase()));
+          unsub3 = onSnapshot(q, (snapshot) => {
+            snapshot.docs.forEach(d => {
+              if (d.exists()) {
+                applyCloudQuotaUpdate(d.data());
+              }
+            });
+          }, () => {});
+        } catch {}
       }
     } catch (err) {
       console.warn('[FIRESTORE] Real-time quota listener deferred:', err);
@@ -435,6 +441,7 @@ export default function App() {
     return () => {
       if (unsub1) unsub1();
       if (unsub2) unsub2();
+      if (unsub3) unsub3();
     };
   }, [authState.isAuthenticated, authState.user?.id, (authState.user as any)?.uid, authState.user?.email]);
 

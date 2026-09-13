@@ -213,6 +213,7 @@ export async function fetchTargetMemberUid(
 
 /**
  * Performs a write operation directly to the Firestore 'users' collection to update the 'trafficBalance' field.
+ * Safely updates ALL matching user documents for this email/UID in both 'users' and 'trafficpulse_members'.
  */
 export async function writeUserTrafficToFirestore(
   targetUid: string,
@@ -226,18 +227,16 @@ export async function writeUserTrafficToFirestore(
     name?: string;
   } = {}
 ): Promise<{ success: boolean; targetUid: string; error?: string }> {
-  const path = `users/${targetUid}`;
   try {
     const timeoutPromise = new Promise<{ success: boolean; targetUid: string; error?: string }>((resolve) =>
-      setTimeout(() => resolve({ success: true, targetUid }), 3000)
+      setTimeout(() => resolve({ success: true, targetUid }), 4000)
     );
 
     const writePromise = (async () => {
       const db = getFirestoreDb();
-      const userDocRef = doc(db, 'users', targetUid);
+      const cleanEmail = (additionalFields.email || (targetUid.includes('@') ? targetUid : '')).trim().toLowerCase();
 
       const payload: Record<string, any> = {
-        uid: targetUid,
         trafficBalance: Number(trafficBalance),
         updatedAt: Date.now(),
       };
@@ -254,24 +253,42 @@ export async function writeUserTrafficToFirestore(
       if (additionalFields.tier) {
         payload.tier = additionalFields.tier;
       }
-      if (additionalFields.email) {
-        payload.email = additionalFields.email;
+      if (cleanEmail) {
+        payload.email = cleanEmail;
       }
       if (additionalFields.name) {
         payload.name = additionalFields.name;
       }
 
-      // 1. Primary write operation to Firestore 'users' collection
-      await setDoc(userDocRef, payload, { merge: true });
-
-      // 2. Also mirror to 'trafficpulse_members' so all legacy readers stay in sync
-      if (additionalFields.email) {
+      // 1. Direct write to targetUid if provided
+      if (targetUid && !targetUid.includes('@')) {
         try {
-          const legacyDocId = emailToDocId(additionalFields.email);
+          const userDocRef = doc(db, 'users', targetUid);
+          await setDoc(userDocRef, { ...payload, uid: targetUid }, { merge: true });
+        } catch (err) {
+          console.warn('[FIRESTORE] Target user doc direct write note:', err);
+        }
+      }
+
+      // 2. Query all documents in 'users' matching this email and update EVERY ONE
+      if (cleanEmail) {
+        try {
+          const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
+          const qSnap = await getDocs(q);
+          for (const d of qSnap.docs) {
+            await setDoc(doc(db, 'users', d.id), payload, { merge: true });
+          }
+        } catch (err) {
+          console.warn('[FIRESTORE] Query and update all email user docs note:', err);
+        }
+
+        // 3. Mirror directly to 'trafficpulse_members' canonical email doc
+        try {
+          const legacyDocId = emailToDocId(cleanEmail);
           const legacyRef = doc(db, 'trafficpulse_members', legacyDocId);
           await setDoc(legacyRef, payload, { merge: true });
         } catch (legacyErr) {
-          console.warn('[FIRESTORE] Legacy mirror write deferred:', legacyErr);
+          console.warn('[FIRESTORE] Legacy mirror write note:', legacyErr);
         }
       }
 
@@ -286,38 +303,70 @@ export async function writeUserTrafficToFirestore(
 }
 
 /**
- * Persists a registered member record to Firestore cloud database
+ * Persists a registered member record to Firestore cloud database without downgrading existing quota.
  */
 export async function saveMemberToCloud(member: any): Promise<boolean> {
   if (!member || !member.email) return false;
   try {
     const db = getFirestoreDb();
-    const uid = member.uid || member.id || emailToDocId(member.email);
+    const cleanEmail = member.email.trim().toLowerCase();
+    const uid = member.uid || member.id || emailToDocId(cleanEmail);
+
+    // Retrieve existing cloud data if available to prevent accidental credit downgrades
+    let authoritativeBalance = member.trafficBalance !== undefined ? Number(member.trafficBalance) : 100;
+    let authoritativeAssigned = member.totalTrafficAssigned !== undefined ? Number(member.totalTrafficAssigned) : authoritativeBalance;
+    let authoritativePaid = Boolean(member.isPaidUser);
+
+    try {
+      const existingCloud = await getMemberFromCloud(cleanEmail);
+      if (existingCloud) {
+        if (existingCloud.trafficBalance !== undefined && existingCloud.trafficBalance > authoritativeBalance) {
+          authoritativeBalance = Number(existingCloud.trafficBalance);
+        }
+        if (existingCloud.totalTrafficAssigned !== undefined && existingCloud.totalTrafficAssigned > authoritativeAssigned) {
+          authoritativeAssigned = Number(existingCloud.totalTrafficAssigned);
+        }
+        if (existingCloud.isPaidUser) {
+          authoritativePaid = true;
+        }
+      }
+    } catch {}
+
+    const safePayload = {
+      ...member,
+      email: cleanEmail,
+      uid,
+      trafficBalance: authoritativeBalance,
+      totalTrafficAssigned: authoritativeAssigned,
+      isPaidUser: authoritativePaid,
+      trafficStatus: authoritativePaid
+        ? 'paid_active'
+        : authoritativeBalance > 0
+        ? 'trial_active'
+        : 'trial_exhausted',
+      updatedAt: Date.now(),
+    };
 
     // 1. Write to 'users' collection (keyed by UID)
     const userDocRef = doc(db, 'users', uid);
-    await setDoc(
-      userDocRef,
-      {
-        ...member,
-        uid,
-        updatedAt: Date.now(),
-      },
-      { merge: true }
-    );
+    await setDoc(userDocRef, safePayload, { merge: true });
 
-    // 2. Mirror to 'trafficpulse_members' collection
-    const docId = emailToDocId(member.email);
+    // 2. Also update all existing 'users' docs for this email
+    try {
+      const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
+      const qSnap = await getDocs(q);
+      for (const d of qSnap.docs) {
+        if (d.id !== uid) {
+          await setDoc(doc(db, 'users', d.id), safePayload, { merge: true });
+        }
+      }
+    } catch {}
+
+    // 3. Mirror to 'trafficpulse_members' collection
+    const docId = emailToDocId(cleanEmail);
     const docRef = doc(db, 'trafficpulse_members', docId);
-    await setDoc(
-      docRef,
-      {
-        ...member,
-        uid,
-        updatedAt: Date.now(),
-      },
-      { merge: true }
-    );
+    await setDoc(docRef, safePayload, { merge: true });
+
     return true;
   } catch (e) {
     console.warn('Failed to persist member to Firestore cloud database:', e);
@@ -326,43 +375,74 @@ export async function saveMemberToCloud(member: any): Promise<boolean> {
 }
 
 /**
- * Retrieves a registered member from Firestore cloud database by email or username
+ * Retrieves a registered member from Firestore cloud database by email or username,
+ * picking the authoritative record with the highest assigned balance.
  */
 export async function getMemberFromCloud(emailOrUsername: string): Promise<any | null> {
   const queryStr = (emailOrUsername || '').trim().toLowerCase();
   if (!queryStr) return null;
   try {
     const db = getFirestoreDb();
+    let bestCandidate: any = null;
 
-    // 1. Check 'users' collection first by UID or ID
-    try {
-      const snap = await getDoc(doc(db, 'users', queryStr));
-      if (snap.exists()) {
-        return snap.data();
+    // Helper to evaluate and keep the best candidate (highest balance / assigned)
+    const consider = (candidate: any) => {
+      if (!candidate || !candidate.email) return;
+      if (!bestCandidate) {
+        bestCandidate = candidate;
+        return;
       }
-    } catch {}
+      const candBal = Number(candidate.trafficBalance ?? -1);
+      const bestBal = Number(bestCandidate.trafficBalance ?? -1);
+      const candAssigned = Number(candidate.totalTrafficAssigned ?? -1);
+      const bestAssigned = Number(bestCandidate.totalTrafficAssigned ?? -1);
+      const candUpdated = Number(candidate.updatedAt ?? 0);
+      const bestUpdated = Number(bestCandidate.updatedAt ?? 0);
+
+      if (
+        candBal > bestBal ||
+        (candBal === bestBal && candAssigned > bestAssigned) ||
+        (candBal === bestBal && candAssigned === bestAssigned && candUpdated > bestUpdated)
+      ) {
+        bestCandidate = candidate;
+      }
+    };
+
+    // 1. Direct lookup by email docId in 'trafficpulse_members'
+    if (queryStr.includes('@')) {
+      try {
+        const docId = emailToDocId(queryStr);
+        const snap = await getDoc(doc(db, 'trafficpulse_members', docId));
+        if (snap.exists()) {
+          consider(snap.data());
+        }
+      } catch {}
+    }
 
     // 2. Check 'users' collection by email
     if (queryStr.includes('@')) {
       try {
         const q = query(collection(db, 'users'), where('email', '==', queryStr));
         const qSnap = await getDocs(q);
-        if (!qSnap.empty) {
-          return qSnap.docs[0].data();
+        for (const d of qSnap.docs) {
+          consider(d.data());
         }
       } catch {}
     }
 
-    // 3. Direct lookup by email docId in 'trafficpulse_members'
-    if (queryStr.includes('@')) {
-      const docId = emailToDocId(queryStr);
-      const snap = await getDoc(doc(db, 'trafficpulse_members', docId));
+    // 3. Direct document lookup by ID / UID in 'users'
+    try {
+      const snap = await getDoc(doc(db, 'users', queryStr));
       if (snap.exists()) {
-        return snap.data();
+        consider(snap.data());
       }
+    } catch {}
+
+    if (bestCandidate) {
+      return bestCandidate;
     }
 
-    // 4. Fallback: search 'users' collection
+    // 4. Fallback scan of 'users' collection for username
     try {
       const usersColSnap = await getDocs(collection(db, 'users'));
       for (const d of usersColSnap.docs) {
@@ -371,23 +451,26 @@ export async function getMemberFromCloud(emailOrUsername: string): Promise<any |
           data.email?.toLowerCase() === queryStr ||
           (data.username && data.username.toLowerCase() === queryStr)
         ) {
-          return data;
+          consider(data);
         }
       }
     } catch {}
 
-    // 5. Fallback: search 'trafficpulse_members'
-    const colSnap = await getDocs(collection(db, 'trafficpulse_members'));
-    for (const d of colSnap.docs) {
-      const data = d.data();
-      if (
-        data.email?.toLowerCase() === queryStr ||
-        (data.username && data.username.toLowerCase() === queryStr)
-      ) {
-        return data;
+    // 5. Fallback scan of 'trafficpulse_members'
+    try {
+      const colSnap = await getDocs(collection(db, 'trafficpulse_members'));
+      for (const d of colSnap.docs) {
+        const data = d.data();
+        if (
+          data.email?.toLowerCase() === queryStr ||
+          (data.username && data.username.toLowerCase() === queryStr)
+        ) {
+          consider(data);
+        }
       }
-    }
-    return null;
+    } catch {}
+
+    return bestCandidate;
   } catch (e) {
     console.warn('Failed to query member from Firestore:', e);
     return null;
@@ -395,21 +478,45 @@ export async function getMemberFromCloud(emailOrUsername: string): Promise<any |
 }
 
 /**
- * Retrieves all registered members from Firestore cloud database
+ * Retrieves all registered members from Firestore cloud database,
+ * merging by email and picking the highest authoritative balance.
  */
 export async function getAllMembersFromCloud(): Promise<any[]> {
   try {
     const db = getFirestoreDb();
     const membersMap = new Map<string, any>();
 
+    const mergeIn = (data: any) => {
+      if (!data || !data.email) return;
+      const emailLower = data.email.toLowerCase().trim();
+      const existing = membersMap.get(emailLower);
+      if (!existing) {
+        membersMap.set(emailLower, data);
+      } else {
+        const existBal = Number(existing.trafficBalance ?? -1);
+        const newBal = Number(data.trafficBalance ?? -1);
+        const existAssigned = Number(existing.totalTrafficAssigned ?? -1);
+        const newAssigned = Number(data.totalTrafficAssigned ?? -1);
+
+        const chosen = newBal > existBal ? data : existing;
+        membersMap.set(emailLower, {
+          ...existing,
+          ...data,
+          ...chosen,
+          trafficBalance: Math.max(existBal, newBal, 0),
+          totalTrafficAssigned: Math.max(existAssigned, newAssigned, 0),
+          isPaidUser: existing.isPaidUser || data.isPaidUser,
+          tier: data.tier || existing.tier,
+          trafficStatus: (existing.isPaidUser || data.isPaidUser) ? 'paid_active' : (data.trafficStatus || existing.trafficStatus),
+        });
+      }
+    };
+
     // 1. Fetch from 'users' collection
     try {
       const usersSnap = await getDocs(collection(db, 'users'));
       usersSnap.forEach((d) => {
-        const data = d.data();
-        if (data && data.email) {
-          membersMap.set(data.email.toLowerCase(), data);
-        }
+        mergeIn(d.data());
       });
     } catch (err) {
       console.warn('Failed to get docs from users collection:', err);
@@ -419,10 +526,7 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
     try {
       const colSnap = await getDocs(collection(db, 'trafficpulse_members'));
       colSnap.forEach((d) => {
-        const data = d.data();
-        if (data && data.email && !membersMap.has(data.email.toLowerCase())) {
-          membersMap.set(data.email.toLowerCase(), data);
-        }
+        mergeIn(d.data());
       });
     } catch (err) {
       console.warn('Failed to get docs from trafficpulse_members collection:', err);
