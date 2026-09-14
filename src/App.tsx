@@ -25,7 +25,15 @@ import { HistoryPanel } from './components/HistoryPanel';
 
 import { DEFAULT_ORGANIC_CONFIG, ORGANIC_PRESETS } from './data/organicPresets';
 import { getClientSideCrawledPages, generateClientSideCampaign, crawlWebsiteLiveInBrowser } from './utils/clientFallbackEngine';
-import { loadStoredAuth, saveAuthSession, clearAuthSession, incrementMemberStats, deductTrafficCredit, fetchFreshUserProfile } from './utils/authManager';
+import { 
+  loadStoredAuth, 
+  saveAuthSession, 
+  clearAuthSession, 
+  incrementMemberStats, 
+  deductTrafficCredit, 
+  fetchFreshUserProfile,
+  flushTrafficDeductionsToServerAndCloud 
+} from './utils/authManager';
 import { getFirestoreDb, emailToDocId } from './lib/firebase';
 import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import { TRAFFIC_PRESETS } from './data/presets';
@@ -291,6 +299,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    handleStopOrganic();
+    flushTrafficDeductionsToServerAndCloud().catch(() => {});
     clearAuthSession();
     setAuthState({
       isAuthenticated: false,
@@ -388,8 +398,25 @@ export default function App() {
         if (!data) return;
         setAuthState(prev => {
           if (!prev.user) return prev;
+          if (prev.user.role === 'admin') return prev;
+
           const currentBal = prev.user.trafficBalance ?? 0;
-          const newBal = data.trafficBalance !== undefined ? Math.max(Number(data.trafficBalance), Number(currentBal)) : currentBal;
+          let newBal = currentBal;
+
+          if (data.trafficBalance !== undefined) {
+            const cloudVal = Number(data.trafficBalance);
+            // If cloud has 0 or exhausted, it is authoritative
+            if (cloudVal <= 0 || data.trafficStatus?.includes('exhausted')) {
+              newBal = 0;
+            } else if (currentBal <= 0 && !data.trafficStatus?.includes('active') && cloudVal <= 0) {
+              newBal = 0;
+            } else {
+              newBal = cloudVal;
+            }
+          }
+
+          const isExhausted = newBal <= 0;
+          const isPaid = (data.isPaidUser !== undefined ? data.isPaidUser : prev.user.isPaidUser);
           const currentAssigned = prev.user.totalTrafficAssigned ?? 0;
           const newAssigned = data.totalTrafficAssigned !== undefined ? Math.max(Number(data.totalTrafficAssigned), Number(currentAssigned)) : currentAssigned;
 
@@ -397,8 +424,10 @@ export default function App() {
             ...prev.user,
             trafficBalance: newBal,
             totalTrafficAssigned: newAssigned,
-            isPaidUser: (data.isPaidUser !== undefined ? data.isPaidUser : prev.user.isPaidUser),
-            trafficStatus: data.trafficStatus || prev.user.trafficStatus,
+            isPaidUser: isPaid,
+            trafficStatus: isExhausted
+              ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
+              : (data.trafficStatus || prev.user.trafficStatus || (isPaid ? 'paid_active' : 'trial_active')),
             tier: data.tier || prev.user.tier,
           };
           saveAuthSession(updated, prev.token || 'tok_valid');
@@ -1052,7 +1081,9 @@ export default function App() {
 
     if (!isExempt && currentBalance <= 0) {
       setSaveBannerMessage(
-        '⚠️ Traffic Quota Exhausted: Your 500 Free Trial visits have been completely utilized. Only an Admin can assign additional traffic quota to your account.'
+        currentUser.isPaidUser
+          ? '⚠️ Traffic Quota Exhausted: Your assigned traffic visits have been completely utilized. Only an Admin can assign additional traffic quota to your account.'
+          : '⚠️ Traffic Quota Exhausted: Your Free Trial visits have been completely utilized. Only an Admin can assign additional traffic quota to your account.'
       );
       setTimeout(() => setSaveBannerMessage(null), 8000);
       return;
@@ -1100,7 +1131,9 @@ export default function App() {
         if (!deductResult.allowed) {
           handleStopOrganic();
           setSaveBannerMessage(
-            '⚠️ Free Trial Limit Reached: You have consumed your 500 Free Trial visits. Please contact the Admin to assign additional traffic quota.'
+            deductResult.isPaid
+              ? '⚠️ Traffic Quota Exhausted: You have consumed all your assigned traffic visits. Please contact the Admin to assign additional quota.'
+              : '⚠️ Free Trial Limit Reached: You have consumed your Free Trial visits. Please contact the Admin to assign additional traffic quota.'
           );
           setTimeout(() => setSaveBannerMessage(null), 9000);
           return false;
@@ -1156,6 +1189,7 @@ export default function App() {
       organicEngineRef.current.stop();
     }
     setOrganicStatus('idle');
+    flushTrafficDeductionsToServerAndCloud().catch(() => {});
   };
 
   const handleSelectOrganicPreset = (presetId: string) => {
@@ -1238,7 +1272,9 @@ export default function App() {
 
     if (!isExempt && currentBalance <= 0) {
       setSaveBannerMessage(
-        '⚠️ Traffic Quota Exhausted: Your 500 Free Trial visits have been completely utilized. Only an Admin can assign additional traffic quota to your account.'
+        currentUser.isPaidUser
+          ? '⚠️ Traffic Quota Exhausted: Your assigned traffic visits have been completely utilized. Only an Admin can assign additional traffic quota to your account.'
+          : '⚠️ Traffic Quota Exhausted: Your Free Trial visits have been completely utilized. Only an Admin can assign additional traffic quota to your account.'
       );
       setTimeout(() => setSaveBannerMessage(null), 8000);
       return;

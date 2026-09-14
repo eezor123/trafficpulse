@@ -561,14 +561,33 @@ export async function fetchFreshUserProfile(userHint?: {
         if (!freshUser) {
           freshUser = safeCloudUser as MemberUser;
         } else {
-          // Merge prioritizing highest balance and authoritative fields
+          // Authoritative balance evaluation:
+          // If cloud user OR server user has balance <= 0 or status exhausted, exhaustion is permanent!
+          let effectiveBal = freshUser.trafficBalance ?? 0;
+          if (safeCloudUser.trafficBalance !== undefined) {
+            const cBal = Number(safeCloudUser.trafficBalance);
+            if (cBal <= 0 || safeCloudUser.trafficStatus?.includes('exhausted')) {
+              effectiveBal = 0;
+            } else if (freshUser.trafficBalance !== undefined && (freshUser.trafficBalance <= 0 || freshUser.trafficStatus?.includes('exhausted'))) {
+              effectiveBal = 0;
+            } else {
+              // Keep the lower balance so visits already consumed are never restored
+              effectiveBal = Math.min(Number(freshUser.trafficBalance), cBal);
+            }
+          }
+
+          const isPaid = (safeCloudUser.isPaidUser !== undefined ? safeCloudUser.isPaidUser : freshUser.isPaidUser);
+          const isExhausted = effectiveBal <= 0;
+
           freshUser = {
             ...freshUser,
             ...safeCloudUser,
-            trafficBalance: safeCloudUser.trafficBalance !== undefined ? Math.max(freshUser.trafficBalance || 0, safeCloudUser.trafficBalance) : freshUser.trafficBalance,
+            trafficBalance: effectiveBal,
             totalTrafficAssigned: Math.max(freshUser.totalTrafficAssigned || 0, safeCloudUser.totalTrafficAssigned || 0),
-            isPaidUser: (safeCloudUser.isPaidUser !== undefined ? safeCloudUser.isPaidUser : freshUser.isPaidUser),
-            trafficStatus: safeCloudUser.trafficStatus || freshUser.trafficStatus,
+            isPaidUser: isPaid,
+            trafficStatus: isExhausted
+              ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
+              : (safeCloudUser.trafficStatus || freshUser.trafficStatus),
             tier: safeCloudUser.tier || freshUser.tier,
           };
         }
@@ -629,12 +648,29 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
       try {
         const cloudUser = await getMemberFromCloud(finalUser.email);
         if (cloudUser && cloudUser.email) {
+          let effectiveBal = finalUser.trafficBalance ?? 0;
+          if (cloudUser.trafficBalance !== undefined) {
+            const cBal = Number(cloudUser.trafficBalance);
+            if (cBal <= 0 || cloudUser.trafficStatus?.includes('exhausted')) {
+              effectiveBal = 0;
+            } else if (finalUser.trafficBalance !== undefined && (finalUser.trafficBalance <= 0 || finalUser.trafficStatus?.includes('exhausted'))) {
+              effectiveBal = 0;
+            } else {
+              effectiveBal = Math.min(Number(finalUser.trafficBalance), cBal);
+            }
+          }
+
+          const isPaid = (cloudUser.isPaidUser !== undefined ? cloudUser.isPaidUser : finalUser.isPaidUser);
+          const isExhausted = effectiveBal <= 0;
+
           finalUser = {
             ...finalUser,
-            trafficBalance: cloudUser.trafficBalance !== undefined ? Math.max(finalUser.trafficBalance || 0, cloudUser.trafficBalance) : finalUser.trafficBalance,
+            trafficBalance: effectiveBal,
             totalTrafficAssigned: Math.max(finalUser.totalTrafficAssigned || 0, cloudUser.totalTrafficAssigned || finalUser.trafficBalance || 0),
-            isPaidUser: (cloudUser.isPaidUser !== undefined ? cloudUser.isPaidUser : finalUser.isPaidUser),
-            trafficStatus: cloudUser.trafficStatus || finalUser.trafficStatus,
+            isPaidUser: isPaid,
+            trafficStatus: isExhausted
+              ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
+              : (cloudUser.trafficStatus || finalUser.trafficStatus),
             tier: cloudUser.tier || finalUser.tier,
           };
         }
@@ -801,12 +837,29 @@ export async function loginWithGoogle(customProfile?: {
       try {
         const cloudUser = await getMemberFromCloud(finalUser.email);
         if (cloudUser && cloudUser.email) {
+          let effectiveBal = finalUser.trafficBalance ?? 0;
+          if (cloudUser.trafficBalance !== undefined) {
+            const cBal = Number(cloudUser.trafficBalance);
+            if (cBal <= 0 || cloudUser.trafficStatus?.includes('exhausted')) {
+              effectiveBal = 0;
+            } else if (finalUser.trafficBalance !== undefined && (finalUser.trafficBalance <= 0 || finalUser.trafficStatus?.includes('exhausted'))) {
+              effectiveBal = 0;
+            } else {
+              effectiveBal = Math.min(Number(finalUser.trafficBalance), cBal);
+            }
+          }
+
+          const isPaid = (cloudUser.isPaidUser !== undefined ? cloudUser.isPaidUser : finalUser.isPaidUser);
+          const isExhausted = effectiveBal <= 0;
+
           finalUser = {
             ...finalUser,
-            trafficBalance: cloudUser.trafficBalance !== undefined ? Math.max(finalUser.trafficBalance || 0, cloudUser.trafficBalance) : finalUser.trafficBalance,
+            trafficBalance: effectiveBal,
             totalTrafficAssigned: Math.max(finalUser.totalTrafficAssigned || 0, cloudUser.totalTrafficAssigned || finalUser.trafficBalance || 0),
-            isPaidUser: (cloudUser.isPaidUser !== undefined ? cloudUser.isPaidUser : finalUser.isPaidUser),
-            trafficStatus: cloudUser.trafficStatus || finalUser.trafficStatus,
+            isPaidUser: isPaid,
+            trafficStatus: isExhausted
+              ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
+              : (cloudUser.trafficStatus || finalUser.trafficStatus),
             tier: cloudUser.tier || finalUser.tier,
           };
         }
@@ -1019,6 +1072,82 @@ export function incrementMemberStats(visitsToAdd: number) {
   }
 }
 
+let deductionSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingDeductionAmount = 0;
+
+/**
+ * Flushes any pending traffic deductions immediately to both the backend server and Firestore.
+ */
+export async function flushTrafficDeductionsToServerAndCloud(): Promise<void> {
+  if (deductionSyncTimer) {
+    clearTimeout(deductionSyncTimer);
+    deductionSyncTimer = null;
+  }
+  const auth = loadStoredAuth();
+  if (!auth.isAuthenticated || !auth.user || auth.user.role === 'admin') {
+    pendingDeductionAmount = 0;
+    return;
+  }
+
+  const user = auth.user;
+  const currentBal = Number(user.trafficBalance ?? 0);
+  const visitsGen = Number(user.totalVisitsGenerated ?? 0);
+  const amountToSync = Math.max(1, pendingDeductionAmount);
+  pendingDeductionAmount = 0;
+
+  // 1. Persist to server API
+  try {
+    await fetch('/api/auth/deduct-traffic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: user.id,
+        email: user.email,
+        amount: amountToSync,
+        clientBalance: currentBal,
+        totalVisitsGenerated: visitsGen,
+      }),
+    });
+  } catch (err) {
+    console.warn('[AUTH] Server deduction sync deferred:', err);
+  }
+
+  // 2. Persist to Firestore directly
+  try {
+    await writeUserTrafficToFirestore(user.id, currentBal, {
+      totalTrafficAssigned: user.totalTrafficAssigned,
+      isPaidUser: user.isPaidUser,
+      trafficStatus: user.trafficStatus,
+      tier: user.tier,
+      email: user.email,
+      name: user.name,
+    });
+  } catch (err) {
+    console.warn('[AUTH] Firestore deduction write deferred:', err);
+  }
+}
+
+function queueTrafficDeductionSync(amount: number, immediate: boolean = false) {
+  pendingDeductionAmount += amount;
+  if (immediate) {
+    flushTrafficDeductionsToServerAndCloud().catch(() => {});
+    return;
+  }
+  if (!deductionSyncTimer) {
+    deductionSyncTimer = setTimeout(() => {
+      deductionSyncTimer = null;
+      flushTrafficDeductionsToServerAndCloud().catch(() => {});
+    }, 1500);
+  }
+}
+
+// Auto-flush on window unload / refresh
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    flushTrafficDeductionsToServerAndCloud().catch(() => {});
+  });
+}
+
 /**
  * Deducts traffic units from the active logged-in user.
  * Requirement: 500 free trial traffic for login users.
@@ -1085,6 +1214,9 @@ export function deductTrafficCredit(amount: number = 1): {
     auth.user.trafficStatus = match.trafficStatus;
     saveAuthSession(auth.user, auth.token || 'tok_valid');
 
+    // Ensure exhaustion is written to server and cloud immediately
+    queueTrafficDeductionSync(0, true);
+
     return {
       allowed: false,
       remaining: 0,
@@ -1097,7 +1229,8 @@ export function deductTrafficCredit(amount: number = 1): {
   // Deduct credit
   match.trafficBalance = Math.max(0, match.trafficBalance - amount);
   match.totalVisitsGenerated = (match.totalVisitsGenerated || 0) + amount;
-  if (match.trafficBalance <= 0) {
+  const isExhausted = match.trafficBalance <= 0;
+  if (isExhausted) {
     match.trafficStatus = match.isPaidUser ? 'paid_exhausted' : 'trial_exhausted';
   }
   saveMembers(members);
@@ -1109,10 +1242,13 @@ export function deductTrafficCredit(amount: number = 1): {
   auth.user.isPaidUser = match.isPaidUser;
   saveAuthSession(auth.user, auth.token || 'tok_valid');
 
+  // Trigger real-time sync: immediate if exhausted, debounced while running
+  queueTrafficDeductionSync(amount, isExhausted);
+
   return {
-    allowed: true,
+    allowed: !isExhausted,
     remaining: match.trafficBalance,
-    exhausted: match.trafficBalance <= 0,
+    exhausted: isExhausted,
     isPaid: !!match.isPaidUser,
     user: auth.user,
   };

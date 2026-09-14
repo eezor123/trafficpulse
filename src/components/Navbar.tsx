@@ -243,14 +243,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </span>
                   </div>
                 ) : currentUser.isPaidUser ? (
-                  <span className="text-cyan-300 font-mono font-bold flex items-center gap-1 text-[11px]">
-                    <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className={`font-mono font-bold flex items-center gap-1 text-[11px] ${
+                    (currentUser.trafficBalance ?? 0) <= 0 ? 'text-rose-400' : 'text-cyan-300'
+                  }`}>
+                    <Zap className={`w-3.5 h-3.5 ${(currentUser.trafficBalance ?? 0) <= 0 ? 'text-rose-400' : 'text-cyan-400'}`} />
                     <span>{(currentUser.trafficBalance ?? 0).toLocaleString()} Paid Credits</span>
+                    {(currentUser.trafficBalance ?? 0) <= 0 && (
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40">Exhausted</span>
+                    )}
                   </span>
                 ) : (
-                  <span className="text-emerald-300 font-mono font-bold flex items-center gap-1 text-[11px]">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className={`font-mono font-bold flex items-center gap-1 text-[11px] ${
+                    (currentUser.trafficBalance ?? 100) <= 0 ? 'text-rose-400' : 'text-emerald-300'
+                  }`}>
+                    <Sparkles className={`w-3.5 h-3.5 ${(currentUser.trafficBalance ?? 100) <= 0 ? 'text-rose-400' : 'text-emerald-400'}`} />
                     <span>{(currentUser.trafficBalance ?? 100).toLocaleString()} / {(currentUser.totalTrafficAssigned || 100).toLocaleString()} Free Trial</span>
+                    {(currentUser.trafficBalance ?? 100) <= 0 && (
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40">Exhausted</span>
+                    )}
                   </span>
                 )}
 

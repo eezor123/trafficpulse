@@ -294,11 +294,31 @@ async function startServer() {
     try {
       const cleanEmail = String(member.email).trim().toLowerCase();
       const existing = await findMember(cleanEmail, true);
+
+      // Determine authoritative traffic balance:
+      // If member reports 0 or exhausted, it must NOT be overwritten with old positive balance!
+      let authoritativeBalance = existing?.trafficBalance;
+      if (member.trafficBalance !== undefined) {
+        const incoming = Number(member.trafficBalance);
+        if (incoming <= 0 || member.trafficStatus?.includes('exhausted')) {
+          authoritativeBalance = 0;
+        } else if (existing?.trafficBalance !== undefined) {
+          if (existing.trafficBalance <= 0 || existing.trafficStatus?.includes('exhausted')) {
+            authoritativeBalance = 0;
+          } else {
+            // Keep the lower balance (more visits consumed)
+            authoritativeBalance = Math.min(existing.trafficBalance, incoming);
+          }
+        } else {
+          authoritativeBalance = incoming;
+        }
+      }
+
       const updated: ServerMember = {
         ...(existing || {}),
         ...member,
         email: cleanEmail,
-        trafficBalance: existing?.trafficBalance !== undefined ? Math.max(existing.trafficBalance, Number(member.trafficBalance || 0)) : member.trafficBalance,
+        trafficBalance: authoritativeBalance,
         totalTrafficAssigned: Math.max(existing?.totalTrafficAssigned || 0, Number(member.totalTrafficAssigned || 0)),
         lastLoginAt: Date.now(),
       };
@@ -306,6 +326,90 @@ async function startServer() {
       return res.json({ success: true, message: 'Member synchronized successfully.' });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to sync member' });
+    }
+  });
+
+  // Dedicated traffic deduction endpoint - permanently persists credit consumption
+  app.post('/api/auth/deduct-traffic', async (req: Request, res: Response) => {
+    const { userId, email, amount = 1, clientBalance, totalVisitsGenerated } = req.body;
+    if (!userId && !email) {
+      return res.status(400).json({ success: false, error: 'User identifier or email is required.' });
+    }
+
+    try {
+      const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+      const cleanId = userId ? String(userId).trim() : '';
+      let member = (cleanEmail ? await findMember(cleanEmail, true) : null) || (cleanId ? await findMember(cleanId, true) : null);
+
+      if (!member) {
+        const all = await listAllMembers(true);
+        member = all.find(m =>
+          (cleanEmail && m.email.toLowerCase() === cleanEmail) ||
+          (cleanId && (m.id === cleanId || (m as any).uid === cleanId))
+        ) || null;
+      }
+
+      if (!member) {
+        return res.status(404).json({ success: false, error: 'Member account not found.' });
+      }
+
+      // Super Admins have permanent unlimited traffic
+      if (member.role === 'admin' || isSaroneedamAdminEmail(member.email)) {
+        return res.json({
+          success: true,
+          trafficBalance: 10000000,
+          totalTrafficAssigned: 10000000,
+          trafficStatus: 'unlimited',
+          exhausted: false,
+        });
+      }
+
+      const deductAmount = Math.max(1, Number(amount || 1));
+      let currentBal = member.trafficBalance !== undefined ? Number(member.trafficBalance) : 100;
+
+      // If client provides an explicit remaining balance, take the minimum of current server balance and client balance
+      if (clientBalance !== undefined && !isNaN(Number(clientBalance))) {
+        currentBal = Math.min(currentBal, Math.max(0, Number(clientBalance)));
+      } else {
+        currentBal = Math.max(0, currentBal - deductAmount);
+      }
+
+      member.trafficBalance = currentBal;
+      member.totalVisitsGenerated = Math.max(
+        Number(member.totalVisitsGenerated || 0) + deductAmount,
+        Number(totalVisitsGenerated || 0)
+      );
+
+      if (member.trafficBalance <= 0) {
+        member.trafficBalance = 0;
+        member.trafficStatus = member.isPaidUser ? 'paid_exhausted' : 'trial_exhausted';
+      } else {
+        member.trafficStatus = member.isPaidUser ? 'paid_active' : 'trial_active';
+      }
+
+      await persistMember(member);
+
+      // Immediately write new consumed balance to Firestore cloud database
+      writeUserTrafficToFirestore(member.id, member.trafficBalance, {
+        totalTrafficAssigned: member.totalTrafficAssigned,
+        isPaidUser: member.isPaidUser,
+        trafficStatus: member.trafficStatus,
+        tier: member.tier,
+        email: member.email,
+        name: member.name,
+      }).catch(err => console.warn('[SERVER] Firestore deduct write note:', err));
+
+      return res.json({
+        success: true,
+        trafficBalance: member.trafficBalance,
+        totalVisitsGenerated: member.totalVisitsGenerated,
+        trafficStatus: member.trafficStatus,
+        isPaidUser: member.isPaidUser,
+        exhausted: member.trafficBalance <= 0,
+      });
+    } catch (err: any) {
+      console.error('[SERVER] Deduct traffic error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to deduct traffic visits' });
     }
   });
 

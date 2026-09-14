@@ -312,7 +312,7 @@ export async function saveMemberToCloud(member: any): Promise<boolean> {
     const cleanEmail = member.email.trim().toLowerCase();
     const uid = member.uid || member.id || emailToDocId(cleanEmail);
 
-    // Retrieve existing cloud data if available to prevent accidental credit downgrades
+    // Retrieve existing cloud data if available
     let authoritativeBalance = member.trafficBalance !== undefined ? Number(member.trafficBalance) : 100;
     let authoritativeAssigned = member.totalTrafficAssigned !== undefined ? Number(member.totalTrafficAssigned) : authoritativeBalance;
     let authoritativePaid = Boolean(member.isPaidUser);
@@ -320,9 +320,18 @@ export async function saveMemberToCloud(member: any): Promise<boolean> {
     try {
       const existingCloud = await getMemberFromCloud(cleanEmail);
       if (existingCloud) {
-        if (existingCloud.trafficBalance !== undefined && existingCloud.trafficBalance > authoritativeBalance) {
+        // If member or existing cloud is exhausted, balance must remain 0
+        if (member.trafficBalance === 0 || member.trafficStatus?.includes('exhausted')) {
+          authoritativeBalance = 0;
+        } else if (existingCloud.trafficBalance === 0 || existingCloud.trafficStatus?.includes('exhausted')) {
+          authoritativeBalance = 0;
+        } else if (existingCloud.trafficBalance !== undefined && member.trafficBalance === undefined) {
           authoritativeBalance = Number(existingCloud.trafficBalance);
+        } else if (existingCloud.trafficBalance !== undefined && member.trafficBalance !== undefined) {
+          // Keep the lower balance so consumed visits are never reverted
+          authoritativeBalance = Math.min(Number(existingCloud.trafficBalance), Number(member.trafficBalance));
         }
+
         if (existingCloud.totalTrafficAssigned !== undefined && existingCloud.totalTrafficAssigned > authoritativeAssigned) {
           authoritativeAssigned = Number(existingCloud.totalTrafficAssigned);
         }
@@ -332,6 +341,7 @@ export async function saveMemberToCloud(member: any): Promise<boolean> {
       }
     } catch {}
 
+    const isExhausted = authoritativeBalance <= 0;
     const safePayload = {
       ...member,
       email: cleanEmail,
@@ -339,11 +349,9 @@ export async function saveMemberToCloud(member: any): Promise<boolean> {
       trafficBalance: authoritativeBalance,
       totalTrafficAssigned: authoritativeAssigned,
       isPaidUser: authoritativePaid,
-      trafficStatus: authoritativePaid
-        ? 'paid_active'
-        : authoritativeBalance > 0
-        ? 'trial_active'
-        : 'trial_exhausted',
+      trafficStatus: isExhausted
+        ? (authoritativePaid ? 'paid_exhausted' : 'trial_exhausted')
+        : (authoritativePaid ? 'paid_active' : 'trial_active'),
       updatedAt: Date.now(),
     };
 
@@ -498,16 +506,34 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
         const existAssigned = Number(existing.totalTrafficAssigned ?? -1);
         const newAssigned = Number(data.totalTrafficAssigned ?? -1);
 
-        const chosen = newBal > existBal ? data : existing;
+        // If either record is exhausted (0 balance or exhausted status), user is strictly exhausted
+        let finalBal = 0;
+        if (
+          existBal === 0 ||
+          newBal === 0 ||
+          existing.trafficStatus?.includes('exhausted') ||
+          data.trafficStatus?.includes('exhausted')
+        ) {
+          finalBal = 0;
+        } else if (existBal > 0 && newBal > 0) {
+          finalBal = Math.min(existBal, newBal);
+        } else {
+          finalBal = Math.max(existBal, newBal, 0);
+        }
+
+        const isPaid = Boolean(existing.isPaidUser || data.isPaidUser);
+        const isExhausted = finalBal <= 0;
+
         membersMap.set(emailLower, {
           ...existing,
           ...data,
-          ...chosen,
-          trafficBalance: Math.max(existBal, newBal, 0),
+          trafficBalance: finalBal,
           totalTrafficAssigned: Math.max(existAssigned, newAssigned, 0),
-          isPaidUser: existing.isPaidUser || data.isPaidUser,
+          isPaidUser: isPaid,
           tier: data.tier || existing.tier,
-          trafficStatus: (existing.isPaidUser || data.isPaidUser) ? 'paid_active' : (data.trafficStatus || existing.trafficStatus),
+          trafficStatus: isExhausted
+            ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
+            : (isPaid ? 'paid_active' : (data.trafficStatus || existing.trafficStatus || 'trial_active')),
         });
       }
     };

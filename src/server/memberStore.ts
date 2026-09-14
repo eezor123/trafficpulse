@@ -133,13 +133,30 @@ export async function syncMembersFromCloud(force = false): Promise<void> {
           if (!existing) {
             memoryMembers.set(emailLower, m as ServerMember);
           } else {
+            let finalBal = existing.trafficBalance;
+            if (m.trafficBalance !== undefined) {
+              const cloudBal = Number(m.trafficBalance);
+              if (cloudBal <= 0 || m.trafficStatus?.includes('exhausted')) {
+                finalBal = 0;
+              } else if (existing.trafficBalance !== undefined && (existing.trafficBalance <= 0 || existing.trafficStatus?.includes('exhausted'))) {
+                finalBal = 0;
+              } else {
+                finalBal = cloudBal;
+              }
+            }
+
+            const isExhausted = finalBal !== undefined && finalBal <= 0;
+            const isPaid = (m.isPaidUser !== undefined ? m.isPaidUser : existing.isPaidUser);
+
             const merged: ServerMember = {
               ...existing,
               ...m,
-              trafficBalance: m.trafficBalance !== undefined ? Math.max(Number(m.trafficBalance), Number(existing.trafficBalance || 0)) : existing.trafficBalance,
+              trafficBalance: finalBal,
               totalTrafficAssigned: Math.max(existing.totalTrafficAssigned || 0, m.totalTrafficAssigned || 0),
-              isPaidUser: (m.isPaidUser !== undefined ? m.isPaidUser : existing.isPaidUser),
-              trafficStatus: m.trafficStatus || existing.trafficStatus,
+              isPaidUser: isPaid,
+              trafficStatus: isExhausted
+                ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
+                : (m.trafficStatus || existing.trafficStatus),
               tier: m.tier || existing.tier,
             };
             memoryMembers.set(emailLower, merged);
