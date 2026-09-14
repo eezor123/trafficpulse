@@ -257,7 +257,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     (currentUser.trafficBalance ?? 100) <= 0 ? 'text-rose-400' : 'text-emerald-300'
                   }`}>
                     <Sparkles className={`w-3.5 h-3.5 ${(currentUser.trafficBalance ?? 100) <= 0 ? 'text-rose-400' : 'text-emerald-400'}`} />
-                    <span>{(currentUser.trafficBalance ?? 100).toLocaleString()} / {(currentUser.totalTrafficAssigned || 100).toLocaleString()} Free Trial</span>
+                    <span>{Math.min(currentUser.trafficBalance ?? 100, 100).toLocaleString()} / {Math.min(currentUser.totalTrafficAssigned || 100, 100).toLocaleString()} Free Trial</span>
                     {(currentUser.trafficBalance ?? 100) <= 0 && (
                       <span className="text-[9px] px-1 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40">Exhausted</span>
                     )}
@@ -395,7 +395,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                               ? `${(currentUser.trafficBalance ?? 10000000).toLocaleString()} (Admin)`
                               : currentUser.isPaidUser
                               ? `${(currentUser.trafficBalance ?? 0).toLocaleString()} (Paid)`
-                              : `${(currentUser.trafficBalance ?? 100).toLocaleString()} / ${(currentUser.totalTrafficAssigned || 100).toLocaleString()} (Free Trial)`}
+                              : `${Math.min(currentUser.trafficBalance ?? 100, 100).toLocaleString()} / ${Math.min(currentUser.totalTrafficAssigned || 100, 100).toLocaleString()} (Free Trial)`}
                           </span>
                           <button
                             type="button"

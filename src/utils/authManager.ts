@@ -59,13 +59,23 @@ function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
       list[adminIndex].trafficStatus = 'unlimited';
     }
 
-    // Sanitize any missing trafficBalance fields for all real members
+    // Sanitize any legacy 500 trial credits and missing fields for all real members
     for (const m of list) {
-      if (m.trafficBalance === undefined || m.trafficBalance === null) {
-        m.trafficBalance = m.role === 'admin' ? 10000000 : 100;
-        m.totalTrafficAssigned = m.trafficBalance;
-        m.isPaidUser = m.role === 'admin';
-        m.trafficStatus = m.role === 'admin' ? 'unlimited' : 'trial_active';
+      if (m.role === 'admin') {
+        m.trafficBalance = m.trafficBalance || 10000000;
+        m.totalTrafficAssigned = m.totalTrafficAssigned || 10000000;
+        m.isPaidUser = true;
+        m.trafficStatus = 'unlimited';
+      } else if (!m.isPaidUser) {
+        // Enforce 100 Free Trial quota cap (reset legacy 500 balances)
+        if (m.totalTrafficAssigned === 500 || m.totalTrafficAssigned === undefined || m.totalTrafficAssigned === null || m.totalTrafficAssigned > 100) {
+          m.totalTrafficAssigned = 100;
+        }
+        if (m.trafficBalance === 500 || m.trafficBalance === undefined || m.trafficBalance === null || m.trafficBalance > 100) {
+          m.trafficBalance = 100;
+        }
+        m.isPaidUser = false;
+        m.trafficStatus = (m.trafficBalance !== undefined && m.trafficBalance <= 0) ? 'trial_exhausted' : 'trial_active';
       }
     }
 
@@ -98,12 +108,21 @@ export function loadStoredAuth(): AuthState {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.isAuthenticated && parsed.user) {
         const user = parsed.user as MemberUser;
-        // Ensure traffic balance fields exist
-        if (user.trafficBalance === undefined || user.trafficBalance === null) {
-          user.trafficBalance = user.role === 'admin' ? 10000000 : 100;
-          user.totalTrafficAssigned = user.trafficBalance;
-          user.isPaidUser = user.role === 'admin';
-          user.trafficStatus = user.role === 'admin' ? 'unlimited' : 'trial_active';
+        // Ensure traffic balance fields exist and legacy 500 is reset to 100
+        if (user.role === 'admin') {
+          user.trafficBalance = user.trafficBalance || 10000000;
+          user.totalTrafficAssigned = user.totalTrafficAssigned || 10000000;
+          user.isPaidUser = true;
+          user.trafficStatus = 'unlimited';
+        } else if (!user.isPaidUser) {
+          if (user.totalTrafficAssigned === 500 || user.totalTrafficAssigned === undefined || user.totalTrafficAssigned === null || user.totalTrafficAssigned > 100) {
+            user.totalTrafficAssigned = 100;
+          }
+          if (user.trafficBalance === 500 || user.trafficBalance === undefined || user.trafficBalance === null || user.trafficBalance > 100) {
+            user.trafficBalance = 100;
+          }
+          user.isPaidUser = false;
+          user.trafficStatus = (user.trafficBalance !== undefined && user.trafficBalance <= 0) ? 'trial_exhausted' : 'trial_active';
         }
         return {
           isAuthenticated: true,
@@ -577,13 +596,24 @@ export async function fetchFreshUserProfile(userHint?: {
           }
 
           const isPaid = (safeCloudUser.isPaidUser !== undefined ? safeCloudUser.isPaidUser : freshUser.isPaidUser);
+          let finalAssigned = Math.max(freshUser.totalTrafficAssigned || 0, safeCloudUser.totalTrafficAssigned || 0);
+
+          if (!isPaid && freshUser.role !== 'admin') {
+            if (finalAssigned === 500 || finalAssigned > 100) {
+              finalAssigned = 100;
+            }
+            if (effectiveBal === 500 || effectiveBal > 100) {
+              effectiveBal = 100;
+            }
+          }
+
           const isExhausted = effectiveBal <= 0;
 
           freshUser = {
             ...freshUser,
             ...safeCloudUser,
             trafficBalance: effectiveBal,
-            totalTrafficAssigned: Math.max(freshUser.totalTrafficAssigned || 0, safeCloudUser.totalTrafficAssigned || 0),
+            totalTrafficAssigned: finalAssigned,
             isPaidUser: isPaid,
             trafficStatus: isExhausted
               ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
@@ -605,9 +635,25 @@ export async function fetchFreshUserProfile(userHint?: {
         ...currentAuth.user,
         ...freshUser,
       };
+      if (!mergedUser.isPaidUser && mergedUser.role !== 'admin') {
+        if (mergedUser.totalTrafficAssigned === 500 || (mergedUser.totalTrafficAssigned && mergedUser.totalTrafficAssigned > 100)) {
+          mergedUser.totalTrafficAssigned = 100;
+        }
+        if (mergedUser.trafficBalance === 500 || (mergedUser.trafficBalance && mergedUser.trafficBalance > 100)) {
+          mergedUser.trafficBalance = 100;
+        }
+      }
       saveAuthSession(mergedUser, currentAuth.token || 'tok_valid');
       broadcastSessionRefresh(mergedUser);
       return mergedUser;
+    }
+    if (!freshUser.isPaidUser && freshUser.role !== 'admin') {
+      if (freshUser.totalTrafficAssigned === 500 || (freshUser.totalTrafficAssigned && freshUser.totalTrafficAssigned > 100)) {
+        freshUser.totalTrafficAssigned = 100;
+      }
+      if (freshUser.trafficBalance === 500 || (freshUser.trafficBalance && freshUser.trafficBalance > 100)) {
+        freshUser.trafficBalance = 100;
+      }
     }
     return freshUser;
   }
@@ -661,12 +707,23 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
           }
 
           const isPaid = (cloudUser.isPaidUser !== undefined ? cloudUser.isPaidUser : finalUser.isPaidUser);
+          let finalAssigned = Math.max(finalUser.totalTrafficAssigned || 0, cloudUser.totalTrafficAssigned || finalUser.trafficBalance || 0);
+
+          if (!isPaid && finalUser.role !== 'admin') {
+            if (finalAssigned === 500 || finalAssigned > 100) {
+              finalAssigned = 100;
+            }
+            if (effectiveBal === 500 || effectiveBal > 100) {
+              effectiveBal = 100;
+            }
+          }
+
           const isExhausted = effectiveBal <= 0;
 
           finalUser = {
             ...finalUser,
             trafficBalance: effectiveBal,
-            totalTrafficAssigned: Math.max(finalUser.totalTrafficAssigned || 0, cloudUser.totalTrafficAssigned || finalUser.trafficBalance || 0),
+            totalTrafficAssigned: finalAssigned,
             isPaidUser: isPaid,
             trafficStatus: isExhausted
               ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
@@ -675,6 +732,15 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
           };
         }
       } catch {}
+
+      if (!finalUser.isPaidUser && finalUser.role !== 'admin') {
+        if (finalUser.totalTrafficAssigned === 500 || (finalUser.totalTrafficAssigned && finalUser.totalTrafficAssigned > 100)) {
+          finalUser.totalTrafficAssigned = 100;
+        }
+        if (finalUser.trafficBalance === 500 || (finalUser.trafficBalance && finalUser.trafficBalance > 100)) {
+          finalUser.trafficBalance = 100;
+        }
+      }
 
       saveAuthSession(finalUser, data.token);
       const members = getStoredMembers();
@@ -850,12 +916,23 @@ export async function loginWithGoogle(customProfile?: {
           }
 
           const isPaid = (cloudUser.isPaidUser !== undefined ? cloudUser.isPaidUser : finalUser.isPaidUser);
+          let finalAssigned = Math.max(finalUser.totalTrafficAssigned || 0, cloudUser.totalTrafficAssigned || finalUser.trafficBalance || 0);
+
+          if (!isPaid && finalUser.role !== 'admin') {
+            if (finalAssigned === 500 || finalAssigned > 100) {
+              finalAssigned = 100;
+            }
+            if (effectiveBal === 500 || effectiveBal > 100) {
+              effectiveBal = 100;
+            }
+          }
+
           const isExhausted = effectiveBal <= 0;
 
           finalUser = {
             ...finalUser,
             trafficBalance: effectiveBal,
-            totalTrafficAssigned: Math.max(finalUser.totalTrafficAssigned || 0, cloudUser.totalTrafficAssigned || finalUser.trafficBalance || 0),
+            totalTrafficAssigned: finalAssigned,
             isPaidUser: isPaid,
             trafficStatus: isExhausted
               ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
@@ -864,6 +941,15 @@ export async function loginWithGoogle(customProfile?: {
           };
         }
       } catch {}
+
+      if (!finalUser.isPaidUser && finalUser.role !== 'admin') {
+        if (finalUser.totalTrafficAssigned === 500 || (finalUser.totalTrafficAssigned && finalUser.totalTrafficAssigned > 100)) {
+          finalUser.totalTrafficAssigned = 100;
+        }
+        if (finalUser.trafficBalance === 500 || (finalUser.trafficBalance && finalUser.trafficBalance > 100)) {
+          finalUser.trafficBalance = 100;
+        }
+      }
 
       saveAuthSession(finalUser, data.token);
       // Sync local members
@@ -1150,7 +1236,7 @@ if (typeof window !== 'undefined') {
 
 /**
  * Deducts traffic units from the active logged-in user.
- * Requirement: 500 free trial traffic for login users.
+ * Requirement: 100 free trial traffic for login users.
  * When trial is exhausted, further traffic is blocked until admin assigns quota.
  * Super Admin (role === 'admin') has unlimited traffic.
  */

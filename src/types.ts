@@ -656,8 +656,8 @@ export interface MemberUser {
   isVerified: boolean;
   avatar?: string;
   // Free Trial & Paid Traffic Assignment Fields
-  trafficBalance: number; // Available remaining traffic visits (starts at 500 for free trial)
-  totalTrafficAssigned: number; // Total traffic visits granted by system or admin (starts at 500)
+  trafficBalance: number; // Available remaining traffic visits (starts at 100 for free trial)
+  totalTrafficAssigned: number; // Total traffic visits granted by system or admin (starts at 100)
   isPaidUser?: boolean; // false = on free trial; true = upgraded by admin to paid
   trafficStatus?: 'trial_active' | 'trial_exhausted' | 'paid_active' | 'paid_exhausted' | 'unlimited';
   // IP Logging & Multi-Account Anti-Abuse

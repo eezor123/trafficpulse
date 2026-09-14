@@ -87,6 +87,21 @@ function getActiveStoragePath(): string {
   return activeStoragePath;
 }
 
+function sanitizeTrialQuotas(member: ServerMember): ServerMember {
+  if (!member.isPaidUser && member.role !== 'admin') {
+    if (member.totalTrafficAssigned === 500 || member.totalTrafficAssigned === undefined || member.totalTrafficAssigned === null || member.totalTrafficAssigned > 100) {
+      member.totalTrafficAssigned = 100;
+    }
+    if (member.trafficBalance === 500 || (member.trafficBalance !== undefined && member.trafficBalance > 100)) {
+      member.trafficBalance = 100;
+    }
+    if (member.trafficBalance <= 0) {
+      member.trafficStatus = 'trial_exhausted';
+    }
+  }
+  return member;
+}
+
 function loadFromFileCache(): void {
   try {
     const filePath = getActiveStoragePath();
@@ -96,7 +111,7 @@ function loadFromFileCache(): void {
       if (Array.isArray(data)) {
         for (const m of data) {
           if (m && m.email) {
-            memoryMembers.set(m.email.toLowerCase(), m);
+            memoryMembers.set(m.email.toLowerCase(), sanitizeTrialQuotas(m));
           }
         }
       }
@@ -148,18 +163,28 @@ export async function syncMembersFromCloud(force = false): Promise<void> {
             const isExhausted = finalBal !== undefined && finalBal <= 0;
             const isPaid = (m.isPaidUser !== undefined ? m.isPaidUser : existing.isPaidUser);
 
+            let finalAssigned = Math.max(existing.totalTrafficAssigned || 0, m.totalTrafficAssigned || 0);
+            if (!isPaid && existing.role !== 'admin') {
+              if (finalAssigned === 500 || finalAssigned > 100) {
+                finalAssigned = 100;
+              }
+              if (finalBal === 500 || (finalBal !== undefined && finalBal > 100)) {
+                finalBal = 100;
+              }
+            }
+
             const merged: ServerMember = {
               ...existing,
               ...m,
               trafficBalance: finalBal,
-              totalTrafficAssigned: Math.max(existing.totalTrafficAssigned || 0, m.totalTrafficAssigned || 0),
+              totalTrafficAssigned: finalAssigned,
               isPaidUser: isPaid,
               trafficStatus: isExhausted
                 ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
                 : (m.trafficStatus || existing.trafficStatus),
               tier: m.tier || existing.tier,
             };
-            memoryMembers.set(emailLower, merged);
+            memoryMembers.set(emailLower, sanitizeTrialQuotas(merged));
           }
         }
       }
@@ -190,15 +215,29 @@ export async function findMember(query: string, forceCloudCheck = false): Promis
       if (cloudRecord && cloudRecord.email) {
         const parsed = cloudRecord as ServerMember;
         const existing = memoryMembers.get(parsed.email.toLowerCase());
+        let finalAssigned = Math.max(existing?.totalTrafficAssigned || 0, parsed.totalTrafficAssigned || 0);
+        let finalBal = parsed.trafficBalance !== undefined ? parsed.trafficBalance : (existing?.trafficBalance || 0);
+        const isPaid = (parsed.isPaidUser !== undefined ? parsed.isPaidUser : existing?.isPaidUser);
+
+        if (!isPaid && parsed.role !== 'admin') {
+          if (finalAssigned === 500 || finalAssigned > 100) {
+            finalAssigned = 100;
+          }
+          if (finalBal === 500 || finalBal > 100) {
+            finalBal = 100;
+          }
+        }
+
         const merged: ServerMember = {
           ...(existing || {}),
           ...parsed,
-          trafficBalance: parsed.trafficBalance !== undefined ? parsed.trafficBalance : (existing?.trafficBalance || 0),
-          totalTrafficAssigned: Math.max(existing?.totalTrafficAssigned || 0, parsed.totalTrafficAssigned || 0),
+          trafficBalance: finalBal,
+          totalTrafficAssigned: finalAssigned,
         };
-        memoryMembers.set(parsed.email.toLowerCase(), merged);
+        const sanitized = sanitizeTrialQuotas(merged);
+        memoryMembers.set(parsed.email.toLowerCase(), sanitized);
         saveToFileCache();
-        return merged;
+        return sanitized;
       }
     } catch (err) {
       console.warn('[STORE] Fresh cloud check error, falling back to cache:', err);

@@ -193,7 +193,7 @@ function buildVerificationHtml(name: string, code: string): string {
                       Hello ${name ? escapeHtml(name) : 'there'},
                     </p>
                     <p style="margin: 0 0 24px; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-                      Thank you for registering. Please enter the 6-digit confirmation code below to verify your email address and immediately unlock your <strong>500 Free Trial Traffic Credits</strong>.
+                      Thank you for registering. Please enter the 6-digit confirmation code below to verify your email address and immediately unlock your <strong>100 Free Trial Traffic Credits</strong>.
                     </p>
 
                     <!-- OTP Code Box -->
@@ -256,7 +256,7 @@ export async function sendVerificationOtpEmail(
 
   const saved = loadSavedEmailConfig();
   const subject = `Your TrafficPulse Verification Code: ${code}`;
-  const text = `Hello ${name || 'there'},\n\nYour TrafficPulse verification code is: ${code}\n\nThis code expires in 15 minutes.\nUse it to activate your account and claim 500 Free Trial Traffic Credits.`;
+  const text = `Hello ${name || 'there'},\n\nYour TrafficPulse verification code is: ${code}\n\nThis code expires in 15 minutes.\nUse it to activate your account and claim 100 Free Trial Traffic Credits.`;
   const html = buildVerificationHtml(name, code);
   const from = saved.emailFrom || process.env.EMAIL_FROM || '"TrafficPulse" <no-reply@trafficpulse.io>';
 

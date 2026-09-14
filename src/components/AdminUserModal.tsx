@@ -718,7 +718,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                                   100,
                                   Math.max(
                                     0,
-                                    (balance / (user.totalTrafficAssigned || 500)) * 100
+                                    (balance / (user.totalTrafficAssigned || 100)) * 100
                                   )
                                 )}%`,
                               }}

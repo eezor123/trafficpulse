@@ -338,6 +338,16 @@ export async function saveMemberToCloud(member: any): Promise<boolean> {
         if (existingCloud.isPaidUser) {
           authoritativePaid = true;
         }
+
+        // Enforce 100 trial quota cap for free trial members
+        if (!authoritativePaid && member.role !== 'admin') {
+          if (authoritativeAssigned === 500 || authoritativeAssigned > 100) {
+            authoritativeAssigned = 100;
+          }
+          if (authoritativeBalance === 500 || authoritativeBalance > 100) {
+            authoritativeBalance = 100;
+          }
+        }
       }
     } catch {}
 
@@ -522,13 +532,25 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
         }
 
         const isPaid = Boolean(existing.isPaidUser || data.isPaidUser);
+        let finalAssigned = Math.max(existAssigned, newAssigned, 0);
+
+        // Enforce 100 trial quota cap for free trial members
+        if (!isPaid && existing.role !== 'admin' && data.role !== 'admin') {
+          if (finalAssigned === 500 || finalAssigned > 100) {
+            finalAssigned = 100;
+          }
+          if (finalBal === 500 || finalBal > 100) {
+            finalBal = 100;
+          }
+        }
+
         const isExhausted = finalBal <= 0;
 
         membersMap.set(emailLower, {
           ...existing,
           ...data,
           trafficBalance: finalBal,
-          totalTrafficAssigned: Math.max(existAssigned, newAssigned, 0),
+          totalTrafficAssigned: finalAssigned,
           isPaidUser: isPaid,
           tier: data.tier || existing.tier,
           trafficStatus: isExhausted

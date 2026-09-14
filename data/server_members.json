@@ -68,9 +68,9 @@
     "passwordHash": "vivian123",
     "joinedDate": "2026-08-01",
     "bankDetails": {
+      "accountNumber": "",
       "accountName": "eezortech",
-      "bankName": "Guaranty Trust Bank (GTBank)",
-      "accountNumber": ""
+      "bankName": "Guaranty Trust Bank (GTBank)"
     },
     "role": "member",
     "hourlyRateNgn": 10000,
@@ -140,7 +140,7 @@
     "completedJobs": 0,
     "isRegistered": true,
     "trafficBalance": 100,
-    "totalTrafficAssigned": 500,
+    "totalTrafficAssigned": 100,
     "isPaidUser": false,
     "trafficStatus": "trial_active",
     "uid": "user_google_1786953011780_iuv7",

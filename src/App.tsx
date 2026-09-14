@@ -418,7 +418,17 @@ export default function App() {
           const isExhausted = newBal <= 0;
           const isPaid = (data.isPaidUser !== undefined ? data.isPaidUser : prev.user.isPaidUser);
           const currentAssigned = prev.user.totalTrafficAssigned ?? 0;
-          const newAssigned = data.totalTrafficAssigned !== undefined ? Math.max(Number(data.totalTrafficAssigned), Number(currentAssigned)) : currentAssigned;
+          let newAssigned = data.totalTrafficAssigned !== undefined ? Math.max(Number(data.totalTrafficAssigned), Number(currentAssigned)) : currentAssigned;
+
+          // Enforce 100 trial quota cap for free trial members
+          if (!isPaid && prev.user.role !== 'admin') {
+            if (newAssigned === 500 || newAssigned > 100) {
+              newAssigned = 100;
+            }
+            if (newBal === 500 || newBal > 100) {
+              newBal = 100;
+            }
+          }
 
           const updated: MemberUser = {
             ...prev.user,
@@ -1069,12 +1079,12 @@ export default function App() {
       openAuthModal(
         'login',
         'Account & Sign-In Required',
-        'Please sign in or register before launching traffic. New members automatically receive 500 Free Trial visits!'
+        'Please sign in or register before launching traffic. New members automatically receive 100 Free Trial visits!'
       );
       return;
     }
 
-    // Traffic Credit & Quota Enforcement (500 free trial or paid admin allowance)
+    // Traffic Credit & Quota Enforcement (100 free trial or paid admin allowance)
     const currentUser = authState.user;
     const isExempt = currentUser.role === 'admin';
     const currentBalance = currentUser.trafficBalance ?? 0;
@@ -1260,7 +1270,7 @@ export default function App() {
       openAuthModal(
         'login',
         'Account & Sign-In Required',
-        'Please sign in or register before launching load test. New members automatically receive 500 Free Trial visits!'
+        'Please sign in or register before launching load test. New members automatically receive 100 Free Trial visits!'
       );
       return;
     }

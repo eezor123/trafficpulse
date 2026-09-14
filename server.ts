@@ -278,6 +278,15 @@ async function startServer() {
         return res.status(404).json({ success: false, error: 'Member not found.' });
       }
 
+      if (!member.isPaidUser && member.role !== 'admin') {
+        if (member.totalTrafficAssigned === 500 || (member.totalTrafficAssigned && member.totalTrafficAssigned > 100)) {
+          member.totalTrafficAssigned = 100;
+        }
+        if (member.trafficBalance === 500 || (member.trafficBalance !== undefined && member.trafficBalance > 100)) {
+          member.trafficBalance = 100;
+        }
+      }
+
       const { passwordHash: _, ...safeUser } = member;
       return res.json({ success: true, user: safeUser });
     } catch (err: any) {
@@ -314,12 +323,26 @@ async function startServer() {
         }
       }
 
+      const isPaid = Boolean(member.isPaidUser || existing?.isPaidUser);
+      const isAdmin = member.role === 'admin' || existing?.role === 'admin';
+      let finalAssigned = Math.max(existing?.totalTrafficAssigned || 0, Number(member.totalTrafficAssigned || 0));
+
+      // Enforce 100 trial quota cap
+      if (!isPaid && !isAdmin) {
+        if (finalAssigned === 500 || finalAssigned > 100) {
+          finalAssigned = 100;
+        }
+        if (authoritativeBalance === 500 || (authoritativeBalance !== undefined && authoritativeBalance > 100)) {
+          authoritativeBalance = 100;
+        }
+      }
+
       const updated: ServerMember = {
         ...(existing || {}),
         ...member,
         email: cleanEmail,
         trafficBalance: authoritativeBalance,
-        totalTrafficAssigned: Math.max(existing?.totalTrafficAssigned || 0, Number(member.totalTrafficAssigned || 0)),
+        totalTrafficAssigned: finalAssigned,
         lastLoginAt: Date.now(),
       };
       await persistMember(updated);
