@@ -18,6 +18,11 @@ import {
   persistPending,
   removePending,
   listPendingVerifications,
+  getServerConfig,
+  updateServerConfig,
+  bulkSetTrialCredits,
+  adminDirectSetTraffic,
+  sanitizeTrialQuotas,
   type ServerMember,
   type PendingVerification,
 } from './src/server/memberStore.ts';
@@ -241,10 +246,12 @@ async function startServer() {
     try {
       const forceFresh = req.query.fresh !== 'false';
       const allMembers = await listAllMembers(forceFresh);
-      const safeList = allMembers.map(({ passwordHash: _, ...safe }) => safe);
+      const safeList = allMembers.map(({ passwordHash: _, ...safe }) => sanitizeTrialQuotas(safe as any));
+      const config = getServerConfig();
       res.json({
         success: true,
         members: safeList,
+        defaultTrialQuota: config.defaultTrialQuota,
         totalCount: safeList.length,
       });
     } catch (err: any) {
@@ -273,20 +280,12 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'User identifier or active session token required.' });
       }
 
-      const member = await findMember(targetIdentifier, true);
-      if (!member) {
+      const rawMember = await findMember(targetIdentifier, true);
+      if (!rawMember) {
         return res.status(404).json({ success: false, error: 'Member not found.' });
       }
 
-      if (!member.isPaidUser && member.role !== 'admin') {
-        if (member.totalTrafficAssigned === 500 || (member.totalTrafficAssigned && member.totalTrafficAssigned > 100)) {
-          member.totalTrafficAssigned = 100;
-        }
-        if (member.trafficBalance === 500 || (member.trafficBalance !== undefined && member.trafficBalance > 100)) {
-          member.trafficBalance = 100;
-        }
-      }
-
+      const member = sanitizeTrialQuotas(rawMember);
       const { passwordHash: _, ...safeUser } = member;
       return res.json({ success: true, user: safeUser });
     } catch (err: any) {
@@ -498,7 +497,86 @@ async function startServer() {
     }
   });
 
-  // Admin endpoint: Reset member traffic to trial quota
+  // Admin endpoint: Set exact traffic credits to any amount (can reduce or increase)
+  app.post('/api/auth/set-traffic', async (req: Request, res: Response) => {
+    const { userId, email, newBalance, totalAssigned, markAsPaid, tier } = req.body;
+    const identifier = userId || email;
+    if (!identifier || newBalance === undefined || isNaN(Number(newBalance)) || Number(newBalance) < 0) {
+      return res.status(400).json({ success: false, error: 'Valid user identifier and non-negative credit balance are required.' });
+    }
+    try {
+      const result = await adminDirectSetTraffic(
+        String(identifier),
+        Number(newBalance),
+        totalAssigned !== undefined ? Number(totalAssigned) : undefined,
+        markAsPaid,
+        tier
+      );
+      if (!result.success || !result.user) {
+        return res.status(404).json({ success: false, error: result.error || 'Failed setting member credit balance.' });
+      }
+      const { passwordHash: _, ...safeUser } = result.user;
+      return res.json({
+        success: true,
+        user: safeUser,
+        message: `Successfully set ${result.user.name}'s balance to ${result.user.trafficBalance.toLocaleString()} credits.`,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed setting traffic balance' });
+    }
+  });
+
+  // Admin endpoint: Bulk set / reduce all trial accounts to any custom credit amount
+  app.post('/api/auth/bulk-set-trial-credits', async (req: Request, res: Response) => {
+    const { targetCredits } = req.body;
+    if (targetCredits === undefined || isNaN(Number(targetCredits)) || Number(targetCredits) < 0) {
+      return res.status(400).json({ success: false, error: 'A valid non-negative number is required for targetCredits' });
+    }
+    try {
+      const amount = Math.floor(Number(targetCredits));
+      const result = await bulkSetTrialCredits(amount);
+      const safeList = result.members.map(({ passwordHash: _, ...safe }) => safe);
+      return res.json({
+        success: true,
+        count: result.count,
+        defaultTrialQuota: amount,
+        members: safeList,
+        message: `Successfully updated ${result.count} trial members to ${amount.toLocaleString()} credits.`,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed bulk updating trial credits' });
+    }
+  });
+
+  // Admin endpoint: Get current trial settings
+  app.get('/api/admin/trial-settings', async (_req: Request, res: Response) => {
+    try {
+      const config = getServerConfig();
+      res.json({ success: true, defaultTrialQuota: config.defaultTrialQuota });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed getting trial settings' });
+    }
+  });
+
+  // Admin endpoint: Update default trial settings
+  app.post('/api/admin/trial-settings', async (req: Request, res: Response) => {
+    const { defaultTrialQuota } = req.body;
+    if (defaultTrialQuota === undefined || isNaN(Number(defaultTrialQuota)) || Number(defaultTrialQuota) < 0) {
+      return res.status(400).json({ success: false, error: 'A valid non-negative number is required for defaultTrialQuota' });
+    }
+    try {
+      const updated = updateServerConfig({ defaultTrialQuota: Math.floor(Number(defaultTrialQuota)) });
+      res.json({
+        success: true,
+        defaultTrialQuota: updated.defaultTrialQuota,
+        message: `Default trial quota set to ${updated.defaultTrialQuota.toLocaleString()} credits.`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed updating trial settings' });
+    }
+  });
+
+  // Admin endpoint: Reset member traffic to current configured trial quota
   app.post('/api/auth/reset-traffic', async (req: Request, res: Response) => {
     const { userId, email } = req.body;
     if (!userId && !email) return res.status(400).json({ success: false, error: 'userId or email is required' });
@@ -513,22 +591,23 @@ async function startServer() {
       ) || (userId ? await findMember(userId, true) : null) || (cleanEmail ? await findMember(cleanEmail, true) : null) || await findMember(cleanTarget, true);
       if (!target) return res.status(404).json({ success: false, error: 'Member not found' });
 
-      target.trafficBalance = 100;
-      target.totalTrafficAssigned = 100;
+      const quota = getServerConfig().defaultTrialQuota;
+      target.trafficBalance = quota;
+      target.totalTrafficAssigned = quota;
       target.isPaidUser = false;
-      target.trafficStatus = 'trial_active';
+      target.trafficStatus = quota <= 0 ? 'trial_exhausted' : 'trial_active';
       await persistMember(target);
 
-      writeUserTrafficToFirestore(target.id, 100, {
-        totalTrafficAssigned: 100,
+      writeUserTrafficToFirestore(target.id, quota, {
+        totalTrafficAssigned: quota,
         isPaidUser: false,
-        trafficStatus: 'trial_active',
+        trafficStatus: target.trafficStatus,
         email: target.email,
         name: target.name,
       }).catch(err => console.warn('[SERVER] Async Firestore reset error:', err));
 
       const { passwordHash: _, ...safeUser } = target;
-      return res.json({ success: true, user: safeUser, message: `Reset ${target.name}'s quota to 100 Free Trial units.` });
+      return res.json({ success: true, user: safeUser, message: `Reset ${target.name}'s quota to ${quota} Free Trial units.` });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed resetting traffic' });
     }
@@ -658,10 +737,11 @@ async function startServer() {
     }
 
     // 2. If no outbound email provider is configured yet on the server:
-    // Auto-activate member account seamlessly with 100 Free Trial Traffic Credits!
+    // Auto-activate member account seamlessly with Free Trial Traffic Credits!
     // Never trap users on unresolvable verification screens or show developer warnings.
-    const initialBalance = isAdmin ? 10000000 : 100;
-    const customLimit = isAdmin ? 10000000 : 100;
+    const trialQuota = getServerConfig().defaultTrialQuota;
+    const initialBalance = isAdmin ? 10000000 : trialQuota;
+    const customLimit = isAdmin ? 10000000 : trialQuota;
     const maxVUs = isAdmin ? 250 : 25;
 
     const newMember: ServerMember = {
@@ -775,8 +855,9 @@ async function startServer() {
     // Code verified! Create active member
     const isAdmin = isSaroneedamAdminEmail(cleanEmail);
     const memberTier = isAdmin ? 'enterprise' : pending.tier;
-    const initialBalance = isAdmin ? 10000000 : 100;
-    const customLimit = isAdmin ? 10000000 : 100;
+    const otpTrialQuota = getServerConfig().defaultTrialQuota;
+    const initialBalance = isAdmin ? 10000000 : otpTrialQuota;
+    const customLimit = isAdmin ? 10000000 : otpTrialQuota;
     const maxVUs = isAdmin ? 250 : 25;
 
     const newMember: ServerMember = {
@@ -1064,7 +1145,8 @@ async function startServer() {
         });
       }
 
-      const initialCredits = isAdmin ? 10000000 : 100;
+      const googleTrialQuota = getServerConfig().defaultTrialQuota;
+      const initialCredits = isAdmin ? 10000000 : googleTrialQuota;
 
       member = {
         id: uid ? `user_google_${uid}` : (isAdmin ? 'user_admin_saroneedam' : `user_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),

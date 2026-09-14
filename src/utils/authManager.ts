@@ -1628,6 +1628,182 @@ export async function adminTogglePaidStatus(userId: string, isPaid: boolean): Pr
 }
 
 /**
+ * Admin directly sets or reduces a member's traffic credits to any exact amount.
+ */
+export async function adminSetUserExactTraffic(
+  userId: string,
+  newBalance: number,
+  optionalEmail?: string,
+  totalAssigned?: number,
+  markAsPaid?: boolean,
+  tier?: 'starter' | 'pro' | 'enterprise'
+): Promise<{ success: boolean; user?: MemberUser; error?: string; message?: string }> {
+  const currentAuth = loadStoredAuth();
+  if (!currentAuth.isAuthenticated || currentAuth.user?.role !== 'admin') {
+    return { success: false, error: 'Unauthorized: Administrator rights required.' };
+  }
+
+  const cleanTargetEmail = (optionalEmail || (userId.includes('@') ? userId : '')).trim().toLowerCase();
+  const bal = Math.max(0, Math.floor(Number(newBalance)));
+
+  let serverUser: MemberUser | null = null;
+  let serverMsg: string | undefined;
+  try {
+    const res = await fetch('/api/auth/set-traffic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        email: cleanTargetEmail || undefined,
+        newBalance: bal,
+        totalAssigned,
+        markAsPaid,
+        tier,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success && data.user) {
+      serverUser = data.user;
+      serverMsg = data.message;
+    } else {
+      console.warn('[AUTH] Server set-traffic note:', data.error);
+    }
+  } catch (err: any) {
+    console.warn('Backend server set-traffic unavailable, falling back:', err);
+  }
+
+  const members = getStoredMembers();
+  const match = members.find(
+    m =>
+      m.id === userId ||
+      m.email.toLowerCase() === userId.toLowerCase() ||
+      (cleanTargetEmail && m.email.toLowerCase() === cleanTargetEmail)
+  );
+
+  let finalUser: MemberUser;
+  if (serverUser) {
+    finalUser = serverUser;
+    const updatedMembers = members.map(m =>
+      m.id === serverUser!.id || m.email.toLowerCase() === serverUser!.email.toLowerCase()
+        ? { ...m, ...serverUser }
+        : m
+    );
+    saveMembers(updatedMembers);
+  } else if (match) {
+    match.trafficBalance = bal;
+    if (totalAssigned !== undefined) {
+      match.totalTrafficAssigned = totalAssigned;
+    } else {
+      match.totalTrafficAssigned = Math.max(bal, match.totalTrafficAssigned || bal);
+    }
+    if (markAsPaid !== undefined) {
+      match.isPaidUser = markAsPaid;
+    }
+    if (tier) {
+      match.tier = tier;
+    }
+    if (match.role === 'admin') {
+      match.trafficStatus = 'unlimited';
+    } else if (match.isPaidUser) {
+      match.trafficStatus = bal <= 0 ? 'paid_exhausted' : 'paid_active';
+    } else {
+      match.trafficStatus = bal <= 0 ? 'trial_exhausted' : 'trial_active';
+    }
+    saveMembers(members);
+    const { passwordHash: _, ...safeUser } = match;
+    finalUser = safeUser;
+  } else {
+    return { success: false, error: 'Member not found.' };
+  }
+
+  // Update session if editing self
+  if (currentAuth.user?.id === finalUser.id || currentAuth.user?.email.toLowerCase() === finalUser.email.toLowerCase()) {
+    saveAuthSession(finalUser, currentAuth.token || 'tok_valid');
+  }
+  broadcastSessionRefresh(finalUser);
+
+  return {
+    success: true,
+    user: finalUser,
+    message: serverMsg || `Successfully set credit balance to ${bal.toLocaleString()} visits.`,
+  };
+}
+
+/**
+ * Bulk updates/reduces all trial members to any custom quota set by the admin,
+ * and updates default trial quota for future registrations.
+ */
+export async function adminBulkSetTrialCredits(
+  targetCredits: number
+): Promise<{ success: boolean; count?: number; defaultTrialQuota?: number; error?: string; message?: string }> {
+  const currentAuth = loadStoredAuth();
+  if (!currentAuth.isAuthenticated || currentAuth.user?.role !== 'admin') {
+    return { success: false, error: 'Unauthorized: Administrator rights required.' };
+  }
+
+  const quota = Math.max(0, Math.floor(Number(targetCredits)));
+  try {
+    const res = await fetch('/api/auth/bulk-set-trial-credits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetCredits: quota }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      if (Array.isArray(data.members)) {
+        saveMembers(data.members);
+      }
+      return {
+        success: true,
+        count: data.count,
+        defaultTrialQuota: data.defaultTrialQuota,
+        message: data.message,
+      };
+    }
+    return { success: false, error: data.error || 'Failed to update trial credits' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Server unavailable for bulk update' };
+  }
+}
+
+/**
+ * Fetch current system-wide trial configuration.
+ */
+export async function adminGetTrialSettings(): Promise<{ defaultTrialQuota: number }> {
+  try {
+    const res = await fetch('/api/admin/trial-settings');
+    const data = await res.json();
+    if (res.ok && data.success && typeof data.defaultTrialQuota === 'number') {
+      return { defaultTrialQuota: data.defaultTrialQuota };
+    }
+  } catch {}
+  return { defaultTrialQuota: 100 };
+}
+
+/**
+ * Update system-wide trial quota.
+ */
+export async function adminUpdateTrialSettings(
+  defaultTrialQuota: number
+): Promise<{ success: boolean; defaultTrialQuota: number; message?: string; error?: string }> {
+  const quota = Math.max(0, Math.floor(Number(defaultTrialQuota)));
+  try {
+    const res = await fetch('/api/admin/trial-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ defaultTrialQuota: quota }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return { success: true, defaultTrialQuota: data.defaultTrialQuota, message: data.message };
+    }
+    return { success: false, defaultTrialQuota: quota, error: data.error || 'Failed updating settings' };
+  } catch (err: any) {
+    return { success: false, defaultTrialQuota: quota, error: err?.message };
+  }
+}
+
+/**
  * Admin deletes a member account from server, Cloud Firestore, and local cache.
  */
 export async function adminDeleteUser(userId: string, optionalEmail?: string): Promise<{ success: boolean; error?: string }> {

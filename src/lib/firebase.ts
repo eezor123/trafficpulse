@@ -488,6 +488,18 @@ export async function getMemberFromCloud(emailOrUsername: string): Promise<any |
       }
     } catch {}
 
+    if (bestCandidate && !bestCandidate.isPaidUser && bestCandidate.role !== 'admin') {
+      if (bestCandidate.totalTrafficAssigned === 500 || (bestCandidate.totalTrafficAssigned !== undefined && bestCandidate.totalTrafficAssigned > 100)) {
+        bestCandidate.totalTrafficAssigned = 100;
+      }
+      if (bestCandidate.trafficBalance === 500 || (bestCandidate.trafficBalance !== undefined && bestCandidate.trafficBalance > 100)) {
+        bestCandidate.trafficBalance = 100;
+      }
+      if (bestCandidate.trafficBalance <= 0) {
+        bestCandidate.trafficStatus = 'trial_exhausted';
+      }
+    }
+
     return bestCandidate;
   } catch (e) {
     console.warn('Failed to query member from Firestore:', e);
@@ -504,17 +516,35 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
     const db = getFirestoreDb();
     const membersMap = new Map<string, any>();
 
+    const sanitizeMemberData = (m: any) => {
+      if (!m || typeof m !== 'object') return m;
+      if (!m.isPaidUser && m.role !== 'admin') {
+        let assigned = Number(m.totalTrafficAssigned ?? 100);
+        let balance = Number(m.trafficBalance ?? 100);
+        if (assigned === 500 || assigned > 100) assigned = 100;
+        if (balance === 500 || balance > 100) balance = 100;
+        return {
+          ...m,
+          totalTrafficAssigned: assigned,
+          trafficBalance: balance,
+          trafficStatus: balance <= 0 ? 'trial_exhausted' : 'trial_active',
+        };
+      }
+      return m;
+    };
+
     const mergeIn = (data: any) => {
       if (!data || !data.email) return;
       const emailLower = data.email.toLowerCase().trim();
+      const sanitized = sanitizeMemberData(data);
       const existing = membersMap.get(emailLower);
       if (!existing) {
-        membersMap.set(emailLower, data);
+        membersMap.set(emailLower, sanitized);
       } else {
         const existBal = Number(existing.trafficBalance ?? -1);
-        const newBal = Number(data.trafficBalance ?? -1);
+        const newBal = Number(sanitized.trafficBalance ?? -1);
         const existAssigned = Number(existing.totalTrafficAssigned ?? -1);
-        const newAssigned = Number(data.totalTrafficAssigned ?? -1);
+        const newAssigned = Number(sanitized.totalTrafficAssigned ?? -1);
 
         // If either record is exhausted (0 balance or exhausted status), user is strictly exhausted
         let finalBal = 0;
@@ -522,7 +552,7 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
           existBal === 0 ||
           newBal === 0 ||
           existing.trafficStatus?.includes('exhausted') ||
-          data.trafficStatus?.includes('exhausted')
+          sanitized.trafficStatus?.includes('exhausted')
         ) {
           finalBal = 0;
         } else if (existBal > 0 && newBal > 0) {
@@ -531,11 +561,11 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
           finalBal = Math.max(existBal, newBal, 0);
         }
 
-        const isPaid = Boolean(existing.isPaidUser || data.isPaidUser);
+        const isPaid = Boolean(existing.isPaidUser || sanitized.isPaidUser);
         let finalAssigned = Math.max(existAssigned, newAssigned, 0);
 
         // Enforce 100 trial quota cap for free trial members
-        if (!isPaid && existing.role !== 'admin' && data.role !== 'admin') {
+        if (!isPaid && existing.role !== 'admin' && sanitized.role !== 'admin') {
           if (finalAssigned === 500 || finalAssigned > 100) {
             finalAssigned = 100;
           }
@@ -546,17 +576,17 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
 
         const isExhausted = finalBal <= 0;
 
-        membersMap.set(emailLower, {
+        membersMap.set(emailLower, sanitizeMemberData({
           ...existing,
-          ...data,
+          ...sanitized,
           trafficBalance: finalBal,
           totalTrafficAssigned: finalAssigned,
           isPaidUser: isPaid,
-          tier: data.tier || existing.tier,
+          tier: sanitized.tier || existing.tier,
           trafficStatus: isExhausted
             ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
-            : (isPaid ? 'paid_active' : (data.trafficStatus || existing.trafficStatus || 'trial_active')),
-        });
+            : (isPaid ? 'paid_active' : (sanitized.trafficStatus || existing.trafficStatus || 'trial_active')),
+        }));
       }
     };
 
@@ -592,9 +622,9 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
       'testuser999@example.com',
     ]);
 
-    return Array.from(membersMap.values()).filter(
-      (m) => !mockEmails.has((m.email || '').toLowerCase())
-    );
+    return Array.from(membersMap.values())
+      .map(sanitizeMemberData)
+      .filter((m) => !mockEmails.has((m.email || '').toLowerCase()));
   } catch (e) {
     console.warn('Failed to get all members from Firestore:', e);
     return [];

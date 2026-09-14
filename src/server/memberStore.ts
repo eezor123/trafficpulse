@@ -8,6 +8,7 @@ import {
   getPendingFromCloud,
   deletePendingFromCloud,
   deleteMemberFromCloud,
+  writeUserTrafficToFirestore,
 } from '../lib/firebase.ts';
 
 export interface ServerMember {
@@ -87,16 +88,93 @@ function getActiveStoragePath(): string {
   return activeStoragePath;
 }
 
-function sanitizeTrialQuotas(member: ServerMember): ServerMember {
-  if (!member.isPaidUser && member.role !== 'admin') {
-    if (member.totalTrafficAssigned === 500 || member.totalTrafficAssigned === undefined || member.totalTrafficAssigned === null || member.totalTrafficAssigned > 100) {
-      member.totalTrafficAssigned = 100;
+export interface ServerConfig {
+  defaultTrialQuota: number;
+}
+
+function getConfigFilePath(): string {
+  const localDataDir = path.join(process.cwd(), 'data');
+  try {
+    if (!fs.existsSync(localDataDir)) {
+      fs.mkdirSync(localDataDir, { recursive: true });
     }
-    if (member.trafficBalance === 500 || (member.trafficBalance !== undefined && member.trafficBalance > 100)) {
-      member.trafficBalance = 100;
+    return path.join(localDataDir, 'server_config.json');
+  } catch {
+    return path.join('/tmp', 'trafficpulse_server_config.json');
+  }
+}
+
+let activeConfig: ServerConfig = { defaultTrialQuota: 100 };
+
+export function getServerConfig(): ServerConfig {
+  try {
+    const configPath = getConfigFilePath();
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.defaultTrialQuota === 'number' && !isNaN(parsed.defaultTrialQuota)) {
+        activeConfig = { defaultTrialQuota: Math.max(0, Math.floor(parsed.defaultTrialQuota)) };
+      }
+    }
+  } catch {}
+  return activeConfig;
+}
+
+export function updateServerConfig(updates: Partial<ServerConfig>): ServerConfig {
+  const current = getServerConfig();
+  activeConfig = {
+    ...current,
+    ...updates,
+  };
+  if (typeof activeConfig.defaultTrialQuota === 'number') {
+    activeConfig.defaultTrialQuota = Math.max(0, Math.floor(activeConfig.defaultTrialQuota));
+  }
+  try {
+    const configPath = getConfigFilePath();
+    fs.writeFileSync(configPath, JSON.stringify(activeConfig, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[STORE] Failed saving server config:', err);
+  }
+  return activeConfig;
+}
+
+export function sanitizeTrialQuotas(member: ServerMember): ServerMember {
+  const config = getServerConfig();
+  const quota = config.defaultTrialQuota;
+
+  // 1. Any non-admin member with legacy 500 credit balance or assignment must be sanitized to current trial quota
+  if (member.role !== 'admin') {
+    if (member.trafficBalance === 500) {
+      member.trafficBalance = quota;
+    }
+    if (member.totalTrafficAssigned === 500) {
+      member.totalTrafficAssigned = quota;
+    }
+    if ((member as any).customVisitsLimit === 500) {
+      (member as any).customVisitsLimit = quota;
+    }
+  }
+
+  // 2. All trial (non-paid) members must strictly follow the trial quota
+  if (!member.isPaidUser && member.role !== 'admin') {
+    if (
+      member.totalTrafficAssigned === undefined ||
+      member.totalTrafficAssigned === null ||
+      member.totalTrafficAssigned > quota
+    ) {
+      member.totalTrafficAssigned = quota;
+    }
+    if (
+      member.trafficBalance === undefined ||
+      member.trafficBalance === null ||
+      member.trafficBalance > quota
+    ) {
+      member.trafficBalance = quota;
     }
     if (member.trafficBalance <= 0) {
       member.trafficStatus = 'trial_exhausted';
+    } else if (member.trafficStatus === 'trial_exhausted' && member.trafficBalance > 0) {
+      member.trafficStatus = 'trial_active';
     }
   }
   return member;
@@ -146,7 +224,7 @@ export async function syncMembersFromCloud(force = false): Promise<void> {
           const emailLower = m.email.toLowerCase();
           const existing = memoryMembers.get(emailLower);
           if (!existing) {
-            memoryMembers.set(emailLower, m as ServerMember);
+            memoryMembers.set(emailLower, sanitizeTrialQuotas(m as ServerMember));
           } else {
             let finalBal = existing.trafficBalance;
             if (m.trafficBalance !== undefined) {
@@ -164,12 +242,13 @@ export async function syncMembersFromCloud(force = false): Promise<void> {
             const isPaid = (m.isPaidUser !== undefined ? m.isPaidUser : existing.isPaidUser);
 
             let finalAssigned = Math.max(existing.totalTrafficAssigned || 0, m.totalTrafficAssigned || 0);
+            const currentQuota = getServerConfig().defaultTrialQuota;
             if (!isPaid && existing.role !== 'admin') {
-              if (finalAssigned === 500 || finalAssigned > 100) {
-                finalAssigned = 100;
+              if (finalAssigned === 500 || finalAssigned > currentQuota) {
+                finalAssigned = currentQuota;
               }
-              if (finalBal === 500 || (finalBal !== undefined && finalBal > 100)) {
-                finalBal = 100;
+              if (finalBal === 500 || (finalBal !== undefined && finalBal > currentQuota)) {
+                finalBal = currentQuota;
               }
             }
 
@@ -283,7 +362,7 @@ export async function findMember(query: string, forceCloudCheck = false): Promis
   try {
     const cloudRecord = await getMemberFromCloud(clean);
     if (cloudRecord && cloudRecord.email) {
-      const parsed = cloudRecord as ServerMember;
+      const parsed = sanitizeTrialQuotas(cloudRecord as ServerMember);
       memoryMembers.set(parsed.email.toLowerCase(), parsed);
       saveToFileCache();
       return parsed;
@@ -303,7 +382,7 @@ export async function listAllMembers(forceCloud = false): Promise<ServerMember[]
     loadFromFileCache();
     await syncMembersFromCloud(forceCloud);
   }
-  return Array.from(memoryMembers.values());
+  return Array.from(memoryMembers.values()).map(sanitizeTrialQuotas);
 }
 
 /**
@@ -467,5 +546,120 @@ export async function deleteMember(userIdOrEmail: string, optionalEmail?: string
   }
 
   return true;
+}
+
+/**
+ * Bulk updates all trial / non-paid users to a custom quota chosen by the admin
+ * (and updates the global default trial quota for new registrations).
+ */
+export async function bulkSetTrialCredits(targetCredits: number): Promise<{ count: number; members: ServerMember[] }> {
+  const quota = Math.max(0, Math.floor(Number(targetCredits)));
+  updateServerConfig({ defaultTrialQuota: quota });
+
+  // Make sure we have latest members loaded
+  loadFromFileCache();
+  await syncMembersFromCloud(false);
+
+  const updatedList: ServerMember[] = [];
+  for (const [email, member] of memoryMembers.entries()) {
+    if (!member.isPaidUser && member.role !== 'admin') {
+      member.trafficBalance = quota;
+      member.totalTrafficAssigned = quota;
+      member.trafficStatus = quota <= 0 ? 'trial_exhausted' : 'trial_active';
+      memoryMembers.set(email, member);
+      updatedList.push(member);
+
+      // Async write to Firestore so cloud records stay in sync
+      writeUserTrafficToFirestore(member.id, quota, {
+        totalTrafficAssigned: quota,
+        isPaidUser: false,
+        trafficStatus: member.trafficStatus,
+        tier: member.tier,
+        email: member.email,
+        name: member.name,
+      }).catch(err => console.warn('[STORE] Bulk update firestore error:', err));
+    }
+  }
+
+  saveToFileCache();
+  return {
+    count: updatedList.length,
+    members: Array.from(memoryMembers.values()).map(sanitizeTrialQuotas),
+  };
+}
+
+/**
+ * Directly sets or reduces a member's traffic credits to any exact amount chosen by admin.
+ */
+export async function adminDirectSetTraffic(
+  identifier: string,
+  newBalance: number,
+  totalAssigned?: number,
+  markAsPaid?: boolean,
+  tier?: 'starter' | 'pro' | 'enterprise'
+): Promise<{ success: boolean; user?: ServerMember; error?: string }> {
+  const clean = (identifier || '').trim().toLowerCase();
+  if (!clean) return { success: false, error: 'User identifier is required.' };
+
+  let target: ServerMember | null = memoryMembers.get(clean) || null;
+  if (!target) {
+    target = await findMember(clean, true);
+  }
+  if (!target) {
+    // Search by id, uid, or username
+    for (const m of memoryMembers.values()) {
+      if (
+        (m.id && m.id.toLowerCase() === clean) ||
+        ((m as any).uid && (m as any).uid.toLowerCase() === clean) ||
+        (m.username && m.username.toLowerCase() === clean) ||
+        (m.email && m.email.toLowerCase() === clean)
+      ) {
+        target = m;
+        break;
+      }
+    }
+  }
+
+  if (!target) {
+    return { success: false, error: `Member "${identifier}" not found.` };
+  }
+
+  const bal = Math.max(0, Math.floor(Number(newBalance)));
+  const assigned = totalAssigned !== undefined
+    ? Math.max(0, Math.floor(Number(totalAssigned)))
+    : Math.max(bal, target.totalTrafficAssigned || bal);
+
+  target.trafficBalance = bal;
+  target.totalTrafficAssigned = assigned;
+
+  if (markAsPaid !== undefined) {
+    target.isPaidUser = Boolean(markAsPaid);
+  }
+
+  if (tier) {
+    target.tier = tier;
+  }
+
+  if (target.role === 'admin') {
+    target.trafficStatus = 'unlimited';
+  } else if (target.isPaidUser) {
+    target.trafficStatus = bal <= 0 ? 'paid_exhausted' : 'paid_active';
+  } else {
+    target.trafficStatus = bal <= 0 ? 'trial_exhausted' : 'trial_active';
+  }
+
+  await persistMember(target);
+
+  // Synchronize to Firestore
+  writeUserTrafficToFirestore(target.id, bal, {
+    totalTrafficAssigned: assigned,
+    isPaidUser: target.isPaidUser,
+    trafficStatus: target.trafficStatus,
+    tier: target.tier,
+    email: target.email,
+    name: target.name,
+  }).catch(err => console.warn('[STORE] Direct set firestore error:', err));
+
+  return { success: true, user: target };
 }
 

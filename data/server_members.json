@@ -12,17 +12,17 @@
     "verificationTier": "top_rated_employer",
     "name": "Saron Needam",
     "id": "user_admin_1",
-    "lastLoginIp": "102.90.98.79",
+    "lastLoginIp": "102.90.116.49",
     "company": "TrafficPulse HQ (Super Admin)",
     "bankDetails": {
       "accountNumber": "",
-      "bankName": "Guaranty Trust Bank (GTBank)",
-      "accountName": "Super Admin"
+      "accountName": "Super Admin",
+      "bankName": "Guaranty Trust Bank (GTBank)"
     },
     "rating": 5,
     "completedJobs": 25,
     "passwordHash": "Vivian123@",
-    "lastLoginAt": 1789308581369,
+    "lastLoginAt": 1789372205870,
     "bio": "Super Admin & Platform Compliance Officer.",
     "phoneNumber": "+2348030586729",
     "walletBalanceNgn": 5000000,
@@ -56,7 +56,7 @@
     "tier": "enterprise",
     "registrationIp": "102.90.102.116",
     "isBanned": false,
-    "updatedAt": 1789308581785
+    "updatedAt": 1789372206135
   },
   {
     "state": "Rivers",
@@ -64,13 +64,13 @@
     "verificationTier": "unverified",
     "isBanned": false,
     "address": "",
-    "updatedAt": 1789307050117,
+    "updatedAt": 1789372109682,
     "passwordHash": "vivian123",
     "joinedDate": "2026-08-01",
     "bankDetails": {
+      "bankName": "Guaranty Trust Bank (GTBank)",
       "accountNumber": "",
-      "accountName": "eezortech",
-      "bankName": "Guaranty Trust Bank (GTBank)"
+      "accountName": "eezortech"
     },
     "role": "member",
     "hourlyRateNgn": 10000,
@@ -93,9 +93,9 @@
       "HR Consultant"
     ],
     "isRegistered": true,
-    "lastLoginAt": 1789307044897,
+    "lastLoginAt": 1789372098593,
     "completedJobs": 0,
-    "trafficBalance": 500,
+    "trafficBalance": 100,
     "tier": "pro",
     "totalTrafficAssigned": 2100,
     "trafficStatus": "paid_active",
@@ -103,14 +103,14 @@
     "maxConcurrentVUs": 25,
     "authProvider": "email",
     "isVerified": true,
-    "customVisitsLimit": 500,
+    "customVisitsLimit": 100,
     "registrationIp": "102.90.98.79",
     "username": "agripson",
     "targetWebsite": "https://jobs.eezor.com",
     "joinedAt": 1789280378300,
     "totalCampaignsRun": 0,
     "totalVisitsGenerated": 0,
-    "lastLoginIp": "102.90.98.79",
+    "lastLoginIp": "102.90.116.49",
     "company": ""
   },
   {
@@ -174,6 +174,7 @@
       "Web Development",
       "Design",
       "Digital Marketing"
-    ]
+    ],
+    "totalTrafficAssigned": 100
   }
 ]
