@@ -66,16 +66,27 @@ function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
         m.totalTrafficAssigned = m.totalTrafficAssigned || 10000000;
         m.isPaidUser = true;
         m.trafficStatus = 'unlimited';
-      } else if (!m.isPaidUser) {
-        // Enforce 100 Free Trial quota cap (reset legacy 500 balances)
-        if (m.totalTrafficAssigned === 500 || m.totalTrafficAssigned === undefined || m.totalTrafficAssigned === null || m.totalTrafficAssigned > 100) {
-          m.totalTrafficAssigned = 100;
-        }
-        if (m.trafficBalance === 500 || m.trafficBalance === undefined || m.trafficBalance === null || m.trafficBalance > 100) {
+      } else {
+        // Strip legacy 500 credits across all members
+        if (m.trafficBalance === 500) {
           m.trafficBalance = 100;
         }
-        m.isPaidUser = false;
-        m.trafficStatus = (m.trafficBalance !== undefined && m.trafficBalance <= 0) ? 'trial_exhausted' : 'trial_active';
+        if (m.totalTrafficAssigned === 500) {
+          m.totalTrafficAssigned = 100;
+        }
+        if ((m as any).customVisitsLimit === 500) {
+          (m as any).customVisitsLimit = 100;
+        }
+
+        if (!m.isPaidUser) {
+          if (m.totalTrafficAssigned === undefined || m.totalTrafficAssigned === null || m.totalTrafficAssigned > 100) {
+            m.totalTrafficAssigned = 100;
+          }
+          if (m.trafficBalance === undefined || m.trafficBalance === null || m.trafficBalance > 100) {
+            m.trafficBalance = 100;
+          }
+          m.trafficStatus = (m.trafficBalance !== undefined && m.trafficBalance <= 0) ? 'trial_exhausted' : 'trial_active';
+        }
       }
     }
 

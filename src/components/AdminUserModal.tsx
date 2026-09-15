@@ -3,6 +3,10 @@ import { MemberUser, MemberTier } from '../types';
 import {
   getAllMembers,
   adminAssignTraffic,
+  adminSetUserExactTraffic,
+  adminBulkSetTrialCredits,
+  adminGetTrialSettings,
+  adminUpdateTrialSettings,
   adminResetUserTraffic,
   adminTogglePaidStatus,
   adminDeleteUser,
@@ -38,6 +42,10 @@ import {
   Send,
   RefreshCw,
   Copy,
+  Sliders,
+  SlidersHorizontal,
+  MinusCircle,
+  Edit3,
   Clock,
   KeyRound,
   ExternalLink,
@@ -63,11 +71,18 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   const [members, setMembers] = useState<MemberUser[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUserForAssign, setSelectedUserForAssign] = useState<MemberUser | null>(null);
+  const [assignMode, setAssignMode] = useState<'set_exact' | 'add_traffic'>('set_exact');
+  const [exactBalanceInput, setExactBalanceInput] = useState<number>(100);
   const [assignAmount, setAssignAmount] = useState<number>(5000);
   const [assignMarkAsPaid, setAssignMarkAsPaid] = useState<boolean>(true);
   const [assignTier, setAssignTier] = useState<MemberTier>('pro');
   const [isAssigning, setIsAssigning] = useState<boolean>(false);
   const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Global trial quota controls
+  const [defaultTrialQuota, setDefaultTrialQuota] = useState<number>(100);
+  const [bulkTrialInput, setBulkTrialInput] = useState<number>(100);
+  const [isBulkUpdatingTrial, setIsBulkUpdatingTrial] = useState<boolean>(false);
 
   // Email Server & OTP Diagnostics State
   const [emailStatus, setEmailStatus] = useState<{
@@ -194,14 +209,25 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
       const res = await fetch('/api/auth/members?fresh=true&t=' + Date.now());
       if (res.ok) {
         const data = await res.json();
-        if (data.success && Array.isArray(data.members) && data.members.length > 0) {
+        if (data.success && Array.isArray(data.members)) {
           setMembers(data.members);
+          if (typeof data.defaultTrialQuota === 'number') {
+            setDefaultTrialQuota(data.defaultTrialQuota);
+            setBulkTrialInput(data.defaultTrialQuota);
+          }
           return;
         }
       }
     } catch {
       // fallback to Firestore cloud or local store
     }
+    try {
+      const settings = await adminGetTrialSettings();
+      if (typeof settings.defaultTrialQuota === 'number') {
+        setDefaultTrialQuota(settings.defaultTrialQuota);
+        setBulkTrialInput(settings.defaultTrialQuota);
+      }
+    } catch {}
     try {
       const cloudMembers = await getAllMembersFromCloud();
       if (cloudMembers && cloudMembers.length > 0) {
@@ -267,21 +293,19 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   const totalTrial = totalUsers - totalPaid;
   const totalVisitsAcrossAll = members.reduce((acc, m) => acc + (m.totalVisitsGenerated || 0), 0);
 
-  const handleOpenAssign = (user: MemberUser) => {
+  const handleOpenAssign = (user: MemberUser, mode: 'set_exact' | 'add_traffic' = 'set_exact') => {
     setSelectedUserForAssign(user);
+    setAssignMode(mode);
     setAssignTier(user.tier || 'pro');
-    setAssignMarkAsPaid(true);
+    setAssignMarkAsPaid(Boolean(user.isPaidUser));
+    const currentBal = Number(user.trafficBalance ?? (user.isPaidUser ? 1000 : defaultTrialQuota));
+    setExactBalanceInput(currentBal);
     setAssignAmount(5000);
   };
 
   const handleConfirmAssign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserForAssign) return;
-
-    if (assignAmount <= 0) {
-      showNotification('error', 'Please specify a positive number of traffic visits.');
-      return;
-    }
 
     setIsAssigning(true);
     try {
@@ -292,69 +316,153 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
         email: selectedUserForAssign.email,
       });
 
-      const currentBalance = Number(selectedUserForAssign.trafficBalance || 0);
-      const additional = Number(assignAmount);
-      const newBalance = currentBalance + additional;
-      const newTotalAssigned = Number(selectedUserForAssign.totalTrafficAssigned || 0) + additional;
+      if (assignMode === 'set_exact') {
+        const exactBal = Math.max(0, Math.floor(Number(exactBalanceInput)));
+        const targetAssigned = Math.max(exactBal, selectedUserForAssign.totalTrafficAssigned || exactBal);
 
-      // 2. Perform a write operation to the Firestore 'users' collection to update the 'trafficBalance' field
-      try {
-        await writeUserTrafficToFirestore(targetUid, newBalance, {
-          totalTrafficAssigned: newTotalAssigned,
-          isPaidUser: assignMarkAsPaid,
-          trafficStatus: assignMarkAsPaid ? 'paid_active' : 'trial_active',
-          tier: assignTier,
-          email: selectedUserForAssign.email,
-          name: selectedUserForAssign.name,
-        });
-      } catch (cloudErr) {
-        console.warn('[FIRESTORE] Direct write deferred:', cloudErr);
-      }
+        // Firestore direct write
+        try {
+          await writeUserTrafficToFirestore(targetUid, exactBal, {
+            totalTrafficAssigned: targetAssigned,
+            isPaidUser: assignMarkAsPaid,
+            trafficStatus: assignMarkAsPaid
+              ? (exactBal <= 0 ? 'paid_exhausted' : 'paid_active')
+              : (exactBal <= 0 ? 'trial_exhausted' : 'trial_active'),
+            tier: assignTier,
+            email: selectedUserForAssign.email,
+            name: selectedUserForAssign.name,
+          });
+        } catch (cloudErr) {
+          console.warn('[FIRESTORE] Direct set write deferred:', cloudErr);
+        }
 
-      // 3. Update server API and local persistence
-      const res = await adminAssignTraffic(
-        targetUid || selectedUserForAssign.id,
-        additional,
-        assignMarkAsPaid,
-        assignTier,
-        selectedUserForAssign.email
-      );
-
-      if (res.success && res.user) {
-        showNotification(
-          'success',
-          `Assigned +${additional.toLocaleString()} traffic visits to ${res.user.name}. New Balance: ${res.user.trafficBalance.toLocaleString()} visits.`
+        // Server API and local persistence
+        const res = await adminSetUserExactTraffic(
+          targetUid || selectedUserForAssign.id,
+          exactBal,
+          selectedUserForAssign.email,
+          targetAssigned,
+          assignMarkAsPaid,
+          assignTier
         );
 
-        // 4. Trigger state refresh for Admin UI
-        await refreshList();
-        setSelectedUserForAssign(null);
+        if (res.success && res.user) {
+          showNotification(
+            'success',
+            res.message || `Set ${res.user.name}'s balance to ${exactBal.toLocaleString()} visits.`
+          );
 
-        // 5. Trigger state refresh for target user's session
-        const isCurrentActiveSession =
-          currentUser?.id === res.user.id ||
-          currentUser?.uid === targetUid ||
-          currentUser?.email.toLowerCase() === res.user.email.toLowerCase();
+          await refreshList();
+          setSelectedUserForAssign(null);
 
-        if (isCurrentActiveSession) {
-          saveAuthSession(res.user, loadStoredAuth().token || 'tok_valid');
-          if (onUserUpdated) {
-            onUserUpdated(res.user);
+          const isCurrentActiveSession =
+            currentUser?.id === res.user.id ||
+            currentUser?.uid === targetUid ||
+            currentUser?.email.toLowerCase() === res.user.email.toLowerCase();
+
+          if (isCurrentActiveSession) {
+            saveAuthSession(res.user, loadStoredAuth().token || 'tok_valid');
+            if (onUserUpdated) {
+              onUserUpdated(res.user);
+            }
           }
+          broadcastSessionRefresh(res.user);
+        } else {
+          showNotification('error', res.error || 'Failed setting traffic balance.');
         }
-        broadcastSessionRefresh(res.user);
       } else {
-        showNotification('error', res.error || 'Failed to assign traffic.');
+        // Add traffic mode
+        if (assignAmount <= 0) {
+          showNotification('error', 'Please specify a positive number of traffic visits.');
+          setIsAssigning(false);
+          return;
+        }
+
+        const currentBalance = Number(selectedUserForAssign.trafficBalance || 0);
+        const additional = Number(assignAmount);
+        const newBalance = currentBalance + additional;
+        const newTotalAssigned = Number(selectedUserForAssign.totalTrafficAssigned || 0) + additional;
+
+        // Perform a write operation to the Firestore 'users' collection
+        try {
+          await writeUserTrafficToFirestore(targetUid, newBalance, {
+            totalTrafficAssigned: newTotalAssigned,
+            isPaidUser: assignMarkAsPaid,
+            trafficStatus: assignMarkAsPaid ? 'paid_active' : 'trial_active',
+            tier: assignTier,
+            email: selectedUserForAssign.email,
+            name: selectedUserForAssign.name,
+          });
+        } catch (cloudErr) {
+          console.warn('[FIRESTORE] Direct write deferred:', cloudErr);
+        }
+
+        // Update server API and local persistence
+        const res = await adminAssignTraffic(
+          targetUid || selectedUserForAssign.id,
+          additional,
+          assignMarkAsPaid,
+          assignTier,
+          selectedUserForAssign.email
+        );
+
+        if (res.success && res.user) {
+          showNotification(
+            'success',
+            `Assigned +${additional.toLocaleString()} traffic visits to ${res.user.name}. New Balance: ${res.user.trafficBalance.toLocaleString()} visits.`
+          );
+
+          await refreshList();
+          setSelectedUserForAssign(null);
+
+          const isCurrentActiveSession =
+            currentUser?.id === res.user.id ||
+            currentUser?.uid === targetUid ||
+            currentUser?.email.toLowerCase() === res.user.email.toLowerCase();
+
+          if (isCurrentActiveSession) {
+            saveAuthSession(res.user, loadStoredAuth().token || 'tok_valid');
+            if (onUserUpdated) {
+              onUserUpdated(res.user);
+            }
+          }
+          broadcastSessionRefresh(res.user);
+        } else {
+          showNotification('error', res.error || 'Failed to assign traffic.');
+        }
       }
     } catch (err: any) {
-      showNotification('error', err?.message || 'Failed assigning traffic quota.');
+      showNotification('error', err?.message || 'Failed updating traffic quota.');
     } finally {
       setIsAssigning(false);
     }
   };
 
+  const handleBulkSetTrialCredits = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const quota = Math.max(0, Math.floor(Number(bulkTrialInput)));
+    if (!window.confirm(`Set all trial accounts to ${quota.toLocaleString()} credits and set default trial quota to ${quota.toLocaleString()}? This will immediately reduce or update any member currently on free trial.`)) {
+      return;
+    }
+    setIsBulkUpdatingTrial(true);
+    try {
+      const res = await adminBulkSetTrialCredits(quota);
+      if (res.success) {
+        setDefaultTrialQuota(quota);
+        showNotification('success', res.message || `Successfully updated all trial members to ${quota.toLocaleString()} credits.`);
+        await refreshList();
+      } else {
+        showNotification('error', res.error || 'Failed to bulk update trial credits.');
+      }
+    } catch (err: any) {
+      showNotification('error', err?.message || 'Error updating trial quota.');
+    } finally {
+      setIsBulkUpdatingTrial(false);
+    }
+  };
+
   const handleResetTrial = async (user: MemberUser) => {
-    if (!window.confirm(`Reset ${user.name}'s account back to the 100 Free Trial quota?`)) return;
+    if (!window.confirm(`Reset ${user.name}'s account back to the ${defaultTrialQuota.toLocaleString()} Free Trial quota?`)) return;
 
     try {
       // 1. Fetch targeted member's UID
@@ -362,10 +470,10 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
 
       // 2. Write to Firestore 'users' collection
       try {
-        await writeUserTrafficToFirestore(targetUid, 100, {
-          totalTrafficAssigned: 100,
+        await writeUserTrafficToFirestore(targetUid, defaultTrialQuota, {
+          totalTrafficAssigned: defaultTrialQuota,
           isPaidUser: false,
-          trafficStatus: 'trial_active',
+          trafficStatus: defaultTrialQuota <= 0 ? 'trial_exhausted' : 'trial_active',
           email: user.email,
           name: user.name,
         });
@@ -376,7 +484,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
       // 3. Reset on server and local storage
       const res = await adminResetUserTraffic(targetUid || user.id, user.email);
       if (res.success && res.user) {
-        showNotification('success', `Reset ${user.name}'s quota to 100 Free Trial units.`);
+        showNotification('success', `Reset ${user.name}'s quota to ${defaultTrialQuota.toLocaleString()} Free Trial units.`);
 
         // 4. Trigger state refresh for Admin UI
         await refreshList();
@@ -577,7 +685,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
 
           <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl">
             <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-              <span>Free Trial (500)</span>
+              <span>Free Trial ({defaultTrialQuota.toLocaleString()})</span>
               <Zap className="w-4 h-4 text-amber-400" />
             </div>
             <p className="text-xl font-bold text-amber-400">{totalTrial}</p>
@@ -590,6 +698,77 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
             </div>
             <p className="text-xl font-bold text-cyan-400">{totalVisitsAcrossAll.toLocaleString()}</p>
           </div>
+        </div>
+
+        {/* Global Free Trial Quota & Bulk Reducer Control Banner */}
+        <div className="p-4 bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-950 border-b border-amber-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0">
+              <SlidersHorizontal className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-100">Global Free Trial Quota Control</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">
+                  Active: {defaultTrialQuota.toLocaleString()} credits
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Set or reduce default trial credits for new accounts and bulk update all existing trial members to any custom amount.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleBulkSetTrialCredits} className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={bulkTrialInput}
+                onChange={(e) => setBulkTrialInput(Math.max(0, Number(e.target.value)))}
+                placeholder="Credits"
+                className="w-24 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs font-mono font-bold text-amber-300 focus:outline-none focus:border-amber-500"
+              />
+              <span className="text-xs text-slate-400">credits</span>
+            </div>
+
+            {/* Quick Presets */}
+            <div className="flex items-center gap-1">
+              {[25, 50, 100, 200, 500].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setBulkTrialInput(preset)}
+                  className={`px-2 py-1 text-[10px] font-mono rounded border transition-colors cursor-pointer ${
+                    bulkTrialInput === preset
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
+                      : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="submit"
+              disabled={isBulkUpdatingTrial}
+              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all shadow cursor-pointer flex items-center gap-1.5 shrink-0"
+            >
+              {isBulkUpdatingTrial ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Applying...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Apply & Bulk Set All</span>
+                </>
+              )}
+            </button>
+          </form>
         </div>
 
         {/* Search & Filter Bar */}
@@ -737,12 +916,22 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            onClick={() => handleOpenAssign(user)}
-                            title="Assign custom traffic quota"
+                            onClick={() => handleOpenAssign(user, 'set_exact')}
+                            title="Directly set or reduce credit balance to any amount"
+                            className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <Sliders className="w-3.5 h-3.5" />
+                            <span>Set / Reduce</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAssign(user, 'add_traffic')}
+                            title="Add additional traffic visits"
                             className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
                           >
                             <PlusCircle className="w-3.5 h-3.5" />
-                            <span>Assign Traffic</span>
+                            <span>Add</span>
                           </button>
 
                           {!isAdmin && (
@@ -759,7 +948,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleResetTrial(user)}
-                                title="Reset to 500 Free Trial visits"
+                                title={`Reset to ${defaultTrialQuota.toLocaleString()} Free Trial visits`}
                                 className="p-1.5 text-slate-400 hover:text-amber-300 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
@@ -1225,20 +1414,26 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
         )}
 
 
-        {/* Assign Traffic Sub-Modal */}
+        {/* Assign / Set / Reduce Traffic Sub-Modal */}
         {selectedUserForAssign && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
             <form
               onSubmit={handleConfirmAssign}
-              className="w-full max-w-md bg-slate-900 border border-emerald-500/50 rounded-2xl shadow-2xl p-6 space-y-4 text-slate-200"
+              className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6 space-y-4 text-slate-200"
             >
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center">
-                    <PlusCircle className="w-4 h-4" />
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                    assignMode === 'set_exact'
+                      ? 'bg-amber-500/20 border border-amber-500/40 text-amber-400'
+                      : 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400'
+                  }`}>
+                    {assignMode === 'set_exact' ? <Sliders className="w-4 h-4" /> : <PlusCircle className="w-4 h-4" />}
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-slate-100">Assign Paid Traffic Quota</h3>
+                    <h3 className="text-sm font-bold text-slate-100">
+                      {assignMode === 'set_exact' ? 'Set or Reduce Credit Balance' : 'Assign Additional Traffic'}
+                    </h3>
                     <p className="text-xs text-slate-400">{selectedUserForAssign.name} ({selectedUserForAssign.email})</p>
                   </div>
                 </div>
@@ -1251,47 +1446,159 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                 </button>
               </div>
 
+              {/* Mode Toggle Switch */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setAssignMode('set_exact')}
+                  className={`py-2 px-3 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    assignMode === 'set_exact'
+                      ? 'bg-amber-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Set Exact / Reduce</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssignMode('add_traffic')}
+                  className={`py-2 px-3 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    assignMode === 'add_traffic'
+                      ? 'bg-emerald-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Add Traffic (+ visits)</span>
+                </button>
+              </div>
+
               {/* Current Status */}
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-slate-400">Current Balance:</span>
-                <span className="font-mono font-bold text-emerald-400">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">Current Balance:</span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                    selectedUserForAssign.isPaidUser ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                  }`}>
+                    {selectedUserForAssign.isPaidUser ? 'Paid Member' : 'Free Trial'}
+                  </span>
+                </div>
+                <span className="font-mono font-bold text-amber-400 text-sm">
                   {(selectedUserForAssign.trafficBalance || 0).toLocaleString()} visits
                 </span>
               </div>
 
-              {/* Additional Traffic Input */}
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-slate-300">
-                  Additional Traffic Visits to Add
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  required
-                  value={assignAmount}
-                  onChange={(e) => setAssignAmount(Math.max(1, Number(e.target.value)))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
-                />
+              {/* Mode 1: Set Exact Balance */}
+              {assignMode === 'set_exact' && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      Target Exact Balance (Visits / Credits)
+                    </label>
+                    <span className="text-[11px] text-slate-400">Can be set or reduced to any amount</span>
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    required
+                    value={exactBalanceInput}
+                    onChange={(e) => setExactBalanceInput(Math.max(0, Number(e.target.value)))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono text-amber-300 focus:outline-none focus:border-amber-500"
+                  />
 
-                {/* Quick Preset Buttons */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {[500, 1000, 5000, 10000, 25000, 50000, 100000].map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      onClick={() => setAssignAmount(amt)}
-                      className={`text-[11px] px-2.5 py-1 rounded-lg border font-mono transition-colors cursor-pointer ${
-                        assignAmount === amt
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 font-bold'
-                          : 'bg-slate-800/80 text-slate-400 border-slate-700 hover:bg-slate-800 hover:text-slate-200'
-                      }`}
-                    >
-                      +{amt.toLocaleString()}
-                    </button>
-                  ))}
+                  {/* Presets */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {[0, 25, 50, 100, 250, 500, 1000, 5000].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setExactBalanceInput(amt)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border font-mono transition-colors cursor-pointer ${
+                          exactBalanceInput === amt
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
+                            : 'bg-slate-800/80 text-slate-400 border-slate-700 hover:bg-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        {amt === 0 ? '0 (Exhaust)' : `${amt.toLocaleString()} credits`}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Differential Indicator */}
+                  {(() => {
+                    const currentBal = Number(selectedUserForAssign.trafficBalance || 0);
+                    const diff = Number(exactBalanceInput) - currentBal;
+                    if (diff < 0) {
+                      return (
+                        <div className="p-2.5 bg-rose-950/40 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-center justify-between">
+                          <span>Balance Reduction:</span>
+                          <span className="font-mono font-bold">{diff.toLocaleString()} visits (Credits deducted)</span>
+                        </div>
+                      );
+                    } else if (diff > 0) {
+                      return (
+                        <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
+                          <span>Balance Increase:</span>
+                          <span className="font-mono font-bold">+{diff.toLocaleString()} visits (Credits added)</span>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-400 flex items-center justify-between">
+                          <span>Balance will remain:</span>
+                          <span className="font-mono text-slate-200">{currentBal.toLocaleString()} visits</span>
+                        </div>
+                      );
+                    }
+                  })()}
                 </div>
-              </div>
+              )}
+
+              {/* Mode 2: Add Traffic */}
+              {assignMode === 'add_traffic' && (
+                <div className="space-y-2.5">
+                  <label className="block text-xs font-semibold text-slate-300">
+                    Additional Traffic Visits to Add
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    required
+                    value={assignAmount}
+                    onChange={(e) => setAssignAmount(Math.max(1, Number(e.target.value)))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
+                  />
+
+                  {/* Quick Preset Buttons */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {[500, 1000, 5000, 10000, 25000, 50000, 100000].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setAssignAmount(amt)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border font-mono transition-colors cursor-pointer ${
+                          assignAmount === amt
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 font-bold'
+                            : 'bg-slate-800/80 text-slate-400 border-slate-700 hover:bg-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        +{amt.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* New Total Preview */}
+                  <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
+                    <span>New Total Balance:</span>
+                    <span className="font-mono font-bold text-sm">
+                      {((selectedUserForAssign.trafficBalance || 0) + Number(assignAmount)).toLocaleString()} visits
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Options */}
               <div className="space-y-3 pt-2">
@@ -1300,9 +1607,9 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                     type="checkbox"
                     checked={assignMarkAsPaid}
                     onChange={(e) => setAssignMarkAsPaid(e.target.checked)}
-                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-950 border-slate-700"
+                    className="w-4 h-4 rounded text-amber-500 focus:ring-amber-500 bg-slate-950 border-slate-700"
                   />
-                  <span>Mark as Official Paid Member (Removes 500 trial limit restrictions)</span>
+                  <span>Mark as Official Paid Member (Removes trial limit restrictions)</span>
                 </label>
 
                 <div>
@@ -1312,21 +1619,13 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                   <select
                     value={assignTier}
                     onChange={(e) => setAssignTier(e.target.value as MemberTier)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
                   >
                     <option value="starter">Starter Tier</option>
                     <option value="pro">Pro Tier</option>
                     <option value="enterprise">Enterprise Tier</option>
                   </select>
                 </div>
-              </div>
-
-              {/* New Total Preview */}
-              <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
-                <span>New Total Balance:</span>
-                <span className="font-mono font-bold text-sm">
-                  {((selectedUserForAssign.trafficBalance || 0) + Number(assignAmount)).toLocaleString()} visits
-                </span>
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-2">
@@ -1340,7 +1639,11 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                 <button
                   type="submit"
                   disabled={isAssigning}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                  className={`px-5 py-2 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                    assignMode === 'set_exact'
+                      ? 'bg-amber-600 hover:bg-amber-500'
+                      : 'bg-emerald-600 hover:bg-emerald-500'
+                  }`}
                 >
                   {isAssigning ? (
                     <>
@@ -1350,7 +1653,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Confirm & Assign</span>
+                      <span>{assignMode === 'set_exact' ? 'Confirm Exact Balance' : 'Confirm & Assign'}</span>
                     </>
                   )}
                 </button>
@@ -1362,12 +1665,14 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
         {/* Modal Footer */}
         <div className="p-4 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-amber-400" />
-            <span>Admin policy: Users get 500 visits free trial upon registration. All further traffic must be assigned here by admin.</span>
+            <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              Admin policy: Default trial quota is {defaultTrialQuota.toLocaleString()} visits upon registration. Admins have complete rights to reduce or increase any member's credits anytime.
+            </span>
           </div>
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition-colors"
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition-colors shrink-0 ml-4"
           >
             Close Panel
           </button>
