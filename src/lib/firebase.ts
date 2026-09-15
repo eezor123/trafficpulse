@@ -518,19 +518,25 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
 
     const sanitizeMemberData = (m: any) => {
       if (!m || typeof m !== 'object') return m;
+      const cleanEmail = String(m.email || '').toLowerCase().trim();
+      const cleanName = m.name || m.username || cleanEmail.split('@')[0] || 'Member';
       if (!m.isPaidUser && m.role !== 'admin') {
         let assigned = Number(m.totalTrafficAssigned ?? 100);
         let balance = Number(m.trafficBalance ?? 100);
-        if (assigned === 500 || assigned > 100) assigned = 100;
-        if (balance === 500 || balance > 100) balance = 100;
         return {
           ...m,
+          name: cleanName,
+          email: cleanEmail,
           totalTrafficAssigned: assigned,
           trafficBalance: balance,
-          trafficStatus: balance <= 0 ? 'trial_exhausted' : 'trial_active',
+          trafficStatus: balance <= 0 ? 'trial_exhausted' : (m.trafficStatus || 'trial_active'),
         };
       }
-      return m;
+      return {
+        ...m,
+        name: cleanName,
+        email: cleanEmail,
+      };
     };
 
     const mergeIn = (data: any) => {
@@ -563,16 +569,6 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
 
         const isPaid = Boolean(existing.isPaidUser || sanitized.isPaidUser);
         let finalAssigned = Math.max(existAssigned, newAssigned, 0);
-
-        // Enforce 100 trial quota cap for free trial members
-        if (!isPaid && existing.role !== 'admin' && sanitized.role !== 'admin') {
-          if (finalAssigned === 500 || finalAssigned > 100) {
-            finalAssigned = 100;
-          }
-          if (finalBal === 500 || finalBal > 100) {
-            finalBal = 100;
-          }
-        }
 
         const isExhausted = finalBal <= 0;
 

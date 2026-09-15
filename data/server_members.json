@@ -12,17 +12,17 @@
     "verificationTier": "top_rated_employer",
     "name": "Saron Needam",
     "id": "user_admin_1",
-    "lastLoginIp": "102.90.102.178",
+    "lastLoginIp": "102.90.100.254",
     "company": "TrafficPulse HQ (Super Admin)",
     "bankDetails": {
-      "accountNumber": "",
       "bankName": "Guaranty Trust Bank (GTBank)",
+      "accountNumber": "",
       "accountName": "Super Admin"
     },
     "rating": 5,
     "completedJobs": 25,
     "passwordHash": "Vivian123@",
-    "lastLoginAt": 1789402419040,
+    "lastLoginAt": 1789493869586,
     "bio": "Super Admin & Platform Compliance Officer.",
     "phoneNumber": "+2348030586729",
     "walletBalanceNgn": 5000000,
@@ -56,7 +56,7 @@
     "tier": "enterprise",
     "registrationIp": "102.90.102.116",
     "isBanned": false,
-    "updatedAt": 1789402419330
+    "updatedAt": 1789493869838
   },
   {
     "state": "Rivers",
@@ -64,13 +64,13 @@
     "verificationTier": "unverified",
     "isBanned": false,
     "address": "",
-    "updatedAt": 1789377099252,
+    "updatedAt": 1789493417296,
     "passwordHash": "vivian123",
     "joinedDate": "2026-08-01",
     "bankDetails": {
-      "accountName": "eezortech",
+      "accountNumber": "",
       "bankName": "Guaranty Trust Bank (GTBank)",
-      "accountNumber": ""
+      "accountName": "eezortech"
     },
     "role": "member",
     "hourlyRateNgn": 10000,
@@ -93,7 +93,7 @@
       "HR Consultant"
     ],
     "isRegistered": true,
-    "lastLoginAt": 1789376856813,
+    "lastLoginAt": 1789492829821,
     "completedJobs": 0,
     "trafficBalance": 0,
     "tier": "pro",
@@ -110,7 +110,7 @@
     "joinedAt": 1789280378300,
     "totalCampaignsRun": 0,
     "totalVisitsGenerated": 0,
-    "lastLoginIp": "102.90.116.49",
+    "lastLoginIp": "102.90.100.254",
     "company": ""
   },
   {
@@ -176,6 +176,7 @@
       "Digital Marketing"
     ],
     "totalTrafficAssigned": 100,
-    "trafficBalance": 100
+    "trafficBalance": 100,
+    "trafficStatus": "trial_active"
   }
 ]

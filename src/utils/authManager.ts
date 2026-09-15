@@ -98,7 +98,7 @@ function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
   }
 }
 
-function saveMembers(members: (MemberUser & { passwordHash: string })[]) {
+export function saveMembers(members: (MemberUser & { passwordHash?: string })[]) {
   try {
     localStorage.setItem(MEMBERS_DB_KEY, JSON.stringify(members));
   } catch (e) {

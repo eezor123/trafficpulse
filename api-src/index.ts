@@ -12,6 +12,11 @@ import {
   persistPending,
   removePending,
   listPendingVerifications,
+  deleteMember,
+  adminDirectSetTraffic,
+  bulkSetTrialCredits,
+  getServerConfig,
+  updateServerConfig,
   type ServerMember,
   type PendingVerification,
 } from '../src/server/memberStore.ts';
@@ -184,15 +189,107 @@ router.get('/auth/client-ip', (req: Request, res: Response) => {
 // Get all members for Admin Modal (passwords stripped)
 router.get('/auth/members', async (req: Request, res: Response) => {
   try {
-    const allMembers = await listAllMembers();
+    const isFresh = req.query.fresh === 'true';
+    const allMembers = await listAllMembers(isFresh);
+    const config = getServerConfig();
     const safeList = allMembers.map(({ passwordHash: _, ...safe }) => safe);
     res.json({
       success: true,
       members: safeList,
       totalCount: safeList.length,
+      defaultTrialQuota: config.defaultTrialQuota,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message || 'Failed to list members' });
+  }
+});
+
+// Admin endpoint: Set exact traffic credits to any amount (can reduce or increase)
+router.post('/auth/set-traffic', async (req: Request, res: Response) => {
+  const { userId, email, newBalance, totalAssigned, markAsPaid, tier } = req.body;
+  const identifier = userId || email;
+  if (!identifier || newBalance === undefined || isNaN(Number(newBalance)) || Number(newBalance) < 0) {
+    return res.status(400).json({ success: false, error: 'Valid user identifier and non-negative credit balance are required.' });
+  }
+  try {
+    const result = await adminDirectSetTraffic(
+      String(identifier),
+      Number(newBalance),
+      totalAssigned !== undefined ? Number(totalAssigned) : undefined,
+      markAsPaid,
+      tier
+    );
+    if (!result.success || !result.user) {
+      return res.status(404).json({ success: false, error: result.error || 'Failed setting member credit balance.' });
+    }
+    const { passwordHash: _, ...safeUser } = result.user;
+    return res.json({
+      success: true,
+      user: safeUser,
+      message: `Successfully set ${result.user.name}'s balance to ${result.user.trafficBalance.toLocaleString()} credits.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed setting traffic balance' });
+  }
+});
+
+// Admin endpoint: Bulk set / reduce all trial accounts to any custom credit amount
+router.post('/auth/bulk-set-trial-credits', async (req: Request, res: Response) => {
+  const { targetCredits } = req.body;
+  if (targetCredits === undefined || isNaN(Number(targetCredits)) || Number(targetCredits) < 0) {
+    return res.status(400).json({ success: false, error: 'A valid non-negative number is required for targetCredits' });
+  }
+  try {
+    const amount = Math.floor(Number(targetCredits));
+    const result = await bulkSetTrialCredits(amount);
+    const safeList = result.members.map(({ passwordHash: _, ...safe }) => safe);
+    return res.json({
+      success: true,
+      count: result.count,
+      defaultTrialQuota: amount,
+      members: safeList,
+      message: `Successfully updated ${result.count} trial members to ${amount.toLocaleString()} credits.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed bulk updating trial credits' });
+  }
+});
+
+// Admin endpoint: Get current trial settings
+router.get('/admin/trial-settings', async (_req: Request, res: Response) => {
+  try {
+    const config = getServerConfig();
+    res.json({ success: true, defaultTrialQuota: config.defaultTrialQuota });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed getting trial settings' });
+  }
+});
+
+// Admin endpoint: Alias for trial settings
+router.get('/auth/trial-settings', async (_req: Request, res: Response) => {
+  try {
+    const config = getServerConfig();
+    res.json({ success: true, defaultTrialQuota: config.defaultTrialQuota });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed getting trial settings' });
+  }
+});
+
+// Admin endpoint: Update default trial settings
+router.post('/admin/trial-settings', async (req: Request, res: Response) => {
+  const { defaultTrialQuota } = req.body;
+  if (defaultTrialQuota === undefined || isNaN(Number(defaultTrialQuota)) || Number(defaultTrialQuota) < 0) {
+    return res.status(400).json({ success: false, error: 'A valid non-negative number is required for defaultTrialQuota' });
+  }
+  try {
+    const updated = updateServerConfig({ defaultTrialQuota: Math.floor(Number(defaultTrialQuota)) });
+    res.json({
+      success: true,
+      defaultTrialQuota: updated.defaultTrialQuota,
+      message: `Default trial quota set to ${updated.defaultTrialQuota.toLocaleString()} credits.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed updating trial settings' });
   }
 });
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MemberUser, MemberTier } from '../types';
 import {
   getAllMembers,
+  saveMembers,
   adminAssignTraffic,
   adminSetUserExactTraffic,
   adminBulkSetTrialCredits,
@@ -68,7 +69,15 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   onUserUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<'members' | 'email'>('members');
-  const [members, setMembers] = useState<MemberUser[]>([]);
+  const [members, setMembers] = useState<MemberUser[]>(() => {
+    try {
+      const local = getAllMembers();
+      return Array.isArray(local) ? local : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isLoadingMembers, setIsLoadingMembers] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUserForAssign, setSelectedUserForAssign] = useState<MemberUser | null>(null);
   const [assignMode, setAssignMode] = useState<'set_exact' | 'add_traffic'>('set_exact');
@@ -205,22 +214,26 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
   };
 
   const refreshList = async () => {
+    setIsLoadingMembers(true);
     try {
       const res = await fetch('/api/auth/members?fresh=true&t=' + Date.now());
       if (res.ok) {
         const data = await res.json();
-        if (data.success && Array.isArray(data.members)) {
+        if (data.success && Array.isArray(data.members) && data.members.length > 0) {
           setMembers(data.members);
+          saveMembers(data.members as any);
           if (typeof data.defaultTrialQuota === 'number') {
             setDefaultTrialQuota(data.defaultTrialQuota);
             setBulkTrialInput(data.defaultTrialQuota);
           }
+          setIsLoadingMembers(false);
           return;
         }
       }
-    } catch {
-      // fallback to Firestore cloud or local store
+    } catch (err) {
+      console.warn('[ADMIN] Failed to fetch /api/auth/members:', err);
     }
+
     try {
       const settings = await adminGetTrialSettings();
       if (typeof settings.defaultTrialQuota === 'number') {
@@ -228,15 +241,24 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
         setBulkTrialInput(settings.defaultTrialQuota);
       }
     } catch {}
+
     try {
       const cloudMembers = await getAllMembersFromCloud();
       if (cloudMembers && cloudMembers.length > 0) {
         setMembers(cloudMembers);
+        saveMembers(cloudMembers as any);
+        setIsLoadingMembers(false);
         return;
       }
-    } catch {}
+    } catch (cloudErr) {
+      console.warn('[ADMIN] Failed to get cloud members from Firestore:', cloudErr);
+    }
+
     const list = getAllMembers();
-    setMembers(list);
+    if (list && list.length > 0) {
+      setMembers(list);
+    }
+    setIsLoadingMembers(false);
   };
 
   const handleSendTestEmail = async (e: React.FormEvent) => {
@@ -281,17 +303,20 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
     setTimeout(() => setActionNotice(null), 4000);
   };
 
-  const filteredMembers = members.filter(
-    (m) =>
-      m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (m.company && m.company.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const filteredMembers = members.filter((m) => {
+    if (!m) return false;
+    const name = String(m.name || m.username || m.email?.split('@')[0] || '').toLowerCase();
+    const email = String(m.email || '').toLowerCase();
+    const company = String(m.company || '').toLowerCase();
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return true;
+    return name.includes(query) || email.includes(query) || company.includes(query);
+  });
 
   const totalUsers = members.length;
-  const totalPaid = members.filter((m) => m.isPaidUser || m.role === 'admin').length;
-  const totalTrial = totalUsers - totalPaid;
-  const totalVisitsAcrossAll = members.reduce((acc, m) => acc + (m.totalVisitsGenerated || 0), 0);
+  const totalPaid = members.filter((m) => Boolean(m?.isPaidUser || m?.role === 'admin')).length;
+  const totalTrial = Math.max(0, totalUsers - totalPaid);
+  const totalVisitsAcrossAll = members.reduce((acc, m) => acc + (Number(m?.totalVisitsGenerated) || 0), 0);
 
   const handleOpenAssign = (user: MemberUser, mode: 'set_exact' | 'add_traffic' = 'set_exact') => {
     setSelectedUserForAssign(user);
@@ -772,8 +797,8 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
         </div>
 
         {/* Search & Filter Bar */}
-        <div className="p-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-md">
+        <div className="p-4 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+          <div className="relative flex-1 min-w-[240px] max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -783,8 +808,20 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
               className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-amber-500"
             />
           </div>
-          <div className="text-xs text-slate-400">
-            Showing <strong className="text-slate-200">{filteredMembers.length}</strong> of {totalUsers} users
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={refreshList}
+              disabled={isLoadingMembers}
+              title="Refresh members directory from server and database"
+              className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingMembers ? 'animate-spin text-amber-400' : 'text-slate-400'}`} />
+              <span>{isLoadingMembers ? 'Refreshing...' : 'Refresh'}</span>
+            </button>
+            <div className="text-xs text-slate-400 whitespace-nowrap">
+              Showing <strong className="text-slate-200">{filteredMembers.length}</strong> of {totalUsers} users
+            </div>
           </div>
         </div>
 
@@ -803,51 +840,90 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {filteredMembers.map((user) => {
-                  const isAdmin = user.role === 'admin';
-                  const isPaid = user.isPaidUser;
-                  const balance = Number(user.trafficBalance ?? (isAdmin ? 10000000 : (user.isPaidUser ? 0 : (user.totalTrafficAssigned || 100))));
+                {isLoadingMembers && members.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center">
+                      <div className="flex flex-col items-center justify-center">
+                        <RefreshCw className="w-6 h-6 text-amber-500 animate-spin mb-3" />
+                        <p className="text-sm font-semibold text-slate-200">Loading registered members...</p>
+                        <p className="text-xs text-slate-500 mt-1">Connecting to server & cloud database</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredMembers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center">
+                      <div className="flex flex-col items-center justify-center">
+                        <Users className="w-8 h-8 text-slate-600 mb-2" />
+                        <p className="text-sm font-semibold text-slate-300">
+                          {searchQuery ? `No members found matching "${searchQuery}"` : 'No registered members found'}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {searchQuery ? 'Try adjusting your search query' : 'Registered members will appear here'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={refreshList}
+                          className="mt-3 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Reload Members</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMembers.map((user) => {
+                    const isAdmin = user.role === 'admin';
+                    const isPaid = Boolean(user.isPaidUser);
+                    const displayName = user.name || user.username || user.email?.split('@')[0] || 'Member';
+                    const displayEmail = user.email || 'No email';
+                    const displayRole = user.role || 'member';
+                    const displayTier = user.tier || (isAdmin ? 'enterprise' : 'starter');
+                    const initialLetter = (displayName.charAt(0) || 'U').toUpperCase();
+                    const totalAssigned = Number(user.totalTrafficAssigned ?? (isAdmin ? 10000000 : 100));
+                    const balance = Number(user.trafficBalance ?? (isAdmin ? 10000000 : (isPaid ? 0 : totalAssigned)));
 
-                  return (
-                    <tr key={user.id} className="hover:bg-slate-800/40 transition-colors">
-                      {/* User Info */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-2.5">
-                          <div
-                            className={`w-8 h-8 rounded-full ${
-                              isAdmin ? 'bg-amber-600' : 'bg-slate-700'
-                            } text-white flex items-center justify-center font-bold text-xs shrink-0`}
-                          >
-                            {user.name.charAt(0).toUpperCase()}
+                    return (
+                      <tr key={user.id || user.email} className="hover:bg-slate-800/40 transition-colors">
+                        {/* User Info */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className={`w-8 h-8 rounded-full ${
+                                isAdmin ? 'bg-amber-600' : 'bg-slate-700'
+                              } text-white flex items-center justify-center font-bold text-xs shrink-0`}
+                            >
+                              {initialLetter}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-100 truncate">{displayName}</p>
+                              <p className="text-[11px] text-slate-400 truncate">{displayEmail}</p>
+                              {user.registrationIp && (
+                                <p className="text-[10px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
+                                  <Globe className="w-2.5 h-2.5 text-slate-400" />
+                                  <span>IP: {user.registrationIp}</span>
+                                </p>
+                              )}
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="font-semibold text-slate-100 truncate">{user.name}</p>
-                            <p className="text-[11px] text-slate-400 truncate">{user.email}</p>
-                            {user.registrationIp && (
-                              <p className="text-[10px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
-                                <Globe className="w-2.5 h-2.5 text-slate-400" />
-                                <span>IP: {user.registrationIp}</span>
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Role & Tier */}
-                      <td className="py-3.5 px-4">
-                        <div className="space-y-1">
-                          <span
-                            className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                              isAdmin
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                                : 'bg-slate-800 text-slate-300 border border-slate-700'
-                            }`}
-                          >
-                            {user.role}
-                          </span>
-                          <p className="text-[10px] text-slate-400 capitalize">{user.tier} Tier</p>
-                        </div>
-                      </td>
+                        {/* Role & Tier */}
+                        <td className="py-3.5 px-4">
+                          <div className="space-y-1">
+                            <span
+                              className={`inline-block text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                isAdmin
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : 'bg-slate-800 text-slate-300 border border-slate-700'
+                              }`}
+                            >
+                              {displayRole}
+                            </span>
+                            <p className="text-[10px] text-slate-400 capitalize">{displayTier} Tier</p>
+                          </div>
+                        </td>
 
                       {/* Traffic Status */}
                       <td className="py-3.5 px-4">
@@ -968,8 +1044,9 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                       </td>
                     </tr>
                   );
-                })}
-              </tbody>
+                })
+              )}
+            </tbody>
             </table>
           </div>
         </div>
