@@ -67,26 +67,15 @@ function getStoredMembers(): (MemberUser & { passwordHash: string })[] {
         m.isPaidUser = true;
         m.trafficStatus = 'unlimited';
       } else {
-        // Strip legacy 500 credits across all members
-        if (m.trafficBalance === 500) {
+        if (m.trafficBalance === undefined || m.trafficBalance === null) {
           m.trafficBalance = 100;
         }
-        if (m.totalTrafficAssigned === 500) {
-          m.totalTrafficAssigned = 100;
+        if (m.totalTrafficAssigned === undefined || m.totalTrafficAssigned === null) {
+          m.totalTrafficAssigned = m.trafficBalance;
         }
-        if ((m as any).customVisitsLimit === 500) {
-          (m as any).customVisitsLimit = 100;
-        }
-
-        if (!m.isPaidUser) {
-          if (m.totalTrafficAssigned === undefined || m.totalTrafficAssigned === null || m.totalTrafficAssigned > 100) {
-            m.totalTrafficAssigned = 100;
-          }
-          if (m.trafficBalance === undefined || m.trafficBalance === null || m.trafficBalance > 100) {
-            m.trafficBalance = 100;
-          }
-          m.trafficStatus = (m.trafficBalance !== undefined && m.trafficBalance <= 0) ? 'trial_exhausted' : 'trial_active';
-        }
+        m.trafficStatus = (m.trafficBalance <= 0)
+          ? (m.isPaidUser ? 'paid_exhausted' : 'trial_exhausted')
+          : (m.isPaidUser ? 'paid_active' : 'trial_active');
       }
     }
 
@@ -119,21 +108,21 @@ export function loadStoredAuth(): AuthState {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.isAuthenticated && parsed.user) {
         const user = parsed.user as MemberUser;
-        // Ensure traffic balance fields exist and legacy 500 is reset to 100
         if (user.role === 'admin') {
           user.trafficBalance = user.trafficBalance || 10000000;
           user.totalTrafficAssigned = user.totalTrafficAssigned || 10000000;
           user.isPaidUser = true;
           user.trafficStatus = 'unlimited';
-        } else if (!user.isPaidUser) {
-          if (user.totalTrafficAssigned === 500 || user.totalTrafficAssigned === undefined || user.totalTrafficAssigned === null || user.totalTrafficAssigned > 100) {
-            user.totalTrafficAssigned = 100;
-          }
-          if (user.trafficBalance === 500 || user.trafficBalance === undefined || user.trafficBalance === null || user.trafficBalance > 100) {
+        } else {
+          if (user.trafficBalance === undefined || user.trafficBalance === null) {
             user.trafficBalance = 100;
           }
-          user.isPaidUser = false;
-          user.trafficStatus = (user.trafficBalance !== undefined && user.trafficBalance <= 0) ? 'trial_exhausted' : 'trial_active';
+          if (user.totalTrafficAssigned === undefined || user.totalTrafficAssigned === null) {
+            user.totalTrafficAssigned = user.trafficBalance;
+          }
+          user.trafficStatus = (user.trafficBalance <= 0)
+            ? (user.isPaidUser ? 'paid_exhausted' : 'trial_exhausted')
+            : (user.isPaidUser ? 'paid_active' : 'trial_active');
         }
         return {
           isAuthenticated: true,
@@ -595,29 +584,15 @@ export async function fetchFreshUserProfile(userHint?: {
           // If cloud user OR server user has balance <= 0 or status exhausted, exhaustion is permanent!
           let effectiveBal = freshUser.trafficBalance ?? 0;
           if (safeCloudUser.trafficBalance !== undefined) {
-            const cBal = Number(safeCloudUser.trafficBalance);
-            if (cBal <= 0 || safeCloudUser.trafficStatus?.includes('exhausted')) {
-              effectiveBal = 0;
-            } else if (freshUser.trafficBalance !== undefined && (freshUser.trafficBalance <= 0 || freshUser.trafficStatus?.includes('exhausted'))) {
-              effectiveBal = 0;
-            } else {
-              // Keep the lower balance so visits already consumed are never restored
-              effectiveBal = Math.min(Number(freshUser.trafficBalance), cBal);
-            }
+            effectiveBal = Number(safeCloudUser.trafficBalance);
           }
 
-          const isPaid = (safeCloudUser.isPaidUser !== undefined ? safeCloudUser.isPaidUser : freshUser.isPaidUser);
-          let finalAssigned = Math.max(freshUser.totalTrafficAssigned || 0, safeCloudUser.totalTrafficAssigned || 0);
-
-          if (!isPaid && freshUser.role !== 'admin') {
-            if (finalAssigned === 500 || finalAssigned > 100) {
-              finalAssigned = 100;
-            }
-            if (effectiveBal === 500 || effectiveBal > 100) {
-              effectiveBal = 100;
-            }
-          }
-
+          const isPaid = (safeCloudUser.isPaidUser !== undefined ? Boolean(safeCloudUser.isPaidUser) : Boolean(freshUser.isPaidUser));
+          const finalAssigned = Math.max(
+            Number(freshUser.totalTrafficAssigned || 0),
+            Number(safeCloudUser.totalTrafficAssigned || 0),
+            effectiveBal
+          );
           const isExhausted = effectiveBal <= 0;
 
           freshUser = {
@@ -628,7 +603,7 @@ export async function fetchFreshUserProfile(userHint?: {
             isPaidUser: isPaid,
             trafficStatus: isExhausted
               ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
-              : (safeCloudUser.trafficStatus || freshUser.trafficStatus),
+              : (isPaid ? 'paid_active' : 'trial_active'),
             tier: safeCloudUser.tier || freshUser.tier,
           };
         }
@@ -646,25 +621,9 @@ export async function fetchFreshUserProfile(userHint?: {
         ...currentAuth.user,
         ...freshUser,
       };
-      if (!mergedUser.isPaidUser && mergedUser.role !== 'admin') {
-        if (mergedUser.totalTrafficAssigned === 500 || (mergedUser.totalTrafficAssigned && mergedUser.totalTrafficAssigned > 100)) {
-          mergedUser.totalTrafficAssigned = 100;
-        }
-        if (mergedUser.trafficBalance === 500 || (mergedUser.trafficBalance && mergedUser.trafficBalance > 100)) {
-          mergedUser.trafficBalance = 100;
-        }
-      }
       saveAuthSession(mergedUser, currentAuth.token || 'tok_valid');
       broadcastSessionRefresh(mergedUser);
       return mergedUser;
-    }
-    if (!freshUser.isPaidUser && freshUser.role !== 'admin') {
-      if (freshUser.totalTrafficAssigned === 500 || (freshUser.totalTrafficAssigned && freshUser.totalTrafficAssigned > 100)) {
-        freshUser.totalTrafficAssigned = 100;
-      }
-      if (freshUser.trafficBalance === 500 || (freshUser.trafficBalance && freshUser.trafficBalance > 100)) {
-        freshUser.trafficBalance = 100;
-      }
     }
     return freshUser;
   }
@@ -707,28 +666,15 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
         if (cloudUser && cloudUser.email) {
           let effectiveBal = finalUser.trafficBalance ?? 0;
           if (cloudUser.trafficBalance !== undefined) {
-            const cBal = Number(cloudUser.trafficBalance);
-            if (cBal <= 0 || cloudUser.trafficStatus?.includes('exhausted')) {
-              effectiveBal = 0;
-            } else if (finalUser.trafficBalance !== undefined && (finalUser.trafficBalance <= 0 || finalUser.trafficStatus?.includes('exhausted'))) {
-              effectiveBal = 0;
-            } else {
-              effectiveBal = Math.min(Number(finalUser.trafficBalance), cBal);
-            }
+            effectiveBal = Number(cloudUser.trafficBalance);
           }
 
-          const isPaid = (cloudUser.isPaidUser !== undefined ? cloudUser.isPaidUser : finalUser.isPaidUser);
-          let finalAssigned = Math.max(finalUser.totalTrafficAssigned || 0, cloudUser.totalTrafficAssigned || finalUser.trafficBalance || 0);
-
-          if (!isPaid && finalUser.role !== 'admin') {
-            if (finalAssigned === 500 || finalAssigned > 100) {
-              finalAssigned = 100;
-            }
-            if (effectiveBal === 500 || effectiveBal > 100) {
-              effectiveBal = 100;
-            }
-          }
-
+          const isPaid = (cloudUser.isPaidUser !== undefined ? Boolean(cloudUser.isPaidUser) : Boolean(finalUser.isPaidUser));
+          const finalAssigned = Math.max(
+            Number(finalUser.totalTrafficAssigned || 0),
+            Number(cloudUser.totalTrafficAssigned || 0),
+            effectiveBal
+          );
           const isExhausted = effectiveBal <= 0;
 
           finalUser = {
@@ -738,20 +684,11 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
             isPaidUser: isPaid,
             trafficStatus: isExhausted
               ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
-              : (cloudUser.trafficStatus || finalUser.trafficStatus),
+              : (isPaid ? 'paid_active' : 'trial_active'),
             tier: cloudUser.tier || finalUser.tier,
           };
         }
       } catch {}
-
-      if (!finalUser.isPaidUser && finalUser.role !== 'admin') {
-        if (finalUser.totalTrafficAssigned === 500 || (finalUser.totalTrafficAssigned && finalUser.totalTrafficAssigned > 100)) {
-          finalUser.totalTrafficAssigned = 100;
-        }
-        if (finalUser.trafficBalance === 500 || (finalUser.trafficBalance && finalUser.trafficBalance > 100)) {
-          finalUser.trafficBalance = 100;
-        }
-      }
 
       saveAuthSession(finalUser, data.token);
       const members = getStoredMembers();
@@ -916,28 +853,15 @@ export async function loginWithGoogle(customProfile?: {
         if (cloudUser && cloudUser.email) {
           let effectiveBal = finalUser.trafficBalance ?? 0;
           if (cloudUser.trafficBalance !== undefined) {
-            const cBal = Number(cloudUser.trafficBalance);
-            if (cBal <= 0 || cloudUser.trafficStatus?.includes('exhausted')) {
-              effectiveBal = 0;
-            } else if (finalUser.trafficBalance !== undefined && (finalUser.trafficBalance <= 0 || finalUser.trafficStatus?.includes('exhausted'))) {
-              effectiveBal = 0;
-            } else {
-              effectiveBal = Math.min(Number(finalUser.trafficBalance), cBal);
-            }
+            effectiveBal = Number(cloudUser.trafficBalance);
           }
 
-          const isPaid = (cloudUser.isPaidUser !== undefined ? cloudUser.isPaidUser : finalUser.isPaidUser);
-          let finalAssigned = Math.max(finalUser.totalTrafficAssigned || 0, cloudUser.totalTrafficAssigned || finalUser.trafficBalance || 0);
-
-          if (!isPaid && finalUser.role !== 'admin') {
-            if (finalAssigned === 500 || finalAssigned > 100) {
-              finalAssigned = 100;
-            }
-            if (effectiveBal === 500 || effectiveBal > 100) {
-              effectiveBal = 100;
-            }
-          }
-
+          const isPaid = (cloudUser.isPaidUser !== undefined ? Boolean(cloudUser.isPaidUser) : Boolean(finalUser.isPaidUser));
+          const finalAssigned = Math.max(
+            Number(finalUser.totalTrafficAssigned || 0),
+            Number(cloudUser.totalTrafficAssigned || 0),
+            effectiveBal
+          );
           const isExhausted = effectiveBal <= 0;
 
           finalUser = {
@@ -947,20 +871,11 @@ export async function loginWithGoogle(customProfile?: {
             isPaidUser: isPaid,
             trafficStatus: isExhausted
               ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
-              : (cloudUser.trafficStatus || finalUser.trafficStatus),
+              : (isPaid ? 'paid_active' : 'trial_active'),
             tier: cloudUser.tier || finalUser.tier,
           };
         }
       } catch {}
-
-      if (!finalUser.isPaidUser && finalUser.role !== 'admin') {
-        if (finalUser.totalTrafficAssigned === 500 || (finalUser.totalTrafficAssigned && finalUser.totalTrafficAssigned > 100)) {
-          finalUser.totalTrafficAssigned = 100;
-        }
-        if (finalUser.trafficBalance === 500 || (finalUser.trafficBalance && finalUser.trafficBalance > 100)) {
-          finalUser.trafficBalance = 100;
-        }
-      }
 
       saveAuthSession(finalUser, data.token);
       // Sync local members
@@ -1725,6 +1640,20 @@ export async function adminSetUserExactTraffic(
     finalUser = safeUser;
   } else {
     return { success: false, error: 'Member not found.' };
+  }
+
+  // Update Firestore directly
+  try {
+    await writeUserTrafficToFirestore(finalUser.uid || finalUser.id, bal, {
+      totalTrafficAssigned: finalUser.totalTrafficAssigned,
+      isPaidUser: finalUser.isPaidUser,
+      trafficStatus: finalUser.trafficStatus,
+      tier: finalUser.tier,
+      email: finalUser.email,
+      name: finalUser.name,
+    });
+  } catch (cloudErr) {
+    console.warn('[FIRESTORE] Direct set write note:', cloudErr);
   }
 
   // Update session if editing self

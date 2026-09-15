@@ -320,33 +320,16 @@ export async function saveMemberToCloud(member: any): Promise<boolean> {
     try {
       const existingCloud = await getMemberFromCloud(cleanEmail);
       if (existingCloud) {
-        // If member or existing cloud is exhausted, balance must remain 0
-        if (member.trafficBalance === 0 || member.trafficStatus?.includes('exhausted')) {
-          authoritativeBalance = 0;
-        } else if (existingCloud.trafficBalance === 0 || existingCloud.trafficStatus?.includes('exhausted')) {
-          authoritativeBalance = 0;
-        } else if (existingCloud.trafficBalance !== undefined && member.trafficBalance === undefined) {
+        if (member.trafficBalance !== undefined) {
+          authoritativeBalance = Number(member.trafficBalance);
+        } else if (existingCloud.trafficBalance !== undefined) {
           authoritativeBalance = Number(existingCloud.trafficBalance);
-        } else if (existingCloud.trafficBalance !== undefined && member.trafficBalance !== undefined) {
-          // Keep the lower balance so consumed visits are never reverted
-          authoritativeBalance = Math.min(Number(existingCloud.trafficBalance), Number(member.trafficBalance));
         }
 
-        if (existingCloud.totalTrafficAssigned !== undefined && existingCloud.totalTrafficAssigned > authoritativeAssigned) {
-          authoritativeAssigned = Number(existingCloud.totalTrafficAssigned);
-        }
+        const cloudAssigned = Number(existingCloud.totalTrafficAssigned || 0);
+        authoritativeAssigned = Math.max(authoritativeAssigned, cloudAssigned, authoritativeBalance);
         if (existingCloud.isPaidUser) {
           authoritativePaid = true;
-        }
-
-        // Enforce 100 trial quota cap for free trial members
-        if (!authoritativePaid && member.role !== 'admin') {
-          if (authoritativeAssigned === 500 || authoritativeAssigned > 100) {
-            authoritativeAssigned = 100;
-          }
-          if (authoritativeBalance === 500 || authoritativeBalance > 100) {
-            authoritativeBalance = 100;
-          }
         }
       }
     } catch {}
@@ -489,15 +472,13 @@ export async function getMemberFromCloud(emailOrUsername: string): Promise<any |
     } catch {}
 
     if (bestCandidate && !bestCandidate.isPaidUser && bestCandidate.role !== 'admin') {
-      if (bestCandidate.totalTrafficAssigned === 500 || (bestCandidate.totalTrafficAssigned !== undefined && bestCandidate.totalTrafficAssigned > 100)) {
+      if (bestCandidate.totalTrafficAssigned === undefined || bestCandidate.totalTrafficAssigned === null) {
         bestCandidate.totalTrafficAssigned = 100;
       }
-      if (bestCandidate.trafficBalance === 500 || (bestCandidate.trafficBalance !== undefined && bestCandidate.trafficBalance > 100)) {
+      if (bestCandidate.trafficBalance === undefined || bestCandidate.trafficBalance === null) {
         bestCandidate.trafficBalance = 100;
       }
-      if (bestCandidate.trafficBalance <= 0) {
-        bestCandidate.trafficStatus = 'trial_exhausted';
-      }
+      bestCandidate.trafficStatus = bestCandidate.trafficBalance <= 0 ? 'trial_exhausted' : 'trial_active';
     }
 
     return bestCandidate;
@@ -520,22 +501,20 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
       if (!m || typeof m !== 'object') return m;
       const cleanEmail = String(m.email || '').toLowerCase().trim();
       const cleanName = m.name || m.username || cleanEmail.split('@')[0] || 'Member';
-      if (!m.isPaidUser && m.role !== 'admin') {
-        let assigned = Number(m.totalTrafficAssigned ?? 100);
-        let balance = Number(m.trafficBalance ?? 100);
-        return {
-          ...m,
-          name: cleanName,
-          email: cleanEmail,
-          totalTrafficAssigned: assigned,
-          trafficBalance: balance,
-          trafficStatus: balance <= 0 ? 'trial_exhausted' : (m.trafficStatus || 'trial_active'),
-        };
-      }
+      const isPaid = Boolean(m.isPaidUser);
+      let balance = m.trafficBalance !== undefined ? Number(m.trafficBalance) : (isPaid ? 1000 : 100);
+      let assigned = m.totalTrafficAssigned !== undefined ? Number(m.totalTrafficAssigned) : Math.max(balance, 100);
+      const isExhausted = balance <= 0;
       return {
         ...m,
         name: cleanName,
         email: cleanEmail,
+        totalTrafficAssigned: assigned,
+        trafficBalance: balance,
+        isPaidUser: isPaid,
+        trafficStatus: isExhausted
+          ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
+          : (isPaid ? 'paid_active' : 'trial_active'),
       };
     };
 
@@ -552,27 +531,21 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
         const existAssigned = Number(existing.totalTrafficAssigned ?? -1);
         const newAssigned = Number(sanitized.totalTrafficAssigned ?? -1);
 
-        // If either record is exhausted (0 balance or exhausted status), user is strictly exhausted
+        // Prioritize newer or positive updated balance
         let finalBal = 0;
-        if (
-          existBal === 0 ||
-          newBal === 0 ||
-          existing.trafficStatus?.includes('exhausted') ||
-          sanitized.trafficStatus?.includes('exhausted')
-        ) {
-          finalBal = 0;
-        } else if (existBal > 0 && newBal > 0) {
-          finalBal = Math.min(existBal, newBal);
+        if (sanitized.updatedAt && existing.updatedAt) {
+          finalBal = sanitized.updatedAt >= existing.updatedAt ? newBal : existBal;
+        } else if (newBal >= 0 && existBal >= 0) {
+          finalBal = Math.max(existBal, newBal);
         } else {
           finalBal = Math.max(existBal, newBal, 0);
         }
 
         const isPaid = Boolean(existing.isPaidUser || sanitized.isPaidUser);
-        let finalAssigned = Math.max(existAssigned, newAssigned, 0);
-
+        let finalAssigned = Math.max(existAssigned, newAssigned, finalBal);
         const isExhausted = finalBal <= 0;
 
-        membersMap.set(emailLower, sanitizeMemberData({
+        membersMap.set(emailLower, {
           ...existing,
           ...sanitized,
           trafficBalance: finalBal,
@@ -581,8 +554,8 @@ export async function getAllMembersFromCloud(): Promise<any[]> {
           tier: sanitized.tier || existing.tier,
           trafficStatus: isExhausted
             ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
-            : (isPaid ? 'paid_active' : (sanitized.trafficStatus || existing.trafficStatus || 'trial_active')),
-        }));
+            : (isPaid ? 'paid_active' : 'trial_active'),
+        });
       }
     };
 

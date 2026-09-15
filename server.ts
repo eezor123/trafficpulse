@@ -304,37 +304,17 @@ async function startServer() {
       const existing = await findMember(cleanEmail, true);
 
       // Determine authoritative traffic balance:
-      // If member reports 0 or exhausted, it must NOT be overwritten with old positive balance!
       let authoritativeBalance = existing?.trafficBalance;
       if (member.trafficBalance !== undefined) {
-        const incoming = Number(member.trafficBalance);
-        if (incoming <= 0 || member.trafficStatus?.includes('exhausted')) {
-          authoritativeBalance = 0;
-        } else if (existing?.trafficBalance !== undefined) {
-          if (existing.trafficBalance <= 0 || existing.trafficStatus?.includes('exhausted')) {
-            authoritativeBalance = 0;
-          } else {
-            // Keep the lower balance (more visits consumed)
-            authoritativeBalance = Math.min(existing.trafficBalance, incoming);
-          }
-        } else {
-          authoritativeBalance = incoming;
-        }
+        authoritativeBalance = Number(member.trafficBalance);
       }
 
-      const isPaid = Boolean(member.isPaidUser || existing?.isPaidUser);
-      const isAdmin = member.role === 'admin' || existing?.role === 'admin';
-      let finalAssigned = Math.max(existing?.totalTrafficAssigned || 0, Number(member.totalTrafficAssigned || 0));
-
-      // Enforce 100 trial quota cap
-      if (!isPaid && !isAdmin) {
-        if (finalAssigned === 500 || finalAssigned > 100) {
-          finalAssigned = 100;
-        }
-        if (authoritativeBalance === 500 || (authoritativeBalance !== undefined && authoritativeBalance > 100)) {
-          authoritativeBalance = 100;
-        }
-      }
+      const isPaid = Boolean(member.isPaidUser !== undefined ? member.isPaidUser : existing?.isPaidUser);
+      let finalAssigned = Math.max(
+        Number(existing?.totalTrafficAssigned || 0),
+        Number(member.totalTrafficAssigned || 0),
+        Number(authoritativeBalance || 0)
+      );
 
       const updated: ServerMember = {
         ...(existing || {}),
@@ -342,6 +322,7 @@ async function startServer() {
         email: cleanEmail,
         trafficBalance: authoritativeBalance,
         totalTrafficAssigned: finalAssigned,
+        isPaidUser: isPaid,
         lastLoginAt: Date.now(),
       };
       await persistMember(updated);

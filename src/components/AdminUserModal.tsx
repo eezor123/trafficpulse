@@ -215,23 +215,56 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
 
   const refreshList = async () => {
     setIsLoadingMembers(true);
+    const allMerged = new Map<string, MemberUser>();
+
+    // Seed with local members first so no user ever disappears
+    try {
+      const local = getAllMembers();
+      if (Array.isArray(local)) {
+        local.forEach(m => {
+          if (m && m.email) allMerged.set(m.email.toLowerCase(), m);
+        });
+      }
+    } catch (err) {
+      console.warn('[ADMIN] Local members read note:', err);
+    }
+
+    // 1. Fetch from server API
     try {
       const res = await fetch('/api/auth/members?fresh=true&t=' + Date.now());
       if (res.ok) {
         const data = await res.json();
-        if (data.success && Array.isArray(data.members) && data.members.length > 0) {
-          setMembers(data.members);
-          saveMembers(data.members as any);
+        if (data.success && Array.isArray(data.members)) {
+          data.members.forEach((m: MemberUser) => {
+            if (m && m.email) {
+              const existing = allMerged.get(m.email.toLowerCase());
+              allMerged.set(m.email.toLowerCase(), { ...(existing || {}), ...m });
+            }
+          });
           if (typeof data.defaultTrialQuota === 'number') {
             setDefaultTrialQuota(data.defaultTrialQuota);
             setBulkTrialInput(data.defaultTrialQuota);
           }
-          setIsLoadingMembers(false);
-          return;
         }
       }
     } catch (err) {
       console.warn('[ADMIN] Failed to fetch /api/auth/members:', err);
+    }
+
+    // 2. Fetch from Firestore Cloud database
+    try {
+      const cloudMembers = await getAllMembersFromCloud();
+      if (Array.isArray(cloudMembers)) {
+        cloudMembers.forEach((m: any) => {
+          if (m && m.email) {
+            const emailLower = m.email.toLowerCase();
+            const existing = allMerged.get(emailLower);
+            allMerged.set(emailLower, { ...(existing || {}), ...m });
+          }
+        });
+      }
+    } catch (cloudErr) {
+      console.warn('[ADMIN] Failed to get cloud members from Firestore:', cloudErr);
     }
 
     try {
@@ -242,21 +275,10 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
       }
     } catch {}
 
-    try {
-      const cloudMembers = await getAllMembersFromCloud();
-      if (cloudMembers && cloudMembers.length > 0) {
-        setMembers(cloudMembers);
-        saveMembers(cloudMembers as any);
-        setIsLoadingMembers(false);
-        return;
-      }
-    } catch (cloudErr) {
-      console.warn('[ADMIN] Failed to get cloud members from Firestore:', cloudErr);
-    }
-
-    const list = getAllMembers();
-    if (list && list.length > 0) {
-      setMembers(list);
+    const finalList = Array.from(allMerged.values());
+    if (finalList.length > 0) {
+      setMembers(finalList);
+      saveMembers(finalList as any);
     }
     setIsLoadingMembers(false);
   };
@@ -372,6 +394,8 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
         );
 
         if (res.success && res.user) {
+          const updatedUser = res.user;
+          setMembers(prev => prev.map(m => (m.id === updatedUser.id || m.email.toLowerCase() === updatedUser.email.toLowerCase()) ? { ...m, ...updatedUser } : m));
           showNotification(
             'success',
             res.message || `Set ${res.user.name}'s balance to ${exactBal.toLocaleString()} visits.`
@@ -432,6 +456,8 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
         );
 
         if (res.success && res.user) {
+          const updatedUser = res.user;
+          setMembers(prev => prev.map(m => (m.id === updatedUser.id || m.email.toLowerCase() === updatedUser.email.toLowerCase()) ? { ...m, ...updatedUser } : m));
           showNotification(
             'success',
             `Assigned +${additional.toLocaleString()} traffic visits to ${res.user.name}. New Balance: ${res.user.trafficBalance.toLocaleString()} visits.`

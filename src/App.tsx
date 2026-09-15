@@ -404,31 +404,15 @@ export default function App() {
           let newBal = currentBal;
 
           if (data.trafficBalance !== undefined) {
-            const cloudVal = Number(data.trafficBalance);
-            // If cloud has 0 or exhausted, it is authoritative
-            if (cloudVal <= 0 || data.trafficStatus?.includes('exhausted')) {
-              newBal = 0;
-            } else if (currentBal <= 0 && !data.trafficStatus?.includes('active') && cloudVal <= 0) {
-              newBal = 0;
-            } else {
-              newBal = cloudVal;
-            }
+            newBal = Math.max(0, Number(data.trafficBalance));
           }
 
           const isExhausted = newBal <= 0;
-          const isPaid = (data.isPaidUser !== undefined ? data.isPaidUser : prev.user.isPaidUser);
-          const currentAssigned = prev.user.totalTrafficAssigned ?? 0;
-          let newAssigned = data.totalTrafficAssigned !== undefined ? Math.max(Number(data.totalTrafficAssigned), Number(currentAssigned)) : currentAssigned;
-
-          // Enforce 100 trial quota cap for free trial members
-          if (!isPaid && prev.user.role !== 'admin') {
-            if (newAssigned === 500 || newAssigned > 100) {
-              newAssigned = 100;
-            }
-            if (newBal === 500 || newBal > 100) {
-              newBal = 100;
-            }
-          }
+          const isPaid = (data.isPaidUser !== undefined ? Boolean(data.isPaidUser) : Boolean(prev.user.isPaidUser));
+          const currentAssigned = prev.user.totalTrafficAssigned ?? newBal;
+          let newAssigned = data.totalTrafficAssigned !== undefined
+            ? Math.max(Number(data.totalTrafficAssigned), newBal)
+            : Math.max(currentAssigned, newBal);
 
           const updated: MemberUser = {
             ...prev.user,
@@ -437,7 +421,7 @@ export default function App() {
             isPaidUser: isPaid,
             trafficStatus: isExhausted
               ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
-              : (data.trafficStatus || prev.user.trafficStatus || (isPaid ? 'paid_active' : 'trial_active')),
+              : (isPaid ? 'paid_active' : 'trial_active'),
             tier: data.tier || prev.user.tier,
           };
           saveAuthSession(updated, prev.token || 'tok_valid');

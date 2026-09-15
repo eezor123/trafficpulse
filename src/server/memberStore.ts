@@ -142,39 +142,24 @@ export function sanitizeTrialQuotas(member: ServerMember): ServerMember {
   const config = getServerConfig();
   const quota = config.defaultTrialQuota;
 
-  // 1. Any non-admin member with legacy 500 credit balance or assignment must be sanitized to current trial quota
-  if (member.role !== 'admin') {
-    if (member.trafficBalance === 500) {
-      member.trafficBalance = quota;
+  // Initialize missing traffic balance
+  if (member.role === 'admin') {
+    member.trafficBalance = member.trafficBalance || 10000000;
+    member.totalTrafficAssigned = member.totalTrafficAssigned || 10000000;
+    member.isPaidUser = true;
+    member.trafficStatus = 'unlimited';
+  } else {
+    if (member.trafficBalance === undefined || member.trafficBalance === null) {
+      member.trafficBalance = member.isPaidUser ? 1000 : quota;
     }
-    if (member.totalTrafficAssigned === 500) {
-      member.totalTrafficAssigned = quota;
+    if (member.totalTrafficAssigned === undefined || member.totalTrafficAssigned === null) {
+      member.totalTrafficAssigned = Math.max(Number(member.trafficBalance || 0), member.isPaidUser ? 1000 : quota);
     }
-    if ((member as any).customVisitsLimit === 500) {
-      (member as any).customVisitsLimit = quota;
-    }
-  }
 
-  // 2. All trial (non-paid) members must strictly follow the trial quota
-  if (!member.isPaidUser && member.role !== 'admin') {
-    if (
-      member.totalTrafficAssigned === undefined ||
-      member.totalTrafficAssigned === null ||
-      member.totalTrafficAssigned > quota
-    ) {
-      member.totalTrafficAssigned = quota;
-    }
-    if (
-      member.trafficBalance === undefined ||
-      member.trafficBalance === null ||
-      member.trafficBalance > quota
-    ) {
-      member.trafficBalance = quota;
-    }
     if (member.trafficBalance <= 0) {
-      member.trafficStatus = 'trial_exhausted';
-    } else if (member.trafficStatus === 'trial_exhausted' && member.trafficBalance > 0) {
-      member.trafficStatus = 'trial_active';
+      member.trafficStatus = member.isPaidUser ? 'paid_exhausted' : 'trial_exhausted';
+    } else {
+      member.trafficStatus = member.isPaidUser ? 'paid_active' : 'trial_active';
     }
   }
   return member;
@@ -228,29 +213,14 @@ export async function syncMembersFromCloud(force = false): Promise<void> {
           } else {
             let finalBal = existing.trafficBalance;
             if (m.trafficBalance !== undefined) {
-              const cloudBal = Number(m.trafficBalance);
-              if (cloudBal <= 0 || m.trafficStatus?.includes('exhausted')) {
-                finalBal = 0;
-              } else if (existing.trafficBalance !== undefined && (existing.trafficBalance <= 0 || existing.trafficStatus?.includes('exhausted'))) {
-                finalBal = 0;
-              } else {
-                finalBal = cloudBal;
-              }
+              finalBal = Number(m.trafficBalance);
             }
 
+            const isPaid = (m.isPaidUser !== undefined ? Boolean(m.isPaidUser) : Boolean(existing.isPaidUser));
+            const assignedFromExisting = Number(existing.totalTrafficAssigned || 0);
+            const assignedFromCloud = Number(m.totalTrafficAssigned || 0);
+            const finalAssigned = Math.max(assignedFromExisting, assignedFromCloud, Number(finalBal || 0));
             const isExhausted = finalBal !== undefined && finalBal <= 0;
-            const isPaid = (m.isPaidUser !== undefined ? m.isPaidUser : existing.isPaidUser);
-
-            let finalAssigned = Math.max(existing.totalTrafficAssigned || 0, m.totalTrafficAssigned || 0);
-            const currentQuota = getServerConfig().defaultTrialQuota;
-            if (!isPaid && existing.role !== 'admin') {
-              if (finalAssigned === 500 || finalAssigned > currentQuota) {
-                finalAssigned = currentQuota;
-              }
-              if (finalBal === 500 || (finalBal !== undefined && finalBal > currentQuota)) {
-                finalBal = currentQuota;
-              }
-            }
 
             const merged: ServerMember = {
               ...existing,
@@ -260,7 +230,7 @@ export async function syncMembersFromCloud(force = false): Promise<void> {
               isPaidUser: isPaid,
               trafficStatus: isExhausted
                 ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
-                : (m.trafficStatus || existing.trafficStatus),
+                : (isPaid ? 'paid_active' : 'trial_active'),
               tier: m.tier || existing.tier,
             };
             memoryMembers.set(emailLower, sanitizeTrialQuotas(merged));
@@ -294,24 +264,16 @@ export async function findMember(query: string, forceCloudCheck = false): Promis
       if (cloudRecord && cloudRecord.email) {
         const parsed = cloudRecord as ServerMember;
         const existing = memoryMembers.get(parsed.email.toLowerCase());
-        let finalAssigned = Math.max(existing?.totalTrafficAssigned || 0, parsed.totalTrafficAssigned || 0);
         let finalBal = parsed.trafficBalance !== undefined ? parsed.trafficBalance : (existing?.trafficBalance || 0);
-        const isPaid = (parsed.isPaidUser !== undefined ? parsed.isPaidUser : existing?.isPaidUser);
-
-        if (!isPaid && parsed.role !== 'admin') {
-          if (finalAssigned === 500 || finalAssigned > 100) {
-            finalAssigned = 100;
-          }
-          if (finalBal === 500 || finalBal > 100) {
-            finalBal = 100;
-          }
-        }
+        let finalAssigned = Math.max(existing?.totalTrafficAssigned || 0, parsed.totalTrafficAssigned || 0, finalBal);
+        const isPaid = (parsed.isPaidUser !== undefined ? Boolean(parsed.isPaidUser) : Boolean(existing?.isPaidUser));
 
         const merged: ServerMember = {
           ...(existing || {}),
           ...parsed,
           trafficBalance: finalBal,
           totalTrafficAssigned: finalAssigned,
+          isPaidUser: isPaid,
         };
         const sanitized = sanitizeTrialQuotas(merged);
         memoryMembers.set(parsed.email.toLowerCase(), sanitized);
