@@ -17,6 +17,9 @@ import {
   Camera,
   AlertCircle,
   Link as LinkIcon,
+  BarChart3,
+  Send,
+  Radio,
 } from 'lucide-react';
 import { MemberUser } from '../types';
 import { updateMemberProfile, UpdateProfilePayload } from '../utils/authManager';
@@ -34,13 +37,17 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   currentUser,
   onProfileUpdated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'avatar' | 'security'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'avatar' | 'analytics' | 'security'>('profile');
   
   // Form State
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [company, setCompany] = useState('');
   const [targetWebsite, setTargetWebsite] = useState('');
+  const [gaMeasurementId, setGaMeasurementId] = useState('');
+  const [gaApiSecret, setGaApiSecret] = useState('');
+  const [isVerifyingGa, setIsVerifyingGa] = useState(false);
+  const [gaVerifyStatus, setGaVerifyStatus] = useState<string | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarUrlInput, setAvatarUrlInput] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
@@ -65,6 +72,13 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       setUsername(currentUser.username || '');
       setCompany(currentUser.company || '');
       setTargetWebsite(currentUser.targetWebsite || '');
+      // Sanitize: do not load admin fallback for regular members
+      const userGaId = (currentUser.role !== 'admin' && currentUser.email !== 'saroneedam@gmail.com' && currentUser.gaMeasurementId === 'G-VFY5E884EH')
+        ? ''
+        : (currentUser.gaMeasurementId || '');
+      setGaMeasurementId(userGaId);
+      setGaApiSecret(currentUser.gaApiSecret || '');
+      setGaVerifyStatus(null);
       setAvatarPreview(currentUser.avatar || null);
       setAvatarUrlInput('');
       setShowUrlInput(false);
@@ -179,6 +193,8 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       username: username.trim() || undefined,
       company: company.trim() || undefined,
       targetWebsite: targetWebsite.trim() || undefined,
+      gaMeasurementId: gaMeasurementId.trim() || undefined,
+      gaApiSecret: gaApiSecret.trim() || undefined,
       avatar: avatarPreview === null ? null : avatarPreview,
       currentPassword: currentPassword.trim() || undefined,
       newPassword: newPassword.trim() || undefined,
@@ -202,6 +218,52 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       setErrorMessage(err.message || 'An unexpected error occurred.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTestGaPing = async () => {
+    const cleanId = gaMeasurementId.trim();
+    if (!cleanId) {
+      setGaVerifyStatus('Please enter your GA4 Measurement ID (e.g. G-XXXXXXXXXX) first.');
+      return;
+    }
+    if (!cleanId.startsWith('G-')) {
+      setGaVerifyStatus('Invalid format: Google Analytics 4 Measurement IDs must start with "G-".');
+      return;
+    }
+
+    setIsVerifyingGa(true);
+    setGaVerifyStatus('Sending test beacon to your Google Analytics 4 property...');
+
+    try {
+      const res = await fetch('/api/ga4/collect-beacon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          measurementId: cleanId,
+          apiSecret: gaApiSecret.trim() || undefined,
+          clientId: `usr_test_${Date.now()}`,
+          sessionId: `${Date.now()}`,
+          hitSequence: 1,
+          isFirstVisit: true,
+          eventName: 'page_view',
+          pageTitle: 'Profile Connection Test',
+          pagePath: '/test-connection',
+          pageLocation: `${targetWebsite.trim() || 'https://example.com'}/test-connection`,
+          engagementTimeMs: 4000,
+          debugMode: true,
+        }),
+      });
+
+      if (res.ok) {
+        setGaVerifyStatus(`✓ Connection successful! Test page_view dispatched to ${cleanId}. Check your GA4 Realtime dashboard.`);
+      } else {
+        setGaVerifyStatus(`Beacon dispatched to ${cleanId}. Make sure the tag is configured in your Google Analytics.`);
+      }
+    } catch {
+      setGaVerifyStatus('Network dispatch error while contacting GA4 collector.');
+    } finally {
+      setIsVerifyingGa(false);
     }
   };
 
@@ -255,6 +317,19 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
           >
             <User className="w-4 h-4" />
             <span>Profile Details</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('analytics')}
+            className={`py-3 px-4 border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'analytics'
+                ? 'border-emerald-500 text-emerald-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Google Analytics 4</span>
+            {gaMeasurementId && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
           </button>
           <button
             type="button"
@@ -426,6 +501,137 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
                 </div>
+              </div>
+
+              {/* Personal GA4 Quick Status */}
+              <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-xl flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                    <BarChart3 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-200">Google Analytics 4 Property</span>
+                      {gaMeasurementId ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950 border border-emerald-500/40 text-emerald-300">
+                          {gaMeasurementId}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950 border border-amber-500/40 text-amber-300">
+                          Not Connected
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {gaMeasurementId
+                        ? 'Simulations are reporting exclusively to your isolated property.'
+                        : 'Connect your own G-XXXX ID so traffic is logged directly to your property.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('analytics')}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium cursor-pointer transition-colors shrink-0"
+                >
+                  Configure GA4 →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: Analytics & Google Analytics 4 Isolation */}
+          {activeTab === 'analytics' && (
+            <div className="space-y-5">
+              <div className="p-4 bg-emerald-950/20 border border-emerald-500/30 rounded-xl space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <h4 className="text-xs font-bold text-emerald-300">Member-Isolated Google Analytics Tracking</h4>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  TrafficPulse guarantees complete tenant isolation. Simulated page views, dwell times, and click interactions are routed exclusively to the Google Analytics property you specify below.
+                </p>
+                <p className="text-[11px] text-slate-400 font-mono">
+                  ✓ Your visits report to your dashboard only • Never shared with other members or administrators.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {/* GA4 Measurement ID */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-200 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <BarChart3 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Your GA4 Measurement ID *</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">Starts with G-</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={gaMeasurementId}
+                    onChange={(e) => {
+                      setGaMeasurementId(e.target.value.trim().toUpperCase());
+                      setGaVerifyStatus(null);
+                    }}
+                    placeholder="e.g., G-XXXXXXXXXX"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 font-mono placeholder:text-slate-600 focus:outline-none transition-colors"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Found in Google Analytics → Admin → Data Streams → Web Stream Details → Measurement ID.
+                  </p>
+                </div>
+
+                {/* GA4 API Secret (Optional) */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-200 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Measurement Protocol API Secret (Optional)</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono">For Server-to-Server Direct Hits</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={gaApiSecret}
+                    onChange={(e) => {
+                      setGaApiSecret(e.target.value.trim());
+                      setGaVerifyStatus(null);
+                    }}
+                    placeholder="e.g., abcd1234efgh5678"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 font-mono placeholder:text-slate-600 focus:outline-none transition-colors"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Optional: Google Analytics → Admin → Data Streams → Measurement Protocol API Secrets.
+                  </p>
+                </div>
+
+                {/* Verification Ping Section */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleTestGaPing}
+                    disabled={isVerifyingGa || !gaMeasurementId.trim()}
+                    className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm"
+                  >
+                    {isVerifyingGa ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    <span>{isVerifyingGa ? 'Dispatching Verification Ping...' : 'Send Test Beacon to My GA4 Property'}</span>
+                  </button>
+                </div>
+
+                {gaVerifyStatus && (
+                  <div className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                    gaVerifyStatus.includes('✓') || gaVerifyStatus.includes('Success')
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-300'
+                  }`}>
+                    <Radio className="w-4 h-4 shrink-0 text-emerald-400 animate-pulse" />
+                    <span>{gaVerifyStatus}</span>
+                  </div>
+                )}
               </div>
             </div>
           )}

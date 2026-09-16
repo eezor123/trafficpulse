@@ -32,7 +32,8 @@ import {
   incrementMemberStats, 
   deductTrafficCredit, 
   fetchFreshUserProfile,
-  flushTrafficDeductionsToServerAndCloud 
+  flushTrafficDeductionsToServerAndCloud,
+  updateMemberProfile,
 } from './utils/authManager';
 import { getFirestoreDb, emailToDocId } from './lib/firebase';
 import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
@@ -316,6 +317,59 @@ export default function App() {
     setAuthModalTitle(title);
     setAuthModalSubtitle(subtitle);
     setIsAuthModalOpen(true);
+  };
+
+  // Resolves the member-isolated GA4 Measurement ID
+  const getMemberGa4Id = (): string => {
+    // 1. Logged-in member's saved GA4 ID (highest priority)
+    const userGaId = authState.user?.gaMeasurementId?.trim();
+    if (userGaId && (authState.user?.role === 'admin' || userGaId !== 'G-VFY5E884EH')) {
+      return userGaId;
+    }
+
+    // 2. Explicitly configured GA4 ID for this session (must not leak admin ID to non-admins)
+    const configGaId = (organicConfig.ga4?.measurementId || '').trim();
+    const isAdmin = authState.user?.role === 'admin' || authState.user?.email === 'saroneedam@gmail.com';
+    if (configGaId && (isAdmin || configGaId !== 'G-VFY5E884EH')) {
+      return configGaId;
+    }
+
+    // 3. Tag detected from crawled site
+    const crawledGaId = (crawlState.gaMeasurementId || '').trim();
+    if (crawledGaId && (isAdmin || crawledGaId !== 'G-VFY5E884EH')) {
+      return crawledGaId;
+    }
+
+    // 4. Admin default ONLY for the administrator account
+    if (isAdmin) {
+      return 'G-VFY5E884EH';
+    }
+
+    // Regular registered members or guests never get the admin ID
+    return '';
+  };
+
+  const handleUpdateGaMeasurementId = async (newId: string) => {
+    const cleanId = newId.trim().toUpperCase();
+    setOrganicConfig(prev => ({
+      ...prev,
+      ga4: {
+        ...prev.ga4,
+        measurementId: cleanId,
+      }
+    }));
+    if (authState.isAuthenticated && authState.user) {
+      try {
+        const res = await updateMemberProfile({ gaMeasurementId: cleanId });
+        if (res.success && res.user) {
+          handleProfileUpdated(res.user);
+        }
+      } catch (err) {
+        console.warn('Failed to update member GA4 ID in profile:', err);
+      }
+    }
+    setSaveBannerMessage(`Google Analytics 4 property updated: ${cleanId || 'Disabled'}`);
+    setTimeout(() => setSaveBannerMessage(null), 4000);
   };
 
   // Live listener for real-time session updates (traffic credit assignments, profile updates, multi-tab sync)
@@ -1101,7 +1155,7 @@ export default function App() {
     const targetUrl = (organicConfig.targetUrl || crawlState.targetUrl || 'https://jobs.eezor.com').trim();
     let pagesToUse = crawlState.pages && crawlState.pages.length > 0 ? crawlState.pages : getClientSideCrawledPages(targetUrl);
 
-    const effectiveGa4Id = (organicConfig.ga4?.measurementId || crawlState.gaMeasurementId || 'G-VFY5E884EH').trim();
+    const effectiveGa4Id = getMemberGa4Id();
 
     const effectiveOrganicConfig: OrganicVisitorConfig = {
       ...organicConfig,
@@ -1109,10 +1163,10 @@ export default function App() {
       ga4: {
         ...organicConfig.ga4,
         measurementId: effectiveGa4Id,
-        autoSendMeasurementProtocol: true,
-        sendEngagementEvents: true,
-        sendSessionEvents: true,
-        sendScrollEvents: true,
+        autoSendMeasurementProtocol: !!effectiveGa4Id,
+        sendEngagementEvents: !!effectiveGa4Id,
+        sendSessionEvents: !!effectiveGa4Id,
+        sendScrollEvents: !!effectiveGa4Id,
       }
     };
 
@@ -1414,7 +1468,7 @@ export default function App() {
               onStartTraffic={handleStartOrganic}
               onStopTraffic={handleStopOrganic}
               activeVisitorsCount={activeVisitors.length}
-              gaMeasurementId={organicConfig.ga4?.measurementId || crawlState.gaMeasurementId || 'G-VFY5E884EH'}
+              gaMeasurementId={getMemberGa4Id()}
             />
 
             {/* Primary Organic Mode Navigation Sub-Bar */}
@@ -1567,7 +1621,9 @@ export default function App() {
                 httpHits={httpHits}
                 stats={organicStats}
                 targetUrl={crawlState.targetUrl}
-                gaMeasurementId={organicConfig.ga4?.measurementId || crawlState.gaMeasurementId || 'G-VFY5E884EH'}
+                gaMeasurementId={getMemberGa4Id()}
+                onUpdateGaMeasurementId={handleUpdateGaMeasurementId}
+                detectedGaIdFromTarget={crawlState.gaMeasurementId}
                 onClearEvents={() => setTelemetryEvents([])}
               />
             )}

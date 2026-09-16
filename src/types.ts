@@ -671,6 +671,9 @@ export interface MemberUser {
   registrationIp?: string;
   lastLoginIp?: string;
   authProvider?: 'google' | 'firebase' | 'email';
+  // Per-Member Isolated Google Analytics Tracking
+  gaMeasurementId?: string; // Dedicated GA4 Measurement ID (e.g. G-XXXXXXXXXX)
+  gaApiSecret?: string;     // Dedicated GA4 Measurement Protocol API Secret
 }
 
 export interface AuthState {

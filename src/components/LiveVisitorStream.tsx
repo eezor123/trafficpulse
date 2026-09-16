@@ -51,7 +51,9 @@ import {
   TrendingUp,
   Sliders,
   Navigation,
-  BarChart3
+  BarChart3,
+  PlusCircle,
+  Edit2,
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { ActiveVisitorSession, LiveTelemetryEvent, RealHttpTrafficHit, SimulatorActionLog } from '../types';
@@ -62,6 +64,8 @@ interface LiveVisitorStreamProps {
   telemetryEvents: LiveTelemetryEvent[];
   httpHits?: RealHttpTrafficHit[];
   gaMeasurementId?: string;
+  onUpdateGaMeasurementId?: (newId: string) => void;
+  detectedGaIdFromTarget?: string;
   onTestGa4Ping?: () => void;
   stats: {
     totalVisitorsDispatched: number;
@@ -110,6 +114,8 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   stats,
   targetUrl,
   gaMeasurementId,
+  onUpdateGaMeasurementId,
+  detectedGaIdFromTarget,
   onClearEvents,
 }) => {
   const [selectedVisitorId, setSelectedVisitorId] = useState<string | null>(null);
@@ -121,10 +127,19 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const [copiedGaId, setCopiedGaId] = useState(false);
   const [quickPingStatus, setQuickPingStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [quickPingDetails, setQuickPingDetails] = useState<string | null>(null);
+  const [isEditingGaId, setIsEditingGaId] = useState(false);
+  const [customGaInput, setCustomGaInput] = useState('');
 
-  const activeGaId = (gaMeasurementId || 'G-VFY5E884EH').trim();
+  // Strictly user/detected ID - never fall back to admin ID
+  const activeGaId = (gaMeasurementId || '').trim();
 
   const handleQuickGa4Test = async () => {
+    if (!activeGaId) {
+      setQuickPingStatus('failed');
+      setQuickPingDetails('Please connect your own Google Analytics 4 Measurement ID (e.g. G-XXXXXXXXXX) first.');
+      setIsEditingGaId(true);
+      return;
+    }
     setQuickPingStatus('testing');
     setQuickPingDetails(null);
     try {
@@ -149,7 +164,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
       const data = await res.json();
       if (data.success) {
         setQuickPingStatus('success');
-        setQuickPingDetails(`Delivered to ${activeGaId} (HTTP ${data.status || 204}, Session: ${sessionId})`);
+        setQuickPingDetails(`Delivered to your GA4 property ${activeGaId} (HTTP ${data.status || 204}, Session: ${sessionId})`);
         setTimeout(() => setQuickPingStatus('idle'), 6000);
       } else {
         setQuickPingStatus('failed');
@@ -1951,22 +1966,50 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 font-mono text-xs text-emerald-400">
-                  <span>{activeGaId}</span>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {activeGaId ? (
+                  <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 font-mono text-xs text-emerald-400 shadow-sm">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{activeGaId}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(activeGaId);
+                        setCopiedGaId(true);
+                        setTimeout(() => setCopiedGaId(false), 2000);
+                      }}
+                      className="text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
+                      title="Copy Measurement ID"
+                    >
+                      {copiedGaId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                    {onUpdateGaMeasurementId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomGaInput(activeGaId);
+                          setIsEditingGaId(!isEditingGaId);
+                        }}
+                        className="text-slate-400 hover:text-white cursor-pointer p-0.5 ml-1"
+                        title="Change Measurement ID"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                ) : (
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(activeGaId);
-                      setCopiedGaId(true);
-                      setTimeout(() => setCopiedGaId(false), 2000);
+                      setCustomGaInput(detectedGaIdFromTarget || '');
+                      setIsEditingGaId(true);
                     }}
-                    className="text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
-                    title="Copy Measurement ID"
+                    className="flex items-center gap-1.5 bg-amber-950/60 border border-amber-500/50 hover:bg-amber-900/60 text-amber-300 rounded-xl px-3 py-1.5 text-xs font-semibold cursor-pointer transition-all shadow-sm"
                   >
-                    {copiedGaId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <PlusCircle className="w-3.5 h-3.5 text-amber-400" />
+                    <span>+ Connect Your GA4 Tag</span>
                   </button>
-                </div>
+                )}
 
                 <button
                   type="button"
@@ -1989,6 +2032,61 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                 </a>
               </div>
             </div>
+
+            {/* Inline GA4 ID Editor */}
+            {isEditingGaId && (
+              <div className="p-3 bg-slate-900 border border-emerald-500/40 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                    <BarChart3 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Set Your Personal Google Analytics 4 Property</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingGaId(false)}
+                    className="text-slate-400 hover:text-white text-xs px-1.5 py-0.5 rounded"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <input
+                    type="text"
+                    value={customGaInput}
+                    onChange={(e) => setCustomGaInput(e.target.value.trim().toUpperCase())}
+                    placeholder="G-XXXXXXXXXX"
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-emerald-400 focus:outline-none focus:border-emerald-500"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onUpdateGaMeasurementId && customGaInput) {
+                          onUpdateGaMeasurementId(customGaInput.trim());
+                        }
+                        setIsEditingGaId(false);
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-colors shrink-0 cursor-pointer"
+                    >
+                      Save & Connect
+                    </button>
+                    {detectedGaIdFromTarget && detectedGaIdFromTarget !== customGaInput && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomGaInput(detectedGaIdFromTarget)}
+                        className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-lg text-xs font-mono transition-colors shrink-0 cursor-pointer"
+                        title="Use tag detected from target website"
+                      >
+                        Auto-fill Detected ({detectedGaIdFromTarget})
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Your simulated visitors and clicks report strictly to this Measurement ID. Your reports remain 100% private to your Google account.
+                </p>
+              </div>
+            )}
 
             {quickPingDetails && (
               <div className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${

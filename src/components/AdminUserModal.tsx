@@ -931,6 +931,12 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
                                   <span>IP: {user.registrationIp}</span>
                                 </p>
                               )}
+                              {user.gaMeasurementId && (
+                                <p className="text-[10px] text-emerald-400 font-mono flex items-center gap-1 mt-0.5">
+                                  <ShieldCheck className="w-2.5 h-2.5 text-emerald-400" />
+                                  <span>GA4: {user.gaMeasurementId}</span>
+                                </p>
+                              )}
                             </div>
                           </div>
                         </td>

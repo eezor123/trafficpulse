@@ -487,7 +487,7 @@ export const DEFAULT_ORGANIC_CONFIG: OrganicVisitorConfig = {
   },
   ga4: {
     autoSendMeasurementProtocol: true,
-    measurementId: 'G-VFY5E884EH',
+    measurementId: '', // Configured per user / detected from target site, never hardcoded to admin
     apiSecret: '',
     sendScrollEvents: true,
     sendEngagementEvents: true,

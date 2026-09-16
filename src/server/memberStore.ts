@@ -36,6 +36,8 @@ export interface ServerMember {
   registrationIp?: string;
   lastLoginIp?: string;
   authProvider?: 'google' | 'firebase' | 'email';
+  gaMeasurementId?: string;
+  gaApiSecret?: string;
 }
 
 export interface PendingVerification {
@@ -162,6 +164,12 @@ export function sanitizeTrialQuotas(member: ServerMember): ServerMember {
       member.trafficStatus = member.isPaidUser ? 'paid_active' : 'trial_active';
     }
   }
+
+  // Ensure admin's measurement ID is never assigned to regular members
+  if (member.role !== 'admin' && member.email.toLowerCase() !== 'saroneedam@gmail.com' && member.gaMeasurementId === 'G-VFY5E884EH') {
+    delete member.gaMeasurementId;
+  }
+
   return member;
 }
 

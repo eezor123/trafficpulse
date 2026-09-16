@@ -1214,7 +1214,7 @@ async function startServer() {
 
   // Profile update endpoint
   app.post('/api/auth/profile', async (req: Request, res: Response) => {
-    const { id, email, name, username, company, targetWebsite, avatar, currentPassword, newPassword } = req.body;
+    const { id, email, name, username, company, targetWebsite, avatar, currentPassword, newPassword, gaMeasurementId, gaApiSecret } = req.body;
     if (!id && !email) {
       return res.status(400).json({ success: false, error: 'User identification (id or email) is required.' });
     }
@@ -1249,6 +1249,12 @@ async function startServer() {
     }
     if (targetWebsite !== undefined) {
       member.targetWebsite = typeof targetWebsite === 'string' ? targetWebsite.trim() : undefined;
+    }
+    if (gaMeasurementId !== undefined) {
+      member.gaMeasurementId = typeof gaMeasurementId === 'string' ? gaMeasurementId.trim() || undefined : undefined;
+    }
+    if (gaApiSecret !== undefined) {
+      member.gaApiSecret = typeof gaApiSecret === 'string' ? gaApiSecret.trim() || undefined : undefined;
     }
     // Avatar: can be string (base64/URL) or empty/null to remove
     if (avatar !== undefined) {

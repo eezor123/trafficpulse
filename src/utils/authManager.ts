@@ -124,6 +124,9 @@ export function loadStoredAuth(): AuthState {
             ? (user.isPaidUser ? 'paid_exhausted' : 'trial_exhausted')
             : (user.isPaidUser ? 'paid_active' : 'trial_active');
         }
+        if (user.role !== 'admin' && user.email !== 'saroneedam@gmail.com' && user.gaMeasurementId === 'G-VFY5E884EH') {
+          delete user.gaMeasurementId;
+        }
         return {
           isAuthenticated: true,
           user,
@@ -985,6 +988,8 @@ export interface UpdateProfilePayload {
   avatar?: string | null; // string for image URL/base64 data, null/empty string to remove
   currentPassword?: string;
   newPassword?: string;
+  gaMeasurementId?: string;
+  gaApiSecret?: string;
 }
 
 export async function updateMemberProfile(payload: UpdateProfilePayload): Promise<{ success: boolean; user?: MemberUser; error?: string }> {
@@ -1025,6 +1030,12 @@ export async function updateMemberProfile(payload: UpdateProfilePayload): Promis
   if (payload.targetWebsite !== undefined) {
     match.targetWebsite = payload.targetWebsite.trim() || undefined;
   }
+  if (payload.gaMeasurementId !== undefined) {
+    match.gaMeasurementId = payload.gaMeasurementId.trim() || undefined;
+  }
+  if (payload.gaApiSecret !== undefined) {
+    match.gaApiSecret = payload.gaApiSecret.trim() || undefined;
+  }
   // Avatar handling: null or '' removes avatar, string updates it
   if (payload.avatar !== undefined) {
     if (payload.avatar === null || payload.avatar === '') {
@@ -1035,6 +1046,7 @@ export async function updateMemberProfile(payload: UpdateProfilePayload): Promis
   }
 
   saveMembers(members);
+  saveMemberToCloud(match).catch(() => {});
 
   const { passwordHash: _, ...safeUser } = match;
   saveAuthSession(safeUser, auth.token || 'tok_valid');
@@ -1051,6 +1063,8 @@ export async function updateMemberProfile(payload: UpdateProfilePayload): Promis
         username: match.username,
         company: match.company,
         targetWebsite: match.targetWebsite,
+        gaMeasurementId: match.gaMeasurementId || '',
+        gaApiSecret: match.gaApiSecret || '',
         avatar: payload.avatar === null ? '' : payload.avatar,
         currentPassword: payload.currentPassword,
         newPassword: payload.newPassword,
