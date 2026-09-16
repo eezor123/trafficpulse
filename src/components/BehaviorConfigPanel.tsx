@@ -34,6 +34,8 @@ interface BehaviorConfigPanelProps {
   onResetDefaults?: () => void;
   currentUser?: MemberUser | null;
   onOpenAuth?: () => void;
+  targetUrl?: string;
+  detectedGaMeasurementId?: string;
 }
 
 export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
@@ -45,6 +47,8 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
   onResetDefaults,
   currentUser,
   onOpenAuth,
+  targetUrl,
+  detectedGaMeasurementId,
 }) => {
   const [testPingStatus, setTestPingStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [testClickPingStatus, setTestClickPingStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
@@ -67,17 +71,22 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
   );
 
   const handleTestGa4Ping = async () => {
+    const activeTargetGaId = (ga4.measurementId || detectedGaMeasurementId || '').trim();
+    if (!activeTargetGaId || activeTargetGaId === 'G-VFY5E884EH') {
+      alert('Please enter your target website GA4 Measurement ID (e.g. G-XXXXXXXXXX) or crawl your website first.');
+      return;
+    }
     setTestPingStatus('testing');
     try {
       const res = await fetch('/api/ga4/collect-beacon', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          measurementId: ga4.measurementId || 'G-TESTPING123',
+          measurementId: activeTargetGaId,
           apiSecret: ga4.apiSecret || undefined,
           eventName: 'page_view',
           pageTitle: 'TrafficPulse GA4 Validation Ping',
-          pageLocation: 'https://example.com/test-ping',
+          pageLocation: targetUrl || 'https://example.com/test-ping',
           pagePath: '/test-ping',
           referrer: 'https://www.google.com/search?q=organic+traffic+boost',
           engagementTimeMs: 30000,
@@ -100,15 +109,19 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
   };
 
   const handleTestGa4ClickPing = async () => {
+    const measurementId = (ga4.measurementId || detectedGaMeasurementId || '').trim();
+    if (!measurementId || measurementId === 'G-VFY5E884EH') {
+      alert('Please enter your target website GA4 Measurement ID (e.g. G-XXXXXXXXXX) or crawl your website first.');
+      return;
+    }
     setTestClickPingStatus('testing');
     try {
       const clientId = `${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`;
       const sessionId = `${Math.floor(Date.now() / 1000)}`;
-      const measurementId = ga4.measurementId?.trim() || 'G-TESTPING123';
-      const pageLocation = 'https://jobs.eezor.com/jobs';
+      const pageLocation = targetUrl || 'https://example.com/';
       const targetOutboundUrl = 'https://careers.google.com/jobs/results/?q=software+developer';
       const targetOutboundDomain = 'careers.google.com';
-      const targetLinkText = 'Google Careers Direct Application (Verified Listing)';
+      const targetLinkText = 'Direct Application Link (Outbound Click)';
 
       // 1. First send session start page_view to open live Realtime visitor session
       await fetch('/api/ga4/collect-beacon', {
@@ -124,7 +137,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           eventName: 'page_view',
           pageTitle: 'TrafficPulse GA4 Live Session',
           pageLocation,
-          pagePath: '/jobs',
+          pagePath: '/',
           referrer: 'https://www.google.com/search?q=jobs',
           engagementTimeMs: 12000,
           countryCode: 'US',
@@ -1345,15 +1358,25 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
 
           <div className="space-y-3 pt-1">
             <div>
-              <label className="text-[11px] font-bold text-slate-400 uppercase">
-                GA4 Measurement ID (e.g. G-XXXXXXXXXX)
-              </label>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-slate-400 uppercase">
+                  GA4 Measurement ID (e.g. G-XXXXXXXXXX)
+                </label>
+                {detectedGaMeasurementId && detectedGaMeasurementId !== 'G-VFY5E884EH' && (
+                  <span className="text-[10px] text-emerald-400 font-medium">
+                    Target Site Tag: <strong className="font-mono text-emerald-300">{detectedGaMeasurementId}</strong>
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
-                  value={ga4.measurementId}
-                  onChange={(e) => onChangeGa4({ ...ga4, measurementId: e.target.value.trim() })}
-                  placeholder="G-XXXXXXXXXX (leave blank for local emulation)"
+                  value={ga4.measurementId === 'G-VFY5E884EH' ? '' : (ga4.measurementId || '')}
+                  onChange={(e) => {
+                    const cleanVal = e.target.value.trim().toUpperCase();
+                    onChangeGa4({ ...ga4, measurementId: cleanVal === 'G-VFY5E884EH' ? '' : cleanVal });
+                  }}
+                  placeholder="G-XXXXXXXXXX (e.g. your target site property)"
                   className="flex-1 bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none font-mono"
                 />
                 <button
@@ -1377,6 +1400,27 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
                   <span>{testClickPingStatus === 'testing' ? 'Clicking...' : 'Test Click Beacon'}</span>
                 </button>
               </div>
+
+              {detectedGaMeasurementId && detectedGaMeasurementId !== 'G-VFY5E884EH' && (
+                <div className="flex items-center justify-between gap-2 mt-2 px-3 py-2 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-xs text-emerald-300">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Target URL detected GA4 property: <strong className="font-mono text-white">{detectedGaMeasurementId}</strong></span>
+                  </div>
+                  {(ga4.measurementId || '').trim() !== detectedGaMeasurementId && (
+                    <button
+                      type="button"
+                      onClick={() => onChangeGa4({ ...ga4, measurementId: detectedGaMeasurementId })}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-semibold cursor-pointer transition-all"
+                    >
+                      Use Target GA4 ID
+                    </button>
+                  )}
+                </div>
+              )}
+              <p className="text-[10px] text-slate-400 mt-1.5">
+                Simulated visitor hits will be reported exclusively to the Google Analytics property of the target URL being simulated.
+              </p>
             </div>
 
             {/* Advanced GA4 Click Options */}

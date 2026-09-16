@@ -165,8 +165,8 @@ export function sanitizeTrialQuotas(member: ServerMember): ServerMember {
     }
   }
 
-  // Ensure admin's measurement ID is never assigned to regular members
-  if (member.role !== 'admin' && member.email.toLowerCase() !== 'saroneedam@gmail.com' && member.gaMeasurementId === 'G-VFY5E884EH') {
+  // Ensure old admin measurement ID is purged completely from all accounts
+  if (member.gaMeasurementId === 'G-VFY5E884EH') {
     delete member.gaMeasurementId;
   }
 

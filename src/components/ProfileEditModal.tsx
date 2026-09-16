@@ -72,8 +72,8 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       setUsername(currentUser.username || '');
       setCompany(currentUser.company || '');
       setTargetWebsite(currentUser.targetWebsite || '');
-      // Sanitize: do not load admin fallback for regular members
-      const userGaId = (currentUser.role !== 'admin' && currentUser.email !== 'saroneedam@gmail.com' && currentUser.gaMeasurementId === 'G-VFY5E884EH')
+      // Sanitize: do not load old admin ID under any circumstances
+      const userGaId = (currentUser.gaMeasurementId === 'G-VFY5E884EH')
         ? ''
         : (currentUser.gaMeasurementId || '');
       setGaMeasurementId(userGaId);

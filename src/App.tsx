@@ -89,6 +89,14 @@ function loadInitialOrganicConfig(): OrganicVisitorConfig {
     const saved = localStorage.getItem(STORAGE_KEYS.ORGANIC_CONFIG);
     if (saved) {
       const parsed = JSON.parse(saved);
+      let loadedGaId = (parsed.ga4?.measurementId || '').trim();
+      if (loadedGaId === 'G-VFY5E884EH') {
+        loadedGaId = '';
+        parsed.ga4 = { ...(parsed.ga4 || {}), measurementId: '' };
+        try {
+          localStorage.setItem('trafficpulse_organic_config', JSON.stringify(parsed));
+        } catch {}
+      }
       return {
         ...DEFAULT_ORGANIC_CONFIG,
         ...parsed,
@@ -105,7 +113,7 @@ function loadInitialOrganicConfig(): OrganicVisitorConfig {
         ga4: {
           ...DEFAULT_ORGANIC_CONFIG.ga4,
           ...(parsed.ga4 || {}),
-          measurementId: parsed.ga4?.measurementId || DEFAULT_ORGANIC_CONFIG.ga4.measurementId,
+          measurementId: loadedGaId,
         },
         crawlSettings: { ...DEFAULT_ORGANIC_CONFIG.crawlSettings, ...(parsed.crawlSettings || {}) },
       };
@@ -319,33 +327,27 @@ export default function App() {
     setIsAuthModalOpen(true);
   };
 
-  // Resolves the member-isolated GA4 Measurement ID
+  // Resolves the respective GA4 Measurement ID for the URL being simulated
   const getMemberGa4Id = (): string => {
-    // 1. Logged-in member's saved GA4 ID (highest priority)
-    const userGaId = authState.user?.gaMeasurementId?.trim();
-    if (userGaId && (authState.user?.role === 'admin' || userGaId !== 'G-VFY5E884EH')) {
-      return userGaId;
-    }
-
-    // 2. Explicitly configured GA4 ID for this session (must not leak admin ID to non-admins)
-    const configGaId = (organicConfig.ga4?.measurementId || '').trim();
-    const isAdmin = authState.user?.role === 'admin' || authState.user?.email === 'saroneedam@gmail.com';
-    if (configGaId && (isAdmin || configGaId !== 'G-VFY5E884EH')) {
-      return configGaId;
-    }
-
-    // 3. Tag detected from crawled site
+    // 1. Tag detected from the target URL being crawled/simulated
     const crawledGaId = (crawlState.gaMeasurementId || '').trim();
-    if (crawledGaId && (isAdmin || crawledGaId !== 'G-VFY5E884EH')) {
+    if (crawledGaId && crawledGaId !== 'G-VFY5E884EH') {
       return crawledGaId;
     }
 
-    // 4. Admin default ONLY for the administrator account
-    if (isAdmin) {
-      return 'G-VFY5E884EH';
+    // 2. Explicitly configured GA4 ID for this session/campaign
+    const configGaId = (organicConfig.ga4?.measurementId || '').trim();
+    if (configGaId && configGaId !== 'G-VFY5E884EH') {
+      return configGaId;
     }
 
-    // Regular registered members or guests never get the admin ID
+    // 3. Member's saved personal GA4 ID from profile
+    const userGaId = authState.user?.gaMeasurementId?.trim();
+    if (userGaId && userGaId !== 'G-VFY5E884EH') {
+      return userGaId;
+    }
+
+    // No hardcoded admin fallback under any circumstances
     return '';
   };
 
@@ -413,6 +415,9 @@ export default function App() {
           email: stored.user.email,
         }).then(fresh => {
           if (fresh) {
+            if (fresh.gaMeasurementId === 'G-VFY5E884EH') {
+              delete fresh.gaMeasurementId;
+            }
             setAuthState(prev => ({
               ...prev,
               user: fresh,
@@ -421,6 +426,39 @@ export default function App() {
         }).catch(() => {});
       }
     };
+
+    // Eradicate any remnant admin GA4 ID from localStorage and memory
+    try {
+      const storedCfg = localStorage.getItem(STORAGE_KEYS.ORGANIC_CONFIG);
+      if (storedCfg && storedCfg.includes('G-VFY5E884EH')) {
+        const parsed = JSON.parse(storedCfg);
+        if (parsed.ga4?.measurementId === 'G-VFY5E884EH') {
+          parsed.ga4.measurementId = '';
+        }
+        localStorage.setItem(STORAGE_KEYS.ORGANIC_CONFIG, JSON.stringify(parsed));
+      }
+      const storedAuth = localStorage.getItem('trafficpulse_member_auth');
+      if (storedAuth && storedAuth.includes('G-VFY5E884EH')) {
+        const parsedAuth = JSON.parse(storedAuth);
+        if (parsedAuth.user?.gaMeasurementId === 'G-VFY5E884EH') {
+          delete parsedAuth.user.gaMeasurementId;
+        }
+        localStorage.setItem('trafficpulse_member_auth', JSON.stringify(parsedAuth));
+      }
+    } catch {}
+
+    setOrganicConfig(prev => {
+      if (prev.ga4?.measurementId === 'G-VFY5E884EH') {
+        return {
+          ...prev,
+          ga4: {
+            ...prev.ga4,
+            measurementId: '',
+          }
+        };
+      }
+      return prev;
+    });
 
     syncProfile();
     window.addEventListener('focus', syncProfile);
@@ -1689,6 +1727,8 @@ export default function App() {
                 onResetDefaults={handleResetToDefaults}
                 currentUser={authState.user}
                 onOpenAuth={() => openAuthModal('login')}
+                targetUrl={crawlState.targetUrl}
+                detectedGaMeasurementId={crawlState.gaMeasurementId}
               />
             )}
           </>
