@@ -289,6 +289,9 @@ export interface Ga4TrackerConfig {
   clickTrackingMode?: 'standard_outbound' | 'dual_click_and_select' | 'all_ui_clicks';
   debugMode?: boolean;
   outboundDomainCategory?: 'job_and_career' | 'ecommerce_and_offers' | 'tech_and_cloud' | 'news_and_social';
+  guaranteedCaptureMode?: boolean; // Enforce strict GA4 channel taxonomy, dual-channel edge + MP, and verified source/medium
+  dispatchRealClickHttpRequests?: boolean; // Send real HTTP requests to clicked link and ad targets with Referer header
+  injectUtmParameters?: boolean; // Append utm_source, utm_medium, utm_term to landing URLs to guarantee 100% analytics capture
 }
 
 // ==========================================
@@ -365,6 +368,10 @@ export interface ActiveVisitorSession {
   referrerUrl: string;
   referrerName: string;
   searchKeyword?: string;
+  searchEngine?: string;
+  socialPlatform?: string;
+  canonicalSource?: string;
+  canonicalMedium?: string;
   gaClientId: string;
   gaSessionId: string;
   isReturning: boolean;

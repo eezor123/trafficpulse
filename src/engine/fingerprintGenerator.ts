@@ -223,13 +223,25 @@ export function buildOrganicReferrer(
   pagePath?: string,
   forceGoogleReferrer?: boolean,
   googleReferrerMode?: 'country_localized' | 'google_com' | 'dynamic_query'
-): { referrerUrl: string; referrerName: string } {
+): {
+  referrerUrl: string;
+  referrerName: string;
+  canonicalSource: string;
+  canonicalMedium: string;
+  searchEngineUsed?: string;
+  socialPlatformUsed?: string;
+} {
   // If Force Google Search Referrer is active, override source to Organic Search Google
   const effectiveSource = forceGoogleReferrer ? 'Organic Search' : source;
-  const effectiveEngine = forceGoogleReferrer ? 'google' : searchEngine;
+  const effectiveEngine = forceGoogleReferrer ? 'google' : (searchEngine || 'google');
 
   if (effectiveSource === 'Direct') {
-    return { referrerUrl: '', referrerName: 'Direct / Bookmarks' };
+    return {
+      referrerUrl: '',
+      referrerName: 'Direct / Bookmarks',
+      canonicalSource: '(direct)',
+      canonicalMedium: '(none)',
+    };
   }
 
   if (effectiveSource === 'Organic Search') {
@@ -255,6 +267,9 @@ export function buildOrganicReferrer(
       return {
         referrerUrl: `https://${googleDomain}/search?q=${encodedKw}&oq=${encodedKw}&sourceid=chrome&ie=UTF-8`,
         referrerName: `Google Search [${googleDomain}] ("${queryToUse}")`,
+        canonicalSource: 'google',
+        canonicalMedium: 'organic',
+        searchEngineUsed: 'google',
       };
     }
 
@@ -263,72 +278,128 @@ export function buildOrganicReferrer(
         return {
           referrerUrl: `https://www.bing.com/search?q=${encodedKw}&form=QBLH`,
           referrerName: `Bing Search ("${queryToUse}")`,
+          canonicalSource: 'bing',
+          canonicalMedium: 'organic',
+          searchEngineUsed: 'bing',
         };
       case 'duckduckgo':
         return {
           referrerUrl: `https://duckduckgo.com/?q=${encodedKw}&t=h_&ia=web`,
           referrerName: `DuckDuckGo ("${queryToUse}")`,
+          canonicalSource: 'duckduckgo',
+          canonicalMedium: 'organic',
+          searchEngineUsed: 'duckduckgo',
         };
       case 'yahoo':
         return {
           referrerUrl: `https://search.yahoo.com/search?p=${encodedKw}`,
           referrerName: `Yahoo Search ("${queryToUse}")`,
+          canonicalSource: 'yahoo',
+          canonicalMedium: 'organic',
+          searchEngineUsed: 'yahoo',
         };
       case 'baidu':
         return {
           referrerUrl: `https://www.baidu.com/s?wd=${encodedKw}`,
           referrerName: `Baidu Search ("${queryToUse}")`,
+          canonicalSource: 'baidu',
+          canonicalMedium: 'organic',
+          searchEngineUsed: 'baidu',
         };
       case 'yandex':
         return {
           referrerUrl: `https://yandex.com/search/?text=${encodedKw}`,
           referrerName: `Yandex Search ("${queryToUse}")`,
+          canonicalSource: 'yandex',
+          canonicalMedium: 'organic',
+          searchEngineUsed: 'yandex',
         };
       default:
         return {
           referrerUrl: `https://www.google.com/search?q=${encodedKw}`,
           referrerName: `Google Search ("${queryToUse}")`,
+          canonicalSource: 'google',
+          canonicalMedium: 'organic',
+          searchEngineUsed: 'google',
         };
     }
   }
 
   if (effectiveSource === 'Social') {
     const randSlug = Math.random().toString(36).substring(2, 8);
-    switch (socialPlatform) {
+    const plat = (socialPlatform || 'twitter').toLowerCase();
+    switch (plat) {
       case 'twitter':
         return {
           referrerUrl: `https://t.co/${randSlug}`,
           referrerName: 'X / Twitter (t.co)',
+          canonicalSource: 't.co',
+          canonicalMedium: 'social',
+          socialPlatformUsed: 'twitter',
         };
       case 'linkedin':
         return {
           referrerUrl: `https://lnkd.in/${randSlug}`,
           referrerName: 'LinkedIn Feed (lnkd.in)',
+          canonicalSource: 'linkedin.com',
+          canonicalMedium: 'social',
+          socialPlatformUsed: 'linkedin',
         };
       case 'reddit':
         return {
           referrerUrl: `https://www.reddit.com/r/technology/comments/${randSlug}/`,
           referrerName: 'Reddit (r/technology)',
+          canonicalSource: 'reddit.com',
+          canonicalMedium: 'social',
+          socialPlatformUsed: 'reddit',
         };
       case 'facebook':
         return {
           referrerUrl: `https://l.facebook.com/l.php?u=${encodeURIComponent(targetUrl)}`,
           referrerName: 'Facebook (l.facebook.com)',
+          canonicalSource: 'facebook.com',
+          canonicalMedium: 'social',
+          socialPlatformUsed: 'facebook',
         };
       case 'instagram':
         return {
           referrerUrl: `https://l.instagram.com/?u=${encodeURIComponent(targetUrl)}`,
           referrerName: 'Instagram Stories (l.instagram.com)',
+          canonicalSource: 'instagram.com',
+          canonicalMedium: 'social',
+          socialPlatformUsed: 'instagram',
         };
       case 'youtube':
         return {
           referrerUrl: 'https://www.youtube.com/',
           referrerName: 'YouTube Description Link',
+          canonicalSource: 'youtube.com',
+          canonicalMedium: 'social',
+          socialPlatformUsed: 'youtube',
+        };
+      case 'tiktok':
+        return {
+          referrerUrl: `https://www.tiktok.com/@community/video/${randSlug}`,
+          referrerName: 'TikTok (tiktok.com)',
+          canonicalSource: 'tiktok.com',
+          canonicalMedium: 'social',
+          socialPlatformUsed: 'tiktok',
+        };
+      case 'pinterest':
+        return {
+          referrerUrl: `https://www.pinterest.com/pin/${randSlug}/`,
+          referrerName: 'Pinterest (pinterest.com)',
+          canonicalSource: 'pinterest.com',
+          canonicalMedium: 'social',
+          socialPlatformUsed: 'pinterest',
         };
       default:
         return {
           referrerUrl: `https://t.co/${randSlug}`,
-          referrerName: 'Social Referral',
+          referrerName: 'Social Referral (t.co)',
+          canonicalSource: 't.co',
+          canonicalMedium: 'social',
+          socialPlatformUsed: 'twitter',
         };
     }
   }
@@ -337,16 +408,33 @@ export function buildOrganicReferrer(
     if (customUrl) {
       try {
         const host = new URL(customUrl).hostname;
-        return { referrerUrl: customUrl, referrerName: `Referral (${host})` };
+        return {
+          referrerUrl: customUrl,
+          referrerName: `Referral (${host})`,
+          canonicalSource: host,
+          canonicalMedium: 'referral',
+        };
       } catch {
-        return { referrerUrl: customUrl, referrerName: 'External Referral' };
+        return {
+          referrerUrl: customUrl,
+          referrerName: 'External Referral',
+          canonicalSource: 'referral',
+          canonicalMedium: 'referral',
+        };
       }
     }
     return {
       referrerUrl: 'https://techcrunch.com/features/cloud-infrastructure-tools',
       referrerName: 'TechCrunch Article Link',
+      canonicalSource: 'techcrunch.com',
+      canonicalMedium: 'referral',
     };
   }
 
-  return { referrerUrl: '', referrerName: 'Direct' };
+  return {
+    referrerUrl: '',
+    referrerName: 'Direct',
+    canonicalSource: '(direct)',
+    canonicalMedium: '(none)',
+  };
 }

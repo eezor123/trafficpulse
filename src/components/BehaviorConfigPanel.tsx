@@ -155,6 +155,12 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           countryCode: 'US',
           campaignSource: 'google',
           campaignMedium: 'organic',
+          canonicalSource: 'google',
+          canonicalMedium: 'organic',
+          searchKeyword: 'software developer',
+          term: 'software developer',
+          trafficSource: 'Organic Search',
+          searchEngine: 'google',
           campaignName: 'Organic Traffic Test',
           debugMode: true,
           clickParams: {
@@ -185,6 +191,9 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           pagePath: '/jobs',
           engagementTimeMs: 1000,
           countryCode: 'US',
+          canonicalSource: 'google',
+          canonicalMedium: 'organic',
+          searchKeyword: 'software developer',
           debugMode: true,
           clickParams: {
             linkUrl: targetOutboundUrl,
@@ -196,6 +205,22 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           },
         }),
       }).catch(() => {});
+
+      // 4. Dispatch real HTTP request if enabled
+      if (ga4.dispatchRealClickHttpRequests !== false) {
+        fetch('/api/traffic/dispatch-single', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: targetOutboundUrl,
+            method: 'GET',
+            headers: {
+              'Referer': pageLocation,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+            }
+          })
+        }).catch(() => {});
+      }
 
       const data = await res.json();
       if (data.success) {
@@ -1395,6 +1420,70 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
                 <p className="text-[10px] text-slate-400 leading-tight">
                   GA4 requires external domains to recognize links as legitimate outbound clicks.
                 </p>
+              </div>
+            </div>
+
+            {/* Guaranteed Capture Suite for Click, Social & Organic Search */}
+            <div className="p-3.5 bg-gradient-to-r from-emerald-950/40 via-cyan-950/30 to-slate-900/90 rounded-xl border border-emerald-500/40 space-y-3 shadow-lg">
+              <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">
+                    ✓
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <span>Guaranteed Analytics Capture Mode</span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold">100% Guaranteed</span>
+                    </div>
+                    <div className="text-[10px] text-slate-300">
+                      Eliminates discrepancies in GA4 for clicks, social networks, and organic search traffic.
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={ga4.guaranteedCaptureMode !== false}
+                  onChange={(e) => onChangeGa4({
+                    ...ga4,
+                    guaranteedCaptureMode: e.target.checked,
+                    ...(e.target.checked ? { dispatchRealClickHttpRequests: true, injectUtmParameters: true } : {})
+                  })}
+                  className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs pt-1">
+                {/* Real HTTP Request for Clicks */}
+                <label className="flex items-start gap-2.5 p-2.5 bg-slate-950/70 rounded-lg border border-slate-800/80 cursor-pointer hover:border-emerald-500/30 transition-all">
+                  <input
+                    type="checkbox"
+                    checked={ga4.dispatchRealClickHttpRequests !== false}
+                    onChange={(e) => onChangeGa4({ ...ga4, dispatchRealClickHttpRequests: e.target.checked })}
+                    className="w-3.5 h-3.5 mt-0.5 rounded accent-emerald-500 cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-semibold text-slate-200 text-[11px] block">Real HTTP Request on Clicks</span>
+                    <span className="text-[10px] text-slate-400 block leading-tight">
+                      Issues actual HTTP requests to clicked link & ad URLs with authentic Referer and browser navigation headers.
+                    </span>
+                  </div>
+                </label>
+
+                {/* Auto UTM Parameter Injection */}
+                <label className="flex items-start gap-2.5 p-2.5 bg-slate-950/70 rounded-lg border border-slate-800/80 cursor-pointer hover:border-emerald-500/30 transition-all">
+                  <input
+                    type="checkbox"
+                    checked={ga4.injectUtmParameters !== false}
+                    onChange={(e) => onChangeGa4({ ...ga4, injectUtmParameters: e.target.checked })}
+                    className="w-3.5 h-3.5 mt-0.5 rounded accent-emerald-500 cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-semibold text-slate-200 text-[11px] block">Strict UTM Channel Injection</span>
+                    <span className="text-[10px] text-slate-400 block leading-tight">
+                      Appends verified <code className="text-emerald-300 font-mono text-[9px]">utm_source</code> and <code className="text-emerald-300 font-mono text-[9px]">utm_medium=organic|social</code> for strict GA4 Channel Grouping.
+                    </span>
+                  </div>
+                </label>
               </div>
             </div>
 

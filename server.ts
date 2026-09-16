@@ -2221,6 +2221,11 @@ async function startServer() {
         pageLoadId,
         isFirstVisit,
         clickParams: incomingClickParams,
+        searchKeyword,
+        term,
+        trafficSource,
+        searchEngine,
+        socialPlatform,
       } = bodyData;
 
       if (!measurementId) {
@@ -2340,6 +2345,54 @@ async function startServer() {
         }
       } catch {}
 
+      const resolvedKeyword = (searchKeyword || term || bodyData.searchKeyword || bodyData.term || '').trim();
+
+      let resolvedSource = campaignSource || bodyData.canonicalSource;
+      if (!resolvedSource) {
+        if (trafficSource === 'Organic Search') {
+          resolvedSource = searchEngine || 'google';
+        } else if (trafficSource === 'Social') {
+          resolvedSource = socialPlatform === 'twitter' ? 't.co' : (socialPlatform ? `${socialPlatform}.com` : 't.co');
+        } else if (trafficSource === 'Direct') {
+          resolvedSource = '(direct)';
+        } else {
+          resolvedSource = 'referral';
+        }
+      }
+
+      let resolvedMedium = campaignMedium || bodyData.canonicalMedium;
+      if (!resolvedMedium) {
+        const srcLower = (resolvedSource || '').toLowerCase();
+        if (
+          srcLower.includes('google') ||
+          srcLower.includes('bing') ||
+          srcLower.includes('yahoo') ||
+          srcLower.includes('duckduckgo') ||
+          srcLower.includes('baidu') ||
+          srcLower.includes('yandex') ||
+          trafficSource === 'Organic Search'
+        ) {
+          resolvedMedium = 'organic';
+        } else if (
+          srcLower.includes('facebook') ||
+          srcLower.includes('t.co') ||
+          srcLower.includes('twitter') ||
+          srcLower.includes('linkedin') ||
+          srcLower.includes('reddit') ||
+          srcLower.includes('instagram') ||
+          srcLower.includes('youtube') ||
+          srcLower.includes('tiktok') ||
+          srcLower.includes('pinterest') ||
+          trafficSource === 'Social'
+        ) {
+          resolvedMedium = 'social';
+        } else if (trafficSource === 'Direct') {
+          resolvedMedium = '(none)';
+        } else {
+          resolvedMedium = 'referral';
+        }
+      }
+
       // A. If API Secret is provided, dispatch to official GA4 Measurement Protocol
       let mpDispatched = false;
       if (apiSecret) {
@@ -2351,12 +2404,13 @@ async function startServer() {
             page_location: pageLocation || `${targetOrigin}${pagePath || '/'}`,
             page_title: pageTitle || 'Page Title',
             page_referrer: referrer || '',
-            source: campaignSource || 'organic',
-            medium: campaignMedium || 'search',
+            source: resolvedSource,
+            medium: resolvedMedium,
             campaign: campaignName || 'organic_boost',
             visitor_country: cleanCountryCode,
             country: cleanCountryCode,
             geoid: geoData.criteriaId,
+            ...(resolvedKeyword ? { term: resolvedKeyword, search_term: resolvedKeyword } : {}),
             ...(isDebugMode ? { debug_mode: 1 } : {}),
           };
 
@@ -2376,6 +2430,7 @@ async function startServer() {
             mpEventParams.link_id = cp?.linkId || `click_${Date.now()}`;
             mpEventParams.outbound = clickOutbound;
             mpEventParams.click_target = clickText;
+            mpEventParams.content_type = cp?.contentType || 'article_link';
           }
 
           const mpBody = {
@@ -2452,17 +2507,22 @@ async function startServer() {
         }
       }
 
-      if (campaignSource) {
-        payloadParams.cs = campaignSource;
-        payloadParams['ep.source'] = campaignSource;
+      if (resolvedSource) {
+        payloadParams.cs = resolvedSource;
+        payloadParams['ep.source'] = resolvedSource;
       }
-      if (campaignMedium) {
-        payloadParams.cm = campaignMedium;
-        payloadParams['ep.medium'] = campaignMedium;
+      if (resolvedMedium) {
+        payloadParams.cm = resolvedMedium;
+        payloadParams['ep.medium'] = resolvedMedium;
       }
       if (campaignName) {
         payloadParams.cn = campaignName;
         payloadParams['ep.campaign'] = campaignName;
+      }
+      if (resolvedKeyword) {
+        payloadParams.ck = resolvedKeyword;
+        payloadParams['ep.term'] = resolvedKeyword;
+        payloadParams['ep.search_term'] = resolvedKeyword;
       }
 
       if (eventName === 'click' || cp) {
@@ -2615,6 +2675,13 @@ async function startServer() {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': headers['Accept-Language'] || 'en-US,en;q=0.9',
         'User-Agent': headers['User-Agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': (headers['Referer'] || headers['referer']) ? 'cross-site' : 'none',
+        'Upgrade-Insecure-Requests': '1',
         'X-Forwarded-For': forwardedIp,
         'X-Real-IP': forwardedIp,
         'True-Client-IP': forwardedIp,

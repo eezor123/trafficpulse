@@ -722,6 +722,16 @@ export class OrganicTrafficEngine {
                 1000
               );
             }
+
+            // Dispatch REAL HTTP request for outbound link click if enabled
+            if (this.config.ga4.dispatchRealClickHttpRequests !== false && outboundTarget?.linkUrl) {
+              this.dispatchRealHttpRequest(
+                visitor,
+                outboundTarget.linkUrl,
+                currentPage.path,
+                `Article Outbound: ${chosenLink}`
+              );
+            }
           }
 
           this.callbacks.onTelemetryEvent({
@@ -809,6 +819,16 @@ export class OrganicTrafficEngine {
                   1000
                 );
               }
+
+              // Dispatch REAL HTTP request for ad partner/sponsor click
+              if (this.config.ga4.dispatchRealClickHttpRequests !== false && adOutboundTarget?.linkUrl) {
+                this.dispatchRealHttpRequest(
+                  visitor,
+                  adOutboundTarget.linkUrl,
+                  currentPage.path,
+                  `Ad Sponsor: ${pickedAd.name} [${pickedAd.network}]`
+                );
+              }
             }
 
             this.callbacks.onTelemetryEvent({
@@ -890,6 +910,16 @@ export class OrganicTrafficEngine {
                 currentPage.path,
                 `${currentPage.title} - ${targetName}`,
                 1000
+              );
+            }
+
+            // Dispatch REAL HTTP request for UI click outbound target if enabled
+            if (this.config.ga4.dispatchRealClickHttpRequests !== false && outboundTarget?.linkUrl) {
+              this.dispatchRealHttpRequest(
+                visitor,
+                outboundTarget.linkUrl,
+                currentPage.path,
+                `UI CTA: ${targetName}`
               );
             }
           }
@@ -1277,8 +1307,35 @@ export class OrganicTrafficEngine {
       this.topKeywordVisits[chosenKeyword] = (this.topKeywordVisits[chosenKeyword] || 0) + 1;
     }
 
-    const socialPlatforms = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'youtube'];
-    const chosenSocial = socialPlatforms[Math.floor(Math.random() * socialPlatforms.length)];
+    // Search Engine Selection with weighted shares
+    const seConfig = this.config.organic.searchEngines || { google: 85, bing: 8, yahoo: 3, duckduckgo: 2, baidu: 1, yandex: 1 };
+    const seKeys = ['google', 'bing', 'yahoo', 'duckduckgo', 'baidu', 'yandex'] as const;
+    const totalSeWeight = seKeys.reduce((acc, k) => acc + (seConfig[k] || 0), 0) || 100;
+    let seRand = Math.random() * totalSeWeight;
+    let chosenEngine = 'google';
+    for (const k of seKeys) {
+      const w = seConfig[k] || 0;
+      if (seRand < w) {
+        chosenEngine = k;
+        break;
+      }
+      seRand -= w;
+    }
+
+    // Social Network Selection with weighted shares
+    const snConfig = this.config.organic.socialNetworks || { twitter: 35, linkedin: 20, facebook: 20, instagram: 10, reddit: 10, youtube: 5, tiktok: 0, pinterest: 0 };
+    const snKeys = ['twitter', 'linkedin', 'facebook', 'instagram', 'reddit', 'youtube', 'tiktok', 'pinterest'] as const;
+    const totalSnWeight = snKeys.reduce((acc, k) => acc + (snConfig[k] || 0), 0) || 100;
+    let snRand = Math.random() * totalSnWeight;
+    let chosenSocial = 'twitter';
+    for (const k of snKeys) {
+      const w = snConfig[k] || 0;
+      if (snRand < w) {
+        chosenSocial = k;
+        break;
+      }
+      snRand -= w;
+    }
 
     // 4. Decide Bounce vs Multi-page exploration
     const bounceThreshold = this.config.behavior.bounceRatePct || 25;
@@ -1357,11 +1414,18 @@ export class OrganicTrafficEngine {
       };
     }
 
-    const { referrerUrl, referrerName } = buildOrganicReferrer(
+    const { 
+      referrerUrl, 
+      referrerName,
+      canonicalSource,
+      canonicalMedium,
+      searchEngineUsed,
+      socialPlatformUsed,
+    } = buildOrganicReferrer(
       chosenSource,
       chosenKeyword,
       this.config.targetUrl,
-      'google',
+      chosenEngine,
       chosenSocial,
       undefined,
       selectedCountry.code,
@@ -1370,6 +1434,24 @@ export class OrganicTrafficEngine {
       this.config.organic.forceGoogleSearchOnAllLinks,
       this.config.organic.googleReferrerMode || 'country_localized'
     );
+
+    let landingUrl = landingPage.url;
+    if (this.config.ga4.injectUtmParameters) {
+      try {
+        const u = new URL(landingUrl);
+        if (chosenSource === 'Organic Search') {
+          u.searchParams.set('utm_source', canonicalSource);
+          u.searchParams.set('utm_medium', 'organic');
+          u.searchParams.set('utm_campaign', this.config.name || 'organic_traffic');
+          if (chosenKeyword) u.searchParams.set('utm_term', chosenKeyword);
+        } else if (chosenSource === 'Social') {
+          u.searchParams.set('utm_source', canonicalSource);
+          u.searchParams.set('utm_medium', 'social');
+          u.searchParams.set('utm_campaign', this.config.name || 'social_traffic');
+        }
+        landingUrl = u.toString();
+      } catch {}
+    }
 
     const visitedPages: VisitedPageStep[] = [];
 
@@ -1544,6 +1626,10 @@ export class OrganicTrafficEngine {
       referrerUrl,
       referrerName,
       searchKeyword: chosenSource === 'Organic Search' ? chosenKeyword : undefined,
+      searchEngine: chosenSource === 'Organic Search' ? (searchEngineUsed || chosenEngine) : undefined,
+      socialPlatform: chosenSource === 'Social' ? (socialPlatformUsed || chosenSocial) : undefined,
+      canonicalSource,
+      canonicalMedium,
       gaClientId,
       gaSessionId,
       hitSequence: 0,
@@ -1600,7 +1686,7 @@ export class OrganicTrafficEngine {
     this.dispatchGa4Beacon(session, 'page_view', landingPage.path, landingPage.title);
 
     // Dispatch REAL HTTP request asynchronously in background
-    this.dispatchRealHttpRequest(session, landingPage.url, landingPage.path, landingPage.title);
+    this.dispatchRealHttpRequest(session, landingUrl, landingPage.path, landingPage.title);
   }
 
   private recordPageStats(path: string, title: string, dwellSec: number) {
@@ -1793,8 +1879,8 @@ export class OrganicTrafficEngine {
 
     const measurementId = this.config.ga4.measurementId?.trim();
     const effectiveEngagement = Math.max(1200, engagementTimeMs || 2000);
-    const campaignSource = visitor.trafficSource === 'Organic Search' ? 'google' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource.toLowerCase();
-    const campaignMedium = visitor.trafficSource === 'Organic Search' ? 'organic' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource === 'Direct' ? '(none)' : 'referral';
+    const campaignSource = visitor.canonicalSource || (visitor.trafficSource === 'Organic Search' ? 'google' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource.toLowerCase());
+    const campaignMedium = visitor.canonicalMedium || (visitor.trafficSource === 'Organic Search' ? 'organic' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource === 'Direct' ? '(none)' : 'referral');
     const pageLocation = `${this.config.targetUrl}${pagePath}`;
     const proxyRegion = visitor.country.region || visitor.proxyUsed?.region || 'Global';
     const visitorLocale = visitor.country.locale?.split(',')[0]?.trim() || 'en-GB';
@@ -1857,6 +1943,12 @@ export class OrganicTrafficEngine {
             _uip: visitorIp,
           };
 
+          if (visitor.searchKeyword) {
+            directParams.ck = visitor.searchKeyword;
+            directParams['ep.term'] = visitor.searchKeyword;
+            directParams['ep.search_term'] = visitor.searchKeyword;
+          }
+
           if (this.config.ga4.debugMode !== false) {
             directParams._dbg = '1';
             directParams['ep.debug_mode'] = '1';
@@ -1870,15 +1962,18 @@ export class OrganicTrafficEngine {
           }
 
           if (eventName === 'click' || clickParams) {
+            const isOutbound = clickParams?.outbound !== false;
             directParams['ep.link_url'] = clickParams?.linkUrl || 'https://careers.google.com/jobs/results/';
             directParams['ep.link_text'] = clickParams?.linkText || 'External Verified Listing';
             directParams['ep.link_domain'] = clickParams?.linkDomain || 'careers.google.com';
             directParams['ep.link_classes'] = clickParams?.linkClasses || 'cta-button outbound-partner-link';
             directParams['ep.link_id'] = clickParams?.linkId || `click_${Date.now()}`;
-            directParams['ep.outbound'] = 'true';
-            directParams['epn.outbound'] = '1';
+            directParams['ep.outbound'] = isOutbound ? 'true' : 'false';
+            directParams['epn.outbound'] = isOutbound ? '1' : '0';
+            directParams['ep.click_target'] = clickParams?.linkText || 'External Verified Listing';
             directParams['ep.content_type'] = clickParams?.contentType || 'external_link';
             directParams['ep.item_id'] = clickParams?.linkId || `item_${Date.now()}`;
+            directParams['ep.action'] = 'click';
           }
 
           const directQuery = new URLSearchParams(directParams).toString();
@@ -1939,6 +2034,13 @@ export class OrganicTrafficEngine {
         campaignSource,
         campaignMedium,
         campaignName: this.config.name || 'Organic Traffic Boost',
+        searchKeyword: visitor.searchKeyword,
+        term: visitor.searchKeyword,
+        canonicalSource: visitor.canonicalSource,
+        canonicalMedium: visitor.canonicalMedium,
+        trafficSource: visitor.trafficSource,
+        searchEngine: visitor.searchEngine,
+        socialPlatform: visitor.socialPlatform,
         proxyUrl,
         isLightweight,
         debugMode: this.config.ga4.debugMode !== false,
