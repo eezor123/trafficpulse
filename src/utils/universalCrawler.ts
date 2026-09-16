@@ -664,24 +664,44 @@ export async function executeUniversalCrawl(
     .replace(/<[^>]*>/g, '')
     .trim();
 
-  // Detect GA4 / GTM
+  // Detect GA4 / GTM across comprehensive tag patterns
   const ga4Regexes = [
-    /G-[A-Z0-9]{7,15}/i,
-    /gtag\(['"]config['"],\s*['"](G-[A-Z0-9]+)['"]/i,
     /googletagmanager\.com\/gtag\/js\?id=(G-[A-Z0-9]+)/i,
-    /["'](G-[A-Z0-9]{8,14})["']/,
-    /measurementId["']?\s*:\s*["'](G-[A-Z0-9]+)["']/
+    /gtag\(['"]config['"],\s*['"](G-[A-Z0-9]+)['"]/i,
+    /gtag\(['"]event['"],\s*[^,]+,\s*\{[^}]*send_to:\s*['"](G-[A-Z0-9]+)['"]/i,
+    /measurementId["']?\s*:\s*["'](G-[A-Z0-9]+)["']/i,
+    /["']measurement_id["']\s*:\s*["'](G-[A-Z0-9]+)["']/i,
+    /["'](G-[A-Z0-9]{7,15})["']/i,
+    /id=(G-[A-Z0-9]{7,15})/i,
+    /id%3D(G-[A-Z0-9]{7,15})/i,
+    /\b(G-[A-Z0-9]{8,14})\b/i,
   ];
   for (const rx of ga4Regexes) {
     const m = primaryHtml.match(rx);
     if (m) {
-      gaMeasurementId = m[1] || m[0];
+      gaMeasurementId = (m[1] || m[0]).toUpperCase().trim();
       break;
     }
   }
+
   const gtmMatch = primaryHtml.match(/GTM-[A-Z0-9]{4,10}/i);
   if (gtmMatch) {
-    gtmId = gtmMatch[0];
+    gtmId = gtmMatch[0].toUpperCase().trim();
+    // If GA4 tag was not directly inline, attempt to read the public GTM container to discover the underlying GA4 tag
+    if (!gaMeasurementId) {
+      try {
+        const gtmRes = await fetchFn(`https://www.googletagmanager.com/gtm.js?id=${gtmId}`, 4000);
+        if (gtmRes.ok && gtmRes.text) {
+          for (const rx of ga4Regexes) {
+            const gm = gtmRes.text.match(rx);
+            if (gm) {
+              gaMeasurementId = (gm[1] || gm[0]).toUpperCase().trim();
+              break;
+            }
+          }
+        }
+      } catch {}
+    }
   }
 
   // Add Target Root Page
@@ -1112,6 +1132,16 @@ export async function executeUniversalCrawl(
             const sRes = await fetchFn(sUrl, 8000);
             if (!sRes.ok || !sRes.text) return;
             const jsCode = sRes.text;
+
+            if (!gaMeasurementId) {
+              for (const rx of ga4Regexes) {
+                const gm = jsCode.match(rx);
+                if (gm) {
+                  gaMeasurementId = (gm[1] || gm[0]).toUpperCase().trim();
+                  break;
+                }
+              }
+            }
 
             // 1. Extract job IDs (job_xxx)
             const jobMatches = jsCode.match(/["']?(job_[a-zA-Z0-9_]{2,32})["']?/g) || [];

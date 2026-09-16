@@ -72,7 +72,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
 
   const handleTestGa4Ping = async () => {
     const activeTargetGaId = (ga4.measurementId || detectedGaMeasurementId || '').trim();
-    if (!activeTargetGaId || activeTargetGaId === 'G-VFY5E884EH') {
+    if (!activeTargetGaId) {
       alert('Please enter your target website GA4 Measurement ID (e.g. G-XXXXXXXXXX) or crawl your website first.');
       return;
     }
@@ -110,7 +110,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
 
   const handleTestGa4ClickPing = async () => {
     const measurementId = (ga4.measurementId || detectedGaMeasurementId || '').trim();
-    if (!measurementId || measurementId === 'G-VFY5E884EH') {
+    if (!measurementId) {
       alert('Please enter your target website GA4 Measurement ID (e.g. G-XXXXXXXXXX) or crawl your website first.');
       return;
     }
@@ -1362,7 +1362,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
                 <label className="text-[11px] font-bold text-slate-400 uppercase">
                   GA4 Measurement ID (e.g. G-XXXXXXXXXX)
                 </label>
-                {detectedGaMeasurementId && detectedGaMeasurementId !== 'G-VFY5E884EH' && (
+                {detectedGaMeasurementId && (
                   <span className="text-[10px] text-emerald-400 font-medium">
                     Target Site Tag: <strong className="font-mono text-emerald-300">{detectedGaMeasurementId}</strong>
                   </span>
@@ -1371,10 +1371,10 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
               <div className="flex items-center gap-2">
                 <input
                   type="text"
-                  value={ga4.measurementId === 'G-VFY5E884EH' ? '' : (ga4.measurementId || '')}
+                  value={ga4.measurementId || ''}
                   onChange={(e) => {
                     const cleanVal = e.target.value.trim().toUpperCase();
-                    onChangeGa4({ ...ga4, measurementId: cleanVal === 'G-VFY5E884EH' ? '' : cleanVal });
+                    onChangeGa4({ ...ga4, measurementId: cleanVal });
                   }}
                   placeholder="G-XXXXXXXXXX (e.g. your target site property)"
                   className="flex-1 bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none font-mono"
@@ -1401,7 +1401,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
                 </button>
               </div>
 
-              {detectedGaMeasurementId && detectedGaMeasurementId !== 'G-VFY5E884EH' && (
+              {detectedGaMeasurementId && (
                 <div className="flex items-center justify-between gap-2 mt-2 px-3 py-2 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-xs text-emerald-300">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />

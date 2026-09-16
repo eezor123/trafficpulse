@@ -72,11 +72,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       setUsername(currentUser.username || '');
       setCompany(currentUser.company || '');
       setTargetWebsite(currentUser.targetWebsite || '');
-      // Sanitize: do not load old admin ID under any circumstances
-      const userGaId = (currentUser.gaMeasurementId === 'G-VFY5E884EH')
-        ? ''
-        : (currentUser.gaMeasurementId || '');
-      setGaMeasurementId(userGaId);
+      setGaMeasurementId(currentUser.gaMeasurementId || '');
       setGaApiSecret(currentUser.gaApiSecret || '');
       setGaVerifyStatus(null);
       setAvatarPreview(currentUser.avatar || null);

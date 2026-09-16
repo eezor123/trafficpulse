@@ -165,11 +165,6 @@ export function sanitizeTrialQuotas(member: ServerMember): ServerMember {
     }
   }
 
-  // Ensure old admin measurement ID is purged completely from all accounts
-  if (member.gaMeasurementId === 'G-VFY5E884EH') {
-    delete member.gaMeasurementId;
-  }
-
   return member;
 }
 

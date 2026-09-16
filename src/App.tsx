@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { TargetUrlCommandBar } from './components/TargetUrlCommandBar';
 import { CrawlerPanel } from './components/CrawlerPanel';
@@ -89,14 +89,7 @@ function loadInitialOrganicConfig(): OrganicVisitorConfig {
     const saved = localStorage.getItem(STORAGE_KEYS.ORGANIC_CONFIG);
     if (saved) {
       const parsed = JSON.parse(saved);
-      let loadedGaId = (parsed.ga4?.measurementId || '').trim();
-      if (loadedGaId === 'G-VFY5E884EH') {
-        loadedGaId = '';
-        parsed.ga4 = { ...(parsed.ga4 || {}), measurementId: '' };
-        try {
-          localStorage.setItem('trafficpulse_organic_config', JSON.stringify(parsed));
-        } catch {}
-      }
+      const loadedGaId = (parsed.ga4?.measurementId || '').trim();
       return {
         ...DEFAULT_ORGANIC_CONFIG,
         ...parsed,
@@ -246,6 +239,42 @@ export default function App() {
   // Crawler State
   const [crawlState, setCrawlState] = useState<SiteCrawlState>(loadInitialCrawlState);
 
+  // Persistent domain-to-GA4 mapping (e.g. { 'example.com': 'G-XXXXXXXXXX', 'site.com': 'G-YYYYYYYYYY' })
+  const [domainGaMap, setDomainGaMap] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('trafficpulse_domain_ga_tags');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const saveDomainGaTag = useCallback((domainOrUrl: string, tag: string) => {
+    try {
+      let hostname = (domainOrUrl || '').trim();
+      if (hostname.startsWith('http://') || hostname.startsWith('https://')) {
+        hostname = new URL(hostname).hostname;
+      } else if (hostname.includes('/')) {
+        hostname = hostname.split('/')[0];
+      }
+      hostname = hostname.toLowerCase().trim();
+      if (!hostname) return;
+      const cleanTag = tag.toUpperCase().trim();
+      setDomainGaMap(prev => {
+        const next = { ...prev };
+        if (cleanTag) {
+          next[hostname] = cleanTag;
+        } else {
+          delete next[hostname];
+        }
+        try {
+          localStorage.setItem('trafficpulse_domain_ga_tags', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    } catch {}
+  }, []);
+
   const organicEngineRef = useRef<OrganicTrafficEngine | null>(null);
 
   // ==================== STRESS LOAD STATE ====================
@@ -327,39 +356,69 @@ export default function App() {
     setIsAuthModalOpen(true);
   };
 
-  // Resolves the respective GA4 Measurement ID for the URL being simulated
+  // Resolves the respective GA4 Measurement ID for the target website being crawled/simulated
   const getMemberGa4Id = (): string => {
-    // 1. Tag detected from the target URL being crawled/simulated
+    // 1. Tag detected from the crawled target website
     const crawledGaId = (crawlState.gaMeasurementId || '').trim();
-    if (crawledGaId && crawledGaId !== 'G-VFY5E884EH') {
+    if (crawledGaId) {
       return crawledGaId;
     }
 
-    // 2. Explicitly configured GA4 ID for this session/campaign
+    // 2. Domain-attached GA4 tag from domain map for this target URL's domain
+    let targetHost = (crawlState.hostname || '').toLowerCase().trim();
+    if (!targetHost && (crawlState.targetUrl || organicConfig.targetUrl)) {
+      try {
+        const raw = crawlState.targetUrl || organicConfig.targetUrl;
+        targetHost = (raw.startsWith('http') ? new URL(raw).hostname : raw.split('/')[0]).toLowerCase().trim();
+      } catch {}
+    }
+    if (targetHost && domainGaMap[targetHost]) {
+      return domainGaMap[targetHost].trim();
+    }
+
+    // 3. Explicitly configured GA4 ID in organicConfig
     const configGaId = (organicConfig.ga4?.measurementId || '').trim();
-    if (configGaId && configGaId !== 'G-VFY5E884EH') {
+    if (configGaId) {
       return configGaId;
     }
 
-    // 3. Member's saved personal GA4 ID from profile
+    // 4. Logged-in member's saved personal GA4 ID from profile
     const userGaId = authState.user?.gaMeasurementId?.trim();
-    if (userGaId && userGaId !== 'G-VFY5E884EH') {
+    if (userGaId) {
       return userGaId;
     }
 
-    // No hardcoded admin fallback under any circumstances
     return '';
   };
 
   const handleUpdateGaMeasurementId = async (newId: string) => {
     const cleanId = newId.trim().toUpperCase();
+    let currentDomain = (crawlState.hostname || '').toLowerCase().trim();
+    if (!currentDomain && (crawlState.targetUrl || organicConfig.targetUrl)) {
+      try {
+        const raw = crawlState.targetUrl || organicConfig.targetUrl;
+        currentDomain = (raw.startsWith('http') ? new URL(raw).hostname : raw.split('/')[0]).toLowerCase().trim();
+      } catch {}
+    }
+
+    if (currentDomain) {
+      saveDomainGaTag(currentDomain, cleanId);
+    }
+
+    setCrawlState(prev => ({
+      ...prev,
+      gaMeasurementId: cleanId || undefined,
+    }));
+
     setOrganicConfig(prev => ({
       ...prev,
       ga4: {
         ...prev.ga4,
         measurementId: cleanId,
+        autoSendMeasurementProtocol: !!cleanId,
       }
     }));
+
     if (authState.isAuthenticated && authState.user) {
       try {
         const res = await updateMemberProfile({ gaMeasurementId: cleanId });
@@ -370,7 +429,7 @@ export default function App() {
         console.warn('Failed to update member GA4 ID in profile:', err);
       }
     }
-    setSaveBannerMessage(`Google Analytics 4 property updated: ${cleanId || 'Disabled'}`);
+    setSaveBannerMessage(cleanId ? `Google Analytics tag ${cleanId} attached to ${currentDomain || 'target URL'}` : `Google Analytics disabled for ${currentDomain || 'target URL'}`);
     setTimeout(() => setSaveBannerMessage(null), 4000);
   };
 
@@ -415,9 +474,6 @@ export default function App() {
           email: stored.user.email,
         }).then(fresh => {
           if (fresh) {
-            if (fresh.gaMeasurementId === 'G-VFY5E884EH') {
-              delete fresh.gaMeasurementId;
-            }
             setAuthState(prev => ({
               ...prev,
               user: fresh,
@@ -426,39 +482,6 @@ export default function App() {
         }).catch(() => {});
       }
     };
-
-    // Eradicate any remnant admin GA4 ID from localStorage and memory
-    try {
-      const storedCfg = localStorage.getItem(STORAGE_KEYS.ORGANIC_CONFIG);
-      if (storedCfg && storedCfg.includes('G-VFY5E884EH')) {
-        const parsed = JSON.parse(storedCfg);
-        if (parsed.ga4?.measurementId === 'G-VFY5E884EH') {
-          parsed.ga4.measurementId = '';
-        }
-        localStorage.setItem(STORAGE_KEYS.ORGANIC_CONFIG, JSON.stringify(parsed));
-      }
-      const storedAuth = localStorage.getItem('trafficpulse_member_auth');
-      if (storedAuth && storedAuth.includes('G-VFY5E884EH')) {
-        const parsedAuth = JSON.parse(storedAuth);
-        if (parsedAuth.user?.gaMeasurementId === 'G-VFY5E884EH') {
-          delete parsedAuth.user.gaMeasurementId;
-        }
-        localStorage.setItem('trafficpulse_member_auth', JSON.stringify(parsedAuth));
-      }
-    } catch {}
-
-    setOrganicConfig(prev => {
-      if (prev.ga4?.measurementId === 'G-VFY5E884EH') {
-        return {
-          ...prev,
-          ga4: {
-            ...prev.ga4,
-            measurementId: '',
-          }
-        };
-      }
-      return prev;
-    });
 
     syncProfile();
     window.addEventListener('focus', syncProfile);
@@ -776,6 +799,12 @@ export default function App() {
         const mergedPages = [...data.pages, ...retainedCustom];
         const recentItems = buildRecentDiscoveredItems(mergedPages);
 
+        // Resolve GA4 ID for this domain: either newly detected or existing domain-attached ID
+        const resolvedGaId = (data.gaMeasurementId || domainGaMap[newHostname] || '').trim();
+        if (resolvedGaId && newHostname) {
+          saveDomainGaTag(newHostname, resolvedGaId);
+        }
+
         setCrawlState({
           targetUrl: data.targetUrl || urlToCrawl,
           hostname: newHostname,
@@ -784,7 +813,7 @@ export default function App() {
           description: data.description || `Scraped site for ${newHostname}`,
           pages: mergedPages,
           isCrawling: false,
-          gaMeasurementId: data.gaMeasurementId,
+          gaMeasurementId: resolvedGaId || undefined,
           statusCode: data.statusCode,
           latencyMs: data.latencyMs,
           realLinksCount: data.realLinksCount || mergedPages.length,
@@ -801,16 +830,17 @@ export default function App() {
           organicEngineRef.current.updatePagesPool(mergedPages);
         }
 
-        setSaveBannerMessage(`Crawl complete! Discovered ${mergedPages.length} active routes on ${data.hostname || urlToCrawl}.`);
+        setSaveBannerMessage(`Crawl complete! Discovered ${mergedPages.length} active routes on ${data.hostname || urlToCrawl}.${resolvedGaId ? ` GA4 attached: ${resolvedGaId}` : ''}`);
         setTimeout(() => setSaveBannerMessage(null), 6000);
 
-        // If GA4 was detected, update organic config
-        if (data.gaMeasurementId) {
+        // If GA4 was detected or saved for this domain, update organic config
+        if (resolvedGaId) {
           setOrganicConfig(prev => ({
             ...prev,
             ga4: {
               ...prev.ga4,
-              measurementId: data.gaMeasurementId,
+              measurementId: resolvedGaId,
+              autoSendMeasurementProtocol: true,
             }
           }));
         }
@@ -839,6 +869,11 @@ export default function App() {
         const fallbackPages = [...discovered, ...retainedCustom];
         const recentItems = buildRecentDiscoveredItems(fallbackPages);
 
+        const liveResolvedGaId = (liveCrawlResult.gaMeasurementId || domainGaMap[hostname] || '').trim();
+        if (liveResolvedGaId && hostname) {
+          saveDomainGaTag(hostname, liveResolvedGaId);
+        }
+
         setCrawlState({
           targetUrl: urlToCrawl,
           hostname,
@@ -853,22 +888,23 @@ export default function App() {
           visitedUrlsCount: fallbackPages.length,
           recursivePassDepth: organicConfig.crawlSettings.maxDepth || 2,
           listingPatternsMatched: fallbackPages.filter(p => p.category === 'post' || p.path.includes('job') || p.path.includes('post')).length,
-          gaMeasurementId: liveCrawlResult.gaMeasurementId,
+          gaMeasurementId: liveResolvedGaId || undefined,
           crawlProgressPct: 100,
           crawlPhase: 'Crawl Completed • In-Browser Engine',
           currentScanningUrl: urlToCrawl,
           recentlyDiscoveredRoutes: recentItems,
         });
 
-        setSaveBannerMessage(`Discovered ${fallbackPages.length} verified routes for ${hostname}!`);
+        setSaveBannerMessage(`Discovered ${fallbackPages.length} verified routes for ${hostname}!${liveResolvedGaId ? ` GA4 attached: ${liveResolvedGaId}` : ''}`);
         setTimeout(() => setSaveBannerMessage(null), 6000);
 
-        if (liveCrawlResult.gaMeasurementId) {
+        if (liveResolvedGaId) {
           setOrganicConfig(prev => ({
             ...prev,
             ga4: {
               ...prev.ga4,
-              measurementId: liveCrawlResult.gaMeasurementId,
+              measurementId: liveResolvedGaId,
+              autoSendMeasurementProtocol: true,
             }
           }));
         }
@@ -1256,6 +1292,14 @@ export default function App() {
     organicEngineRef.current = engine;
     engine.start();
 
+    const currentHost = crawlState.hostname || (targetUrl.startsWith('http') ? new URL(targetUrl).hostname : targetUrl);
+    if (effectiveGa4Id) {
+      setSaveBannerMessage(`🚀 Simulation active! Live Google Analytics reporting dispatched to ${effectiveGa4Id} (${currentHost})`);
+    } else {
+      setSaveBannerMessage(`🚀 Simulation running on ${currentHost}. Tip: Attach GA4 Measurement ID in the top bar to view real-time visits in Google Analytics!`);
+    }
+    setTimeout(() => setSaveBannerMessage(null), 6500);
+
     // Asynchronously refresh route catalog in background if initial sample or domain changed
     if (
       crawlState.pages.some(p => p.id.startsWith('p_root')) || 
@@ -1497,8 +1541,35 @@ export default function App() {
             <TargetUrlCommandBar
               targetUrl={crawlState.targetUrl}
               onUpdateTargetUrl={(url) => {
-                setCrawlState(prev => ({ ...prev, targetUrl: url }));
-                setOrganicConfig(prev => ({ ...prev, targetUrl: url }));
+                let hostname = url.trim();
+                try {
+                  if (hostname.startsWith('http://') || hostname.startsWith('https://')) {
+                    hostname = new URL(hostname).hostname;
+                  } else if (hostname.includes('/')) {
+                    hostname = hostname.split('/')[0];
+                  }
+                } catch {}
+                hostname = hostname.toLowerCase().trim();
+                const attachedGaId = (hostname && domainGaMap[hostname]) ? domainGaMap[hostname] : undefined;
+
+                setCrawlState(prev => ({
+                  ...prev,
+                  targetUrl: url,
+                  hostname: hostname || prev.hostname,
+                  ...(attachedGaId ? { gaMeasurementId: attachedGaId } : {}),
+                }));
+
+                setOrganicConfig(prev => ({
+                  ...prev,
+                  targetUrl: url,
+                  ...(attachedGaId ? {
+                    ga4: {
+                      ...prev.ga4,
+                      measurementId: attachedGaId,
+                      autoSendMeasurementProtocol: true,
+                    }
+                  } : {}),
+                }));
               }}
               crawlState={crawlState}
               onStartCrawl={(url) => handleStartCrawl(url)}
@@ -1507,6 +1578,7 @@ export default function App() {
               onStopTraffic={handleStopOrganic}
               activeVisitorsCount={activeVisitors.length}
               gaMeasurementId={getMemberGa4Id()}
+              onUpdateGaMeasurementId={handleUpdateGaMeasurementId}
             />
 
             {/* Primary Organic Mode Navigation Sub-Bar */}

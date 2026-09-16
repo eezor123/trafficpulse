@@ -27,6 +27,7 @@ interface TargetUrlCommandBarProps {
   onStopTraffic: () => void;
   activeVisitorsCount: number;
   gaMeasurementId?: string;
+  onUpdateGaMeasurementId?: (newId: string) => void;
 }
 
 const PRESET_URLS = [
@@ -47,11 +48,16 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
   onStopTraffic,
   activeVisitorsCount,
   gaMeasurementId,
+  onUpdateGaMeasurementId,
 }) => {
   const [inputUrl, setInputUrl] = useState(targetUrl);
   const [isPinging, setIsPinging] = useState(false);
   const [pingResult, setPingResult] = useState<any>(null);
   const [showPingModal, setShowPingModal] = useState(false);
+  const [showGaModal, setShowGaModal] = useState(false);
+  const [customGaInput, setCustomGaInput] = useState('');
+
+  const activeGaId = (gaMeasurementId || crawlState.gaMeasurementId || '').trim();
 
   // Sync inputUrl when targetUrl changes from external sources
   React.useEffect(() => {
@@ -240,13 +246,38 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
             <span className="text-emerald-400 font-bold font-mono">{crawlState.pages.length}</span> Pages Discovered
             <span className="text-slate-500 ml-1">({includedPagesCount} active in rotation)</span>
           </span>
-          {(gaMeasurementId || crawlState.gaMeasurementId) && (
+          {activeGaId ? (
             <>
               <span className="text-slate-600">•</span>
-              <span className="text-emerald-300 font-mono flex items-center gap-1 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
-                <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                <span>GA4: {gaMeasurementId || crawlState.gaMeasurementId}</span>
-              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomGaInput(activeGaId);
+                  setShowGaModal(true);
+                }}
+                className="text-emerald-300 hover:text-emerald-200 font-mono flex items-center gap-1 bg-emerald-950/70 hover:bg-emerald-900/60 px-2 py-0.5 rounded border border-emerald-500/40 text-[11px] cursor-pointer transition-all"
+                title="Click to view or edit the Google Analytics property attached to this target domain"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>GA4: <strong className="text-white">{activeGaId}</strong></span>
+                <span className="text-[9px] text-emerald-400 bg-emerald-950 px-1 py-0.2 rounded border border-emerald-500/30 ml-1">Live Reporting</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="text-slate-600">•</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomGaInput('');
+                  setShowGaModal(true);
+                }}
+                className="text-amber-300 hover:text-amber-200 font-mono flex items-center gap-1 bg-amber-950/60 hover:bg-amber-900/50 px-2 py-0.5 rounded border border-amber-500/40 text-[11px] cursor-pointer transition-all"
+                title="Click to attach Google Analytics 4 Measurement ID so simulation reports show in your dashboard"
+              >
+                <AlertCircle className="w-3 h-3 text-amber-400" />
+                <span>+ Attach GA4 ID (Live Realtime)</span>
+              </button>
             </>
           )}
         </div>
@@ -266,6 +297,102 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
           ))}
         </div>
       </div>
+
+      {/* Target Domain GA4 Configuration Modal */}
+      {showGaModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h3 className="text-sm font-bold text-white">Attach Google Analytics to Domain</h3>
+                  <p className="text-[11px] text-slate-400">Target: {crawlState.hostname || 'Selected Target'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGaModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                When you simulate traffic to <strong className="text-cyan-300 font-mono">{crawlState.hostname || targetUrl}</strong>, all visitor hits and events are dispatched directly to this website's Google Analytics 4 property so you can see them in real time.
+              </p>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  GA4 Measurement ID (G-XXXXXXXXXX)
+                </label>
+                <input
+                  type="text"
+                  value={customGaInput}
+                  onChange={(e) => setCustomGaInput(e.target.value.trim().toUpperCase())}
+                  placeholder="e.g. G-XXXXXXXXXX"
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono focus:outline-none"
+                  autoFocus
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Found in your Google Analytics dashboard under Admin &gt; Data Streams &gt; Measurement ID.
+                </p>
+              </div>
+
+              {crawlState.gaMeasurementId && crawlState.gaMeasurementId !== customGaInput && (
+                <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/30 rounded-xl flex items-center justify-between">
+                  <span className="text-xs text-emerald-300">
+                    Detected on website: <strong className="font-mono text-white">{crawlState.gaMeasurementId}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomGaInput(crawlState.gaMeasurementId || '')}
+                    className="text-xs text-white bg-emerald-600 hover:bg-emerald-500 px-2 py-0.5 rounded font-medium"
+                  >
+                    Use Detected
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowGaModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              {activeGaId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onUpdateGaMeasurementId) onUpdateGaMeasurementId('');
+                    setShowGaModal(false);
+                  }}
+                  className="px-3 py-2 bg-rose-900/40 hover:bg-rose-900/60 text-rose-300 border border-rose-700/50 rounded-xl text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  Detach
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (onUpdateGaMeasurementId) {
+                    onUpdateGaMeasurementId(customGaInput.trim());
+                  }
+                  setShowGaModal(false);
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-lg shadow-emerald-950"
+              >
+                Save &amp; Attach to Domain
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ping & Server Header Modal */}
       {showPingModal && (

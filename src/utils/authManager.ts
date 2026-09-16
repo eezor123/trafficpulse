@@ -124,12 +124,6 @@ export function loadStoredAuth(): AuthState {
             ? (user.isPaidUser ? 'paid_exhausted' : 'trial_exhausted')
             : (user.isPaidUser ? 'paid_active' : 'trial_active');
         }
-        if (user.gaMeasurementId === 'G-VFY5E884EH') {
-          delete user.gaMeasurementId;
-          try {
-            localStorage.setItem('trafficpulse_member_auth', JSON.stringify({ ...parsed, user }));
-          } catch {}
-        }
         return {
           isAuthenticated: true,
           user,
