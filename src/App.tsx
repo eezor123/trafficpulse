@@ -961,7 +961,7 @@ export default function App() {
         setCrawlState({
           targetUrl: urlToCrawl,
           hostname,
-          origin: urlToCrawl.startsWith('http') ? new URL(urlToCrawl).origin : 'https://jobs.eezor.com',
+          origin: urlToCrawl.startsWith('http') ? new URL(urlToCrawl).origin : (urlToCrawl.startsWith('/') ? window.location.origin : `https://${urlToCrawl}`),
           title: `${hostname} - Catalog`,
           description: `Scraped site for ${hostname}`,
           pages: fallbackPages,
@@ -1190,7 +1190,7 @@ export default function App() {
   };
 
   const handleAutoPopulateRoutes = () => {
-    const target = crawlState.targetUrl || 'https://jobs.eezor.com';
+    const target = crawlState.targetUrl || organicConfig.targetUrl || 'https://example.com';
     const fallbackList = getClientSideCrawledPages(target);
     const currentPaths = new Set(crawlState.pages.map(p => p.path));
 
@@ -1259,7 +1259,7 @@ export default function App() {
       countryCount: {},
     });
 
-    const targetUrl = (organicConfig.targetUrl || crawlState.targetUrl || 'https://jobs.eezor.com').trim();
+    const targetUrl = (organicConfig.targetUrl || crawlState.targetUrl || 'https://example.com').trim();
     let pagesToUse = crawlState.pages && crawlState.pages.length > 0 ? crawlState.pages : getClientSideCrawledPages(targetUrl);
 
     const effectiveGa4Id = getMemberGa4Id();
