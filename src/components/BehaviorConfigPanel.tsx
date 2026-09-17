@@ -144,7 +144,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           campaignSource: 'google',
           campaignMedium: 'organic',
           campaignName: 'Organic Traffic Test',
-          debugMode: true,
+          debugMode: ga4.debugMode === true,
         }),
       });
 
@@ -175,7 +175,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           trafficSource: 'Organic Search',
           searchEngine: 'google',
           campaignName: 'Organic Traffic Test',
-          debugMode: true,
+          debugMode: ga4.debugMode === true,
           clickParams: {
             linkUrl: targetOutboundUrl,
             linkText: targetLinkText,
@@ -207,7 +207,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
           canonicalSource: 'google',
           canonicalMedium: 'organic',
           searchKeyword: 'software developer',
-          debugMode: true,
+          debugMode: ga4.debugMode === true,
           clickParams: {
             linkUrl: targetOutboundUrl,
             linkText: targetLinkText,

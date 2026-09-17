@@ -350,7 +350,7 @@ export const GLOBAL_COUNTRIES: GeoCountry[] = [
 export const DEFAULT_ORGANIC_CONFIG: OrganicVisitorConfig = {
   id: 'organic_default',
   name: 'Organic Search & Social Traffic Campaign',
-  targetUrl: 'https://jobs.eezor.com',
+  targetUrl: 'https://example.com',
   crawlSettings: {
     maxDepth: 4,
     maxLinks: 500,
@@ -494,7 +494,7 @@ export const DEFAULT_ORGANIC_CONFIG: OrganicVisitorConfig = {
     sendSessionEvents: true,
     sendClickEvents: true,
     clickTrackingMode: 'dual_click_and_select',
-    debugMode: true,
+    debugMode: false, // false ensures events appear in standard Google Analytics Realtime Reports overview
     outboundDomainCategory: 'job_and_career',
   },
   durationMinutes: 60,

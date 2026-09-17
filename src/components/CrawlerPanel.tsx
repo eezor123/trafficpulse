@@ -206,7 +206,7 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
     try {
       const result = await parseSitemapOrUrlList(
         raw,
-        crawlState.origin || crawlState.targetUrl || 'https://jobs.eezor.com',
+        crawlState.origin || crawlState.targetUrl || 'https://example.com',
         (msg) => setSitemapProgressMsg(msg)
       );
 
@@ -476,7 +476,7 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
                 type="text"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="https://jobs.eezor.com or https://jobs.eezor.com/?job=job_1787164089747"
+                placeholder="https://example.com or any website URL"
                 className="w-full bg-slate-950 border border-slate-700/80 focus:border-cyan-400 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 font-mono focus:outline-none shadow-inner"
               />
             </div>
@@ -494,11 +494,11 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
           <div className="flex items-center gap-1.5 flex-wrap pt-1">
             <span className="text-[10px] uppercase font-bold text-slate-500">Quick Test Targets:</span>
             {[
-              { label: 'Eezor Jobs Main', url: 'https://jobs.eezor.com' },
-              { label: 'Eezor Barbecue Job Listing', url: 'https://jobs.eezor.com/?job=job_1787164089747' },
-              { label: '9jaJobs Portal (SPA)', url: 'https://9jajobs.vercel.app' },
-              { label: 'Eezor Store', url: 'https://eezor.com' },
+              { label: 'Example Domain', url: 'https://example.com' },
+              { label: 'Wikipedia', url: 'https://www.wikipedia.org' },
+              { label: 'Hacker News', url: 'https://news.ycombinator.com' },
               { label: 'Techpoint Africa', url: 'https://techpoint.africa' },
+              { label: 'GitHub', url: 'https://github.com' },
             ].map((preset) => (
               <button
                 key={preset.url}
@@ -665,7 +665,7 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Paste a direct <code className="text-cyan-300 font-mono">sitemap.xml</code> URL (e.g. <code className="text-cyan-300 font-mono">https://eezor.com/post-sitemap.xml</code>), raw XML markup, or a list of specific post URLs to parse and merge directly into the route catalog.
+                Paste a direct <code className="text-cyan-300 font-mono">sitemap.xml</code> URL, raw XML markup, or a list of specific post URLs to parse and merge directly into the route catalog.
               </p>
             </div>
           </div>
@@ -690,28 +690,29 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setSitemapInput(`https://eezor.com/post-sitemap.xml
-https://eezor.com/category-sitemap.xml
-https://eezor.com/page-sitemap.xml`);
+                    const base = crawlState.origin || 'https://example.com';
+                    setSitemapInput(`${base}/sitemap.xml
+${base}/post-sitemap.xml
+${base}/page-sitemap.xml`);
                   }}
                   className="text-[11px] px-2.5 py-1 rounded-lg bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 transition-colors font-mono cursor-pointer flex items-center gap-1"
                 >
                   <Sparkles className="w-3 h-3 text-cyan-400" />
-                  <span>Eezor Sitemaps (Post + Cat + Page)</span>
+                  <span>Insert Common Sitemaps</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setSitemapInput(`https://jobs.eezor.com/?job=job_1787164089747 | Male Barbecue sales person is urgently needed
-https://jobs.eezor.com/?job=job_1785681865131 | Urgent Commercial Solar & Inverter Installation Lead
-https://eezor.com/money-blogging/ | How to Make Money Blogging
-https://eezor.com/category/technology/ | Technology Hub
-/?job=job_105 | Full-Stack Next.js Engineer`);
+                    const base = crawlState.origin || 'https://example.com';
+                    setSitemapInput(`${base}/pricing | Pricing & Plans
+${base}/features | Core Features
+${base}/blog | Company Blog
+${base}/contact | Contact & Support`);
                   }}
                   className="text-[11px] px-2.5 py-1 rounded-lg bg-indigo-950/70 hover:bg-indigo-900 border border-indigo-500/40 text-indigo-300 transition-colors font-mono cursor-pointer flex items-center gap-1"
                 >
                   <ListPlus className="w-3 h-3 text-indigo-400" />
-                  <span>Sample URL List & Job IDs</span>
+                  <span>Sample URL List & Titles</span>
                 </button>
               </div>
 
@@ -736,10 +737,9 @@ https://eezor.com/category/technology/ | Technology Hub
                 value={sitemapInput}
                 onChange={(e) => setSitemapInput(e.target.value)}
                 placeholder={`Paste a sitemap URL, raw XML, or list of URLs:
-https://eezor.com/post-sitemap.xml
-https://eezor.com/category-sitemap.xml
-https://jobs.eezor.com/?job=job_1787164089747 | Male Barbecue sales person
-/category/software-web-development | Software Development`}
+${crawlState.origin || 'https://example.com'}/sitemap.xml
+${crawlState.origin || 'https://example.com'}/pricing | Pricing & Plans
+${crawlState.origin || 'https://example.com'}/features | Core Features`}
                 className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-400 rounded-xl p-3 text-xs text-slate-100 placeholder:text-slate-600 font-mono focus:outline-none shadow-inner leading-relaxed"
               />
             </div>
@@ -1079,7 +1079,7 @@ https://jobs.eezor.com/?job=job_1787164089747 | Male Barbecue sales person
                 type="text"
                 value={customPath}
                 onChange={(e) => setCustomPath(e.target.value)}
-                placeholder="job_1787164089747 or https://jobs.eezor.com/?job=job_1787164089747"
+                placeholder="Path, query, or full URL (e.g. /pricing, /products/item-1)"
                 className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none font-mono"
               />
             </div>
@@ -1088,7 +1088,7 @@ https://jobs.eezor.com/?job=job_1787164089747 | Male Barbecue sales person
                 type="text"
                 value={customTitle}
                 onChange={(e) => setCustomTitle(e.target.value)}
-                placeholder="Listing Title (e.g. Male Barbecue sales person is urgently needed)"
+                placeholder="Listing or Page Title (e.g. Enterprise Pricing Plan)"
                 className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none"
               />
             </div>

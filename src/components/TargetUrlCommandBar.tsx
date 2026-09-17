@@ -31,11 +31,11 @@ interface TargetUrlCommandBarProps {
 }
 
 const PRESET_URLS = [
-  { name: '9jaJobs Portal (SPA - 16+ Jobs)', url: 'https://9jajobs.vercel.app' },
-  { name: 'Eezor Jobs (Escrow)', url: 'https://jobs.eezor.com' },
-  { name: 'Eezor Store', url: 'https://eezor.com' },
-  { name: 'Techpoint Africa', url: 'https://techpoint.africa' },
+  { name: 'Example Domain', url: 'https://example.com' },
   { name: 'Wikipedia', url: 'https://www.wikipedia.org' },
+  { name: 'Hacker News', url: 'https://news.ycombinator.com' },
+  { name: 'Techpoint Africa', url: 'https://techpoint.africa' },
+  { name: 'GitHub', url: 'https://github.com' },
 ];
 
 export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({

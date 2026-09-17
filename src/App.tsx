@@ -340,12 +340,21 @@ export default function App() {
     handleStopOrganic();
     flushTrafficDeductionsToServerAndCloud().catch(() => {});
     clearAuthSession();
+    try {
+      localStorage.removeItem(STORAGE_KEYS.ORGANIC_CONFIG);
+      localStorage.removeItem(STORAGE_KEYS.CRAWL_STATE);
+      localStorage.removeItem('trafficpulse_domain_ga_tags');
+    } catch {}
+    setDomainGaMap({});
+    const initialCrawl = loadInitialCrawlState();
+    setCrawlState(initialCrawl);
+    setOrganicConfig(DEFAULT_ORGANIC_CONFIG);
     setAuthState({
       isAuthenticated: false,
       user: null,
       token: null,
     });
-    setSaveBannerMessage('Logged out of member session.');
+    setSaveBannerMessage('Logged out of member session. Workspace state reset.');
     setTimeout(() => setSaveBannerMessage(null), 4000);
   };
 
@@ -358,13 +367,6 @@ export default function App() {
 
   // Resolves the respective GA4 Measurement ID for the target website being crawled/simulated
   const getMemberGa4Id = (): string => {
-    // 1. Tag detected from the crawled target website
-    const crawledGaId = (crawlState.gaMeasurementId || '').trim();
-    if (crawledGaId) {
-      return crawledGaId;
-    }
-
-    // 2. Domain-attached GA4 tag from domain map for this target URL's domain
     let targetHost = (crawlState.hostname || '').toLowerCase().trim();
     if (!targetHost && (crawlState.targetUrl || organicConfig.targetUrl)) {
       try {
@@ -372,20 +374,33 @@ export default function App() {
         targetHost = (raw.startsWith('http') ? new URL(raw).hostname : raw.split('/')[0]).toLowerCase().trim();
       } catch {}
     }
+
+    // 1. Tag detected from the crawled target website
+    const crawledGaId = (crawlState.gaMeasurementId || '').trim();
+    if (crawledGaId) {
+      return crawledGaId;
+    }
+
+    // 2. Domain-attached GA4 tag from domain map for this target URL's domain
     if (targetHost && domainGaMap[targetHost]) {
       return domainGaMap[targetHost].trim();
     }
 
-    // 3. Explicitly configured GA4 ID in organicConfig
+    // 3. Explicitly configured GA4 ID in organicConfig ONLY IF it belongs to the current target domain
     const configGaId = (organicConfig.ga4?.measurementId || '').trim();
-    if (configGaId) {
+    if (configGaId && targetHost && domainGaMap[targetHost] === configGaId) {
       return configGaId;
     }
 
-    // 4. Logged-in member's saved personal GA4 ID from profile
+    // 4. Logged-in member's saved personal GA4 ID strictly for their registered target website
     const userGaId = authState.user?.gaMeasurementId?.trim();
-    if (userGaId) {
-      return userGaId;
+    if (userGaId && authState.user?.targetWebsite && targetHost) {
+      try {
+        const userHost = new URL(authState.user.targetWebsite.startsWith('http') ? authState.user.targetWebsite : `https://${authState.user.targetWebsite}`).hostname.toLowerCase().trim();
+        if (userHost === targetHost) {
+          return userGaId;
+        }
+      } catch {}
     }
 
     return '';
@@ -719,16 +734,34 @@ export default function App() {
     // Switch to crawler tab immediately so user sees live crawler status & discovered routes
     setOrganicTab('crawler');
 
+    let initialHostname = 'Discovered Website';
+    try {
+      initialHostname = urlToCrawl.startsWith('/') ? 'Local Sandbox' : new URL(urlToCrawl).hostname;
+    } catch {}
+    const isDomainChange = crawlState.hostname && initialHostname && crawlState.hostname.toLowerCase() !== initialHostname.toLowerCase();
+    const existingGaForDomain = domainGaMap[initialHostname.toLowerCase()] || '';
+
     setCrawlState(prev => ({ 
       ...prev, 
       targetUrl: urlToCrawl,
+      hostname: initialHostname || prev.hostname,
+      pages: isDomainChange ? [] : prev.pages,
+      gaMeasurementId: existingGaForDomain || undefined,
       isCrawling: true, 
       error: undefined,
       crawlProgressPct: 15,
       crawlPhase: 'Initiating Handshake & DNS Resolution...',
       currentScanningUrl: urlToCrawl,
     }));
-    setOrganicConfig(prev => ({ ...prev, targetUrl: urlToCrawl }));
+    setOrganicConfig(prev => ({
+      ...prev,
+      targetUrl: urlToCrawl,
+      ga4: {
+        ...prev.ga4,
+        measurementId: existingGaForDomain,
+        autoSendMeasurementProtocol: !!existingGaForDomain,
+      }
+    }));
     setSaveBannerMessage(`Crawling ${urlToCrawl}... discovering pages, listings, and sitemaps.`);
 
     // Active progress stages simulation while crawler scrapes

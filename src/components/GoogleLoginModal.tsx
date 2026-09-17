@@ -333,13 +333,13 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
               <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div className="space-y-1 text-[11px]">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-bold text-amber-950">eezor.com Authentication Notice</span>
+                  <span className="font-bold text-amber-950">Authentication Notice</span>
                   <span className="text-[10px] font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded border border-emerald-300">
-                    eezor.com
+                    TrafficPulse Portal
                   </span>
                 </div>
                 <p className="leading-relaxed text-slate-700">
-                  Google OAuth sign-in is managed for <strong>eezor.com</strong>. You can sign in using your Google credentials directly below!
+                  Google OAuth sign-in is managed for <strong>TrafficPulse Portal</strong>. You can sign in using your Google credentials directly below!
                 </p>
                 <p className="font-semibold text-emerald-800">
                   ✓ Instant access: Enter your Google email below to complete sign-in without popup interruption.

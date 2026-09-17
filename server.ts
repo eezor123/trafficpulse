@@ -693,7 +693,7 @@ async function startServer() {
         name: name.trim(),
         passwordHash: password,
         company: company?.trim() || (isAdmin ? 'TrafficPulse HQ (Super Admin)' : undefined),
-        targetWebsite: targetWebsite?.trim() || 'https://jobs.eezor.com',
+        targetWebsite: targetWebsite?.trim() || 'https://example.com',
         tier: memberTier,
         clientIp,
         createdAt: Date.now(),
@@ -731,7 +731,7 @@ async function startServer() {
       name: name.trim(),
       username: cleanEmail.split('@')[0],
       company: company?.trim() || (isAdmin ? 'TrafficPulse HQ (Super Admin)' : undefined),
-      targetWebsite: targetWebsite?.trim() || 'https://jobs.eezor.com',
+      targetWebsite: targetWebsite?.trim() || 'https://example.com',
       tier: memberTier,
       role: isAdmin ? 'admin' : 'member',
       customVisitsLimit: customLimit,
@@ -847,7 +847,7 @@ async function startServer() {
       name: pending.name,
       username: cleanEmail.split('@')[0],
       company: pending.company,
-      targetWebsite: pending.targetWebsite || 'https://jobs.eezor.com',
+      targetWebsite: pending.targetWebsite || 'https://example.com',
       tier: memberTier,
       role: isAdmin ? 'admin' : 'member',
       customVisitsLimit: customLimit,
@@ -978,7 +978,7 @@ async function startServer() {
           name: 'Super Administrator',
           username: query.split('@')[0],
           company: 'TrafficPulse HQ (Super Admin)',
-          targetWebsite: 'https://jobs.eezor.com',
+          targetWebsite: 'https://example.com',
           tier: 'enterprise',
           role: 'admin',
           customVisitsLimit: 10000000,
@@ -1135,7 +1135,7 @@ async function startServer() {
         name: googleName,
         username: googleEmail.split('@')[0],
         company: isAdmin ? 'TrafficPulse HQ (Super Admin)' : undefined,
-        targetWebsite: 'https://jobs.eezor.com',
+        targetWebsite: 'https://example.com',
         tier: isAdmin ? 'enterprise' : 'starter',
         role: isAdmin ? 'admin' : 'member',
         customVisitsLimit: isAdmin ? 10000000 : 100,
@@ -2335,7 +2335,7 @@ async function startServer() {
 
       const agent = getProxyAgent(proxyUrl);
 
-      const isDebugMode = bodyData.debugMode !== false && req.body.debugMode !== false;
+      const isDebugMode = bodyData.debugMode === true || req.body.debugMode === true;
       const effectiveEngagementMs = Math.max(1200, Number(engagementTimeMs) || 2000);
       const cleanClientId = (clientId || '').replace(/^GA\d+\.\d+\./i, '') || `${Math.floor(Math.random() * 1000000000)}.${Math.floor(Date.now() / 1000)}`;
       const cleanSessionId = sessionId ? `${sessionId}` : `${Math.floor(Date.now() / 1000)}`;

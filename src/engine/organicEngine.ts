@@ -1949,7 +1949,7 @@ export class OrganicTrafficEngine {
             directParams['ep.search_term'] = visitor.searchKeyword;
           }
 
-          if (this.config.ga4.debugMode !== false) {
+          if (this.config.ga4.debugMode === true) {
             directParams._dbg = '1';
             directParams['ep.debug_mode'] = '1';
           }
@@ -2043,7 +2043,7 @@ export class OrganicTrafficEngine {
         socialPlatform: visitor.socialPlatform,
         proxyUrl,
         isLightweight,
-        debugMode: this.config.ga4.debugMode !== false,
+        debugMode: this.config.ga4.debugMode === true,
         clickParams,
       };
 

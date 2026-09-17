@@ -115,7 +115,7 @@ export function categorizeRoute(pathOrUrl: string): 'post' | 'category' | 'page'
 /**
  * Parses raw XML markup and extracts all URLs, lastmods, and titles.
  */
-export function parseRawXmlSitemap(xmlText: string, defaultOrigin = 'https://jobs.eezor.com'): { pages: ParsedItem[]; childSitemaps: string[] } {
+export function parseRawXmlSitemap(xmlText: string, defaultOrigin = 'https://example.com'): { pages: ParsedItem[]; childSitemaps: string[] } {
   const pages: ParsedItem[] = [];
   const childSitemaps: string[] = [];
   const seenPaths = new Set<string>();
@@ -269,7 +269,7 @@ async function fetchXmlContent(targetUrl: string): Promise<string> {
  */
 export async function parseSitemapOrUrlList(
   input: string,
-  fallbackOrigin = 'https://jobs.eezor.com',
+  fallbackOrigin = 'https://example.com',
   onProgress?: (msg: string) => void
 ): Promise<ParseResult> {
   const trimmed = input.trim();
