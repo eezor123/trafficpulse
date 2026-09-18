@@ -375,9 +375,14 @@ export default function App() {
       } catch {}
     }
 
-    // 1. Tag detected from the crawled target website
+    if (!targetHost || targetHost === 'example.com') {
+      return '';
+    }
+
+    // 1. Tag detected from the crawled target website ONLY IF the crawl host matches the active target host
+    const crawlHost = (crawlState.hostname || '').toLowerCase().trim();
     const crawledGaId = (crawlState.gaMeasurementId || '').trim();
-    if (crawledGaId) {
+    if (crawledGaId && crawlHost && (crawlHost === targetHost || targetHost.includes(crawlHost) || crawlHost.includes(targetHost))) {
       return crawledGaId;
     }
 
@@ -386,13 +391,7 @@ export default function App() {
       return domainGaMap[targetHost].trim();
     }
 
-    // 3. Explicitly configured GA4 ID in organicConfig ONLY IF it belongs to the current target domain
-    const configGaId = (organicConfig.ga4?.measurementId || '').trim();
-    if (configGaId && targetHost && domainGaMap[targetHost] === configGaId) {
-      return configGaId;
-    }
-
-    // 4. Logged-in member's saved personal GA4 ID strictly for their registered target website
+    // 3. Logged-in member's saved personal GA4 ID strictly for their registered target website
     const userGaId = authState.user?.gaMeasurementId?.trim();
     if (userGaId && authState.user?.targetWebsite && targetHost) {
       try {
@@ -403,7 +402,59 @@ export default function App() {
       } catch {}
     }
 
+    // 4. Explicitly configured GA4 ID in organicConfig ONLY IF it belongs to the current target domain
+    const configGaId = (organicConfig.ga4?.measurementId || '').trim();
+    if (configGaId && domainGaMap[targetHost] === configGaId) {
+      return configGaId;
+    }
+
     return '';
+  };
+
+  // Background auto-detection of GA4 tags for any website entered
+  const autoDetectAnalyticsForDomain = async (rawUrl: string) => {
+    let targetHost = '';
+    try {
+      if (rawUrl.startsWith('http')) targetHost = new URL(rawUrl).hostname;
+      else targetHost = rawUrl.split('/')[0];
+    } catch {}
+    targetHost = targetHost.toLowerCase().trim();
+    if (!targetHost || targetHost === 'example.com') return;
+
+    try {
+      const res = await fetch(`/api/crawler/detect-analytics?url=${encodeURIComponent(rawUrl)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.gaMeasurementId) {
+          const detected = data.gaMeasurementId.trim().toUpperCase();
+          saveDomainGaTag(targetHost, detected);
+          setCrawlState(prev => {
+            const curHost = (prev.hostname || '').toLowerCase();
+            if (curHost === targetHost || targetHost.includes(curHost) || curHost.includes(targetHost)) {
+              return { ...prev, gaMeasurementId: detected };
+            }
+            return prev;
+          });
+          setOrganicConfig(prev => {
+            let confHost = '';
+            try { confHost = new URL(prev.targetUrl).hostname.toLowerCase(); } catch { confHost = prev.targetUrl.toLowerCase(); }
+            if (confHost === targetHost || targetHost.includes(confHost) || confHost.includes(targetHost)) {
+              return {
+                ...prev,
+                ga4: {
+                  ...prev.ga4,
+                  measurementId: detected,
+                  autoSendMeasurementProtocol: true,
+                }
+              };
+            }
+            return prev;
+          });
+          setSaveBannerMessage(`✨ Detected live Google Analytics tag (${detected}) for ${targetHost}!`);
+          setTimeout(() => setSaveBannerMessage(null), 5000);
+        }
+      }
+    } catch {}
   };
 
   const handleUpdateGaMeasurementId = async (newId: string) => {
@@ -1583,26 +1634,29 @@ export default function App() {
                   }
                 } catch {}
                 hostname = hostname.toLowerCase().trim();
-                const attachedGaId = (hostname && domainGaMap[hostname]) ? domainGaMap[hostname] : undefined;
+                const attachedGaId = (hostname && domainGaMap[hostname]) ? domainGaMap[hostname] : '';
 
                 setCrawlState(prev => ({
                   ...prev,
                   targetUrl: url,
                   hostname: hostname || prev.hostname,
-                  ...(attachedGaId ? { gaMeasurementId: attachedGaId } : {}),
+                  gaMeasurementId: attachedGaId || undefined,
                 }));
 
                 setOrganicConfig(prev => ({
                   ...prev,
                   targetUrl: url,
-                  ...(attachedGaId ? {
-                    ga4: {
-                      ...prev.ga4,
-                      measurementId: attachedGaId,
-                      autoSendMeasurementProtocol: true,
-                    }
-                  } : {}),
+                  ga4: {
+                    ...prev.ga4,
+                    measurementId: attachedGaId,
+                    autoSendMeasurementProtocol: !!attachedGaId,
+                  },
                 }));
+
+                // If no domain-attached GA4 ID exists yet for this domain, auto-detect it in the background
+                if (!attachedGaId && hostname && hostname !== 'example.com') {
+                  autoDetectAnalyticsForDomain(url);
+                }
               }}
               crawlState={crawlState}
               onStartCrawl={(url) => handleStartCrawl(url)}

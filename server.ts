@@ -1897,22 +1897,172 @@ async function startServer() {
       }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 10000);
-      const response = await fetch(target, {
+      let response = await fetch(target, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
-          'Accept': '*/*',
+          'Accept': 'text/html,application/xhtml+xml,application/xml,application/json,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
         },
         signal: controller.signal,
         redirect: 'follow',
       });
       clearTimeout(timer);
+
+      // Automatic Googlebot / Search Crawler fallback for WAF / Cloudflare 403/503 challenges
+      if ([401, 403, 429, 503].includes(response.status)) {
+        try {
+          const bCtrl = new AbortController();
+          const bTimer = setTimeout(() => bCtrl.abort(), 8000);
+          const botResponse = await fetch(target, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+              'Accept': 'text/html,application/xhtml+xml,application/xml,application/json,*/*;q=0.8',
+            },
+            signal: bCtrl.signal,
+            redirect: 'follow',
+          });
+          clearTimeout(bTimer);
+          if (botResponse.ok) {
+            response = botResponse;
+          }
+        } catch {}
+      }
+
       const contentType = response.headers.get('content-type') || 'text/plain; charset=utf-8';
       res.setHeader('Content-Type', contentType);
       res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       const text = await response.text();
       res.status(response.status).send(text);
     } catch (err: any) {
       res.status(502).json({ error: err.message || 'Proxy fetch failed' });
+    }
+  });
+
+  // ----------------------------------------------------
+  // 4C. INSTANT ZERO-TOUCH ANALYTICS TAG DETECTION (GA4 / GTM)
+  // ----------------------------------------------------
+  app.all('/api/crawler/detect-analytics', async (req: Request, res: Response) => {
+    try {
+      const rawInput = (req.query.url as string) || req.body.url || req.body.targetUrl;
+      if (!rawInput) {
+        return res.status(400).json({ error: 'Target URL is required' });
+      }
+
+      let parsedBase: URL;
+      try {
+        const withProto = rawInput.startsWith('http://') || rawInput.startsWith('https://') 
+          ? rawInput 
+          : `https://${rawInput}`;
+        parsedBase = new URL(withProto);
+      } catch {
+        return res.status(400).json({ error: 'Invalid URL' });
+      }
+
+      const origin = parsedBase.origin;
+      const hostname = parsedBase.hostname;
+      const targetUrl = parsedBase.toString();
+
+      const ga4Regexes = [
+        /googletagmanager\.com\/gtag\/js\?id=(G-[A-Z0-9]+)/i,
+        /gtag\(['"]config['"],\s*['"](G-[A-Z0-9]+)['"]/i,
+        /gtag\(['"]event['"],\s*[^,]+,\s*\{[^}]*send_to:\s*['"](G-[A-Z0-9]+)['"]/i,
+        /measurementId["']?\s*:\s*["'](G-[A-Z0-9]+)["']/i,
+        /["']measurement_id["']\s*:\s*["'](G-[A-Z0-9]+)["']/i,
+        /["'](G-[A-Z0-9]{7,15})["']/i,
+        /id=(G-[A-Z0-9]{7,15})/i,
+        /id%3D(G-[A-Z0-9]{7,15})/i,
+        /\b(G-[A-Z0-9]{8,14})\b/i,
+      ];
+
+      let gaMeasurementId: string | null = null;
+      let gtmId: string | null = null;
+
+      // 1. Fetch live page HTML
+      try {
+        const ctrl = new AbortController();
+        const tm = setTimeout(() => ctrl.abort(), 7000);
+        const pageRes = await fetch(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+          signal: ctrl.signal,
+          redirect: 'follow',
+        });
+        clearTimeout(tm);
+        const html = await pageRes.text();
+
+        for (const rx of ga4Regexes) {
+          const m = html.match(rx);
+          if (m) {
+            gaMeasurementId = (m[1] || m[0]).toUpperCase().trim();
+            break;
+          }
+        }
+
+        const gtmMatch = html.match(/GTM-[A-Z0-9]{4,10}/i);
+        if (gtmMatch) {
+          gtmId = gtmMatch[0].toUpperCase().trim();
+          if (!gaMeasurementId) {
+            try {
+              const gtmCtrl = new AbortController();
+              const gtmTm = setTimeout(() => gtmCtrl.abort(), 4000);
+              const gtmRes = await fetch(`https://www.googletagmanager.com/gtm.js?id=${gtmId}`, {
+                signal: gtmCtrl.signal,
+              });
+              clearTimeout(gtmTm);
+              if (gtmRes.ok) {
+                const gtmTxt = await gtmRes.text();
+                for (const rx of ga4Regexes) {
+                  const gm = gtmTxt.match(rx);
+                  if (gm) {
+                    gaMeasurementId = (gm[1] || gm[0]).toUpperCase().trim();
+                    break;
+                  }
+                }
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+
+      // 2. If not found, inspect WordPress REST API
+      if (!gaMeasurementId) {
+        try {
+          const wpCtrl = new AbortController();
+          const wpTm = setTimeout(() => wpCtrl.abort(), 4000);
+          const wpRes = await fetch(`${origin}/wp-json`, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)',
+              'Accept': 'application/json',
+            },
+            signal: wpCtrl.signal,
+          });
+          clearTimeout(wpTm);
+          if (wpRes.ok) {
+            const wpTxt = await wpRes.text();
+            for (const rx of ga4Regexes) {
+              const wm = wpTxt.match(rx);
+              if (wm) {
+                gaMeasurementId = (wm[1] || wm[0]).toUpperCase().trim();
+                break;
+              }
+            }
+          }
+        } catch {}
+      }
+
+      return res.json({
+        success: true,
+        hostname,
+        targetUrl,
+        gaMeasurementId: gaMeasurementId || null,
+        gtmId: gtmId || null,
+        detected: !!gaMeasurementId || !!gtmId,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
     }
   });
 
@@ -1946,7 +2096,7 @@ async function startServer() {
 
       const browserHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml,application/json;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
         'Sec-Ch-Ua': '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
         'Sec-Ch-Ua-Mobile': '?0',
@@ -1960,11 +2110,11 @@ async function startServer() {
 
       const botHeaders = {
         'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml,application/json,*/*;q=0.8',
       };
 
       // Resilient fetch helper with automatic Googlebot WAF fallback
-      const resilientFetch: FetchFunction = async (url: string, timeoutMs = 6000) => {
+      const resilientFetch: FetchFunction = async (url: string, timeoutMs = 8000) => {
         try {
           const ctrl = new AbortController();
           const tm = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -1984,7 +2134,13 @@ async function startServer() {
               return { ok: true, status: bRes.status, text: bTxt };
             }
           }
-          return { ok: false, status: res.status, text: '' };
+          // Read error text if present
+          try {
+            const errTxt = await res.text();
+            return { ok: false, status: res.status, text: errTxt };
+          } catch {
+            return { ok: false, status: res.status, text: '' };
+          }
         } catch {
           try {
             const bCtrl = new AbortController();

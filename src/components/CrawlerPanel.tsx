@@ -306,17 +306,11 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
   };
 
   const handleAutoDiscoverTargetRoutes = () => {
-    let count = 0;
     const target = crawlState.targetUrl || 'https://example.com';
-    const domainPages = getClientSideCrawledPages(target);
-    domainPages.forEach(p => {
-      onAddCustomPage(p.path, p.title);
-      count++;
-    });
-    setFeedbackMessage(`Generated ${count} domain-adaptive routes for ${crawlState.hostname || 'target site'}!`);
-    setActiveFilter('all');
     setShowBulkModal(false);
-    setTimeout(() => setFeedbackMessage(null), 5000);
+    setFeedbackMessage(`Initiating live crawl for ${crawlState.hostname || target}...`);
+    setTimeout(() => setFeedbackMessage(null), 4000);
+    onStartCrawl(target);
   };
 
   const handleUrlSubmit = (e: React.FormEvent) => {

@@ -209,84 +209,56 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
 }
 
 /**
- * Domain-isolated fallback page catalog generated ONLY from the given domain hostname
+ * Domain-isolated clean fallback catalog for the given domain hostname
+ * Never fabricates fake career or ecommerce routes.
  */
 export function getClientSideCrawledPages(targetUrl: string): CrawledPage[] {
   let hostname = 'target-site.com';
   let rootOrigin = 'https://target-site.com';
+  let initialPath = '/';
   try {
     if (targetUrl.startsWith('http')) {
       const u = new URL(targetUrl);
       hostname = u.hostname;
       rootOrigin = u.origin;
+      initialPath = u.pathname || '/';
     } else {
       hostname = targetUrl.replace(/\/.*$/, '');
       rootOrigin = 'https://' + hostname;
     }
   } catch {}
 
-  const isJobDomain = hostname.startsWith('jobs.') || hostname.includes('career') || hostname.includes('vacancy') || hostname.includes('talent');
-
-  if (isJobDomain) {
-    const genericCareerRoutes: Array<{ path: string; title: string; desc: string; cat: 'page' | 'post' | 'category' | 'product'; weight: number }> = [
-      { path: '/', title: `${hostname} - Careers & Opportunities`, desc: `Open positions and opportunities at ${hostname}`, cat: 'page', weight: 100 },
-      { path: '/jobs', title: `All Open Positions | ${hostname}`, desc: `Explore all open career opportunities at ${hostname}`, cat: 'category', weight: 95 },
-      { path: '/careers', title: `Careers at ${hostname}`, desc: `Life, culture, and open roles at ${hostname}`, cat: 'category', weight: 92 },
-      { path: '/jobs/engineering', title: `Software & Engineering Opportunities | ${hostname}`, desc: `Technical and engineering positions`, cat: 'category', weight: 90 },
-      { path: '/jobs/product', title: `Product & Design Roles | ${hostname}`, desc: `Product management and design opportunities`, cat: 'category', weight: 88 },
-      { path: '/jobs/marketing', title: `Marketing & Sales Roles | ${hostname}`, desc: `Growth and communications opportunities`, cat: 'category', weight: 85 },
-      { path: '/jobs/remote', title: `Remote Opportunities | ${hostname}`, desc: `Work from anywhere roles`, cat: 'category', weight: 90 },
-      { path: '/apply', title: `Submit Application | ${hostname}`, desc: `Direct candidate application form`, cat: 'page', weight: 85 },
-      { path: '/about', title: `About Us | ${hostname}`, desc: `About company mission and team`, cat: 'page', weight: 80 },
-      { path: '/culture', title: `Culture & Benefits | ${hostname}`, desc: `Working environment and team benefits`, cat: 'page', weight: 80 },
-      { path: '/faq', title: `Candidate FAQ | ${hostname}`, desc: `Frequently asked questions about hiring`, cat: 'page', weight: 75 },
-      { path: '/contact', title: `Contact Recruiting | ${hostname}`, desc: `Contact the recruitment team`, cat: 'page', weight: 70 },
-      { path: '/privacy', title: `Privacy Policy | ${hostname}`, desc: `Candidate privacy and data protection`, cat: 'page', weight: 60 },
-      { path: '/terms', title: `Terms of Service | ${hostname}`, desc: `Terms and conditions`, cat: 'page', weight: 60 },
-    ];
-
-    return genericCareerRoutes.map((r, idx) => ({
-      id: `page_${idx + 1}`,
-      url: `${rootOrigin}${r.path}`,
-      path: r.path,
-      title: r.title,
-      description: r.desc,
-      depth: r.path === '/' ? 0 : r.path.split('/').filter(Boolean).length,
+  const pages: CrawledPage[] = [
+    {
+      id: 'page_root',
+      url: `${rootOrigin}/`,
+      path: '/',
+      title: `${hostname} - Home`,
+      description: `Target landing page for ${hostname}`,
+      depth: 0,
       status: 200,
       includedInVisits: true,
-      visitWeight: r.weight,
+      visitWeight: 100,
       gaDetected: false,
-      category: r.cat,
-    }));
-  }
-
-  const baseRoutes: Array<{ path: string; title: string; desc: string; cat: 'page' | 'post' | 'category' | 'product'; weight: number }> = [
-    { path: '/', title: `${hostname} - Home`, desc: 'Main Landing Page', cat: 'page', weight: 100 },
-    { path: '/features', title: 'Platform Features & Core Capabilities', desc: 'Overview of features and tools', cat: 'page', weight: 90 },
-    { path: '/pricing', title: 'Pricing & Plans', desc: 'Compare pricing plans', cat: 'page', weight: 88 },
-    { path: '/products', title: 'Products Directory', desc: 'List of available products', cat: 'category', weight: 85 },
-    { path: '/services', title: 'Services & Solutions', desc: 'Solutions overview', cat: 'page', weight: 82 },
-    { path: '/docs', title: 'Documentation & Guides', desc: 'Technical documentation', cat: 'page', weight: 90 },
-    { path: '/blog', title: 'Latest Articles & Blog', desc: 'Insights and articles', cat: 'category', weight: 85 },
-    { path: '/about', title: `About ${hostname}`, desc: `About ${hostname}`, cat: 'page', weight: 80 },
-    { path: '/careers', title: 'Careers', desc: 'Join our team', cat: 'page', weight: 85 },
-    { path: '/contact', title: 'Contact & Support', desc: 'Get in touch', cat: 'page', weight: 75 },
-    { path: '/faq', title: 'Frequently Asked Questions', desc: 'Common questions and answers', cat: 'page', weight: 80 },
-    { path: '/terms', title: 'Terms of Service', desc: 'Terms of service', cat: 'page', weight: 65 },
-    { path: '/privacy', title: 'Privacy Policy', desc: 'Privacy policy', cat: 'page', weight: 65 },
+      category: 'page',
+    },
   ];
 
-  return baseRoutes.map((r, idx) => ({
-    id: `page_${idx + 1}`,
-    url: `${rootOrigin}${r.path}`,
-    path: r.path,
-    title: r.title,
-    description: r.desc,
-    depth: r.path === '/' ? 0 : r.path.split('/').filter(Boolean).length,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: r.weight,
-    gaDetected: false,
-    category: r.cat,
-  }));
+  if (initialPath && initialPath !== '/') {
+    pages.push({
+      id: 'page_target',
+      url: `${rootOrigin}${initialPath}`,
+      path: initialPath,
+      title: `${hostname} - ${initialPath.replace(/^\//, '')}`,
+      description: `Target page ${initialPath}`,
+      depth: initialPath.split('/').filter(Boolean).length,
+      status: 200,
+      includedInVisits: true,
+      visitWeight: 95,
+      gaDetected: false,
+      category: 'post',
+    });
+  }
+
+  return pages;
 }

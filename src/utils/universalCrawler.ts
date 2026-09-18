@@ -312,163 +312,9 @@ export function generateDomainAdaptivePages(
   siteTitle?: string,
   siteDesc?: string
 ): CrawledPage[] {
-  const lowerHost = hostname.toLowerCase();
-  const lowerUrl = targetUrl.toLowerCase();
-  const gaDetected = !!gaMeasurementId || !!gtmId;
-
-  const rawBrand = (siteTitle && siteTitle.length < 35 && !siteTitle.includes('|') && !siteTitle.includes('-'))
-    ? siteTitle.trim()
-    : hostname.replace(/^(?:www\.|jobs\.|careers\.|blog\.|app\.|shop\.)/i, '').replace(/\.[a-z.]+$/i, '');
-  const brandName = rawBrand ? (rawBrand.charAt(0).toUpperCase() + rawBrand.slice(1)) : 'Platform';
-
-  // 1. Career / Job Board / Talent Marketplace
-  if (
-    lowerHost.includes('job') ||
-    lowerHost.includes('career') ||
-    lowerHost.includes('work') ||
-    lowerHost.includes('vacancy') ||
-    lowerHost.includes('hire') ||
-    lowerHost.includes('talent') ||
-    lowerUrl.includes('job')
-  ) {
-    const jobPaths = [
-      { path: '/jobs', title: `All Open Positions | ${brandName}`, cat: 'category' as const, weight: 98 },
-      { path: '/careers', title: `Careers at ${brandName}`, cat: 'category' as const, weight: 96 },
-      { path: '/jobs/engineering', title: `Engineering & Technical Roles | ${brandName}`, cat: 'category' as const, weight: 94 },
-      { path: '/jobs/product', title: `Product & Design Positions | ${brandName}`, cat: 'category' as const, weight: 92 },
-      { path: '/jobs/marketing', title: `Marketing & Sales Opportunities | ${brandName}`, cat: 'category' as const, weight: 90 },
-      { path: '/jobs/remote', title: `Remote & Flexible Positions | ${brandName}`, cat: 'category' as const, weight: 92 },
-      { path: '/apply', title: `Submit Application | ${brandName}`, cat: 'page' as const, weight: 88 },
-      { path: '/about', title: `About ${brandName}`, cat: 'page' as const, weight: 80 },
-      { path: '/culture', title: `Life & Culture at ${brandName}`, cat: 'page' as const, weight: 80 },
-      { path: '/benefits', title: `Benefits & Perks | ${brandName}`, cat: 'page' as const, weight: 78 },
-      { path: '/faq', title: `Candidate FAQ | ${brandName}`, cat: 'page' as const, weight: 75 },
-      { path: '/contact', title: `Contact Recruiting | ${brandName}`, cat: 'page' as const, weight: 70 },
-      { path: '/privacy', title: 'Privacy Policy', cat: 'page' as const, weight: 60 },
-      { path: '/terms', title: 'Terms of Service', cat: 'page' as const, weight: 60 },
-    ];
-    return jobPaths.map((item, idx) => ({
-      id: `synth_job_${idx + 1}`,
-      url: `${origin}${item.path}`,
-      path: item.path,
-      title: item.title,
-      description: `[Career Portal] ${item.title}`,
-      depth: item.path.split('/').filter(Boolean).length || 1,
-      status: 200,
-      includedInVisits: true,
-      visitWeight: item.weight,
-      gaDetected,
-      category: item.cat,
-    }));
-  }
-
-  // 2. E-Commerce / Online Store / Shop
-  if (
-    lowerHost.includes('shop') ||
-    lowerHost.includes('store') ||
-    lowerHost.includes('cart') ||
-    lowerHost.includes('market') ||
-    lowerHost.includes('buy')
-  ) {
-    const commercePaths = [
-      { path: '/products', title: 'All Products & Catalog', cat: 'category' as const, weight: 90 },
-      { path: '/categories', title: 'Product Categories', cat: 'category' as const, weight: 88 },
-      { path: '/category/electronics', title: 'Electronics & Gadgets', cat: 'category' as const, weight: 85 },
-      { path: '/category/fashion', title: 'Fashion & Apparel', cat: 'category' as const, weight: 85 },
-      { path: '/category/home', title: 'Home & Living Essentials', cat: 'category' as const, weight: 80 },
-      { path: '/featured', title: 'Featured Deals & Specials', cat: 'post' as const, weight: 95 },
-      { path: '/deals', title: 'Daily Discount Offers', cat: 'post' as const, weight: 92 },
-      { path: '/bestsellers', title: 'Bestselling Items', cat: 'post' as const, weight: 94 },
-      { path: '/reviews', title: 'Customer Reviews & Ratings', cat: 'page' as const, weight: 75 },
-      { path: '/about', title: 'About Our Store', cat: 'page' as const, weight: 70 },
-      { path: '/contact', title: 'Customer Support & Contact', cat: 'page' as const, weight: 70 },
-      { path: '/shipping', title: 'Shipping & Delivery Policy', cat: 'page' as const, weight: 65 },
-      { path: '/faq', title: 'Frequently Asked Questions', cat: 'page' as const, weight: 65 },
-      { path: '/terms', title: 'Terms of Service', cat: 'page' as const, weight: 60 },
-      { path: '/privacy', title: 'Privacy Policy', cat: 'page' as const, weight: 60 },
-    ];
-    return commercePaths.map((item, idx) => ({
-      id: `synth_store_${idx + 1}`,
-      url: `${origin}${item.path}`,
-      path: item.path,
-      title: item.title,
-      description: `[Store Catalog] ${item.title}`,
-      depth: item.path.split('/').filter(Boolean).length || 1,
-      status: 200,
-      includedInVisits: true,
-      visitWeight: item.weight,
-      gaDetected,
-      category: item.cat,
-    }));
-  }
-
-  // 3. News, Publications, Magazine & Editorial Portals
-  if (
-    lowerHost.includes('blog') ||
-    lowerHost.includes('news') ||
-    lowerHost.includes('times') ||
-    lowerHost.includes('post') ||
-    lowerHost.includes('daily') ||
-    lowerHost.includes('press') ||
-    lowerHost.includes('tech')
-  ) {
-    const publicationPaths = [
-      { path: '/latest', title: 'Latest Breaking Headlines', cat: 'category' as const, weight: 95 },
-      { path: '/trending', title: 'Trending Stories & Topics', cat: 'category' as const, weight: 92 },
-      { path: '/category/technology', title: 'Technology & Innovation', cat: 'category' as const, weight: 88 },
-      { path: '/category/business', title: 'Business & Economy Insights', cat: 'category' as const, weight: 88 },
-      { path: '/category/market-analysis', title: 'Market & Industry Analysis', cat: 'category' as const, weight: 85 },
-      { path: '/category/opinions', title: 'Editorial & Opinion Columns', cat: 'category' as const, weight: 82 },
-      { path: '/category/features', title: 'In-Depth Feature Reports', cat: 'category' as const, weight: 85 },
-      { path: '/archive', title: 'Publication Archives', cat: 'archive' as const, weight: 70 },
-      { path: '/authors', title: 'Contributing Authors & Journalists', cat: 'page' as const, weight: 75 },
-      { path: '/about', title: 'About the Publication', cat: 'page' as const, weight: 70 },
-      { path: '/contact', title: 'Newsroom Contact & Submissions', cat: 'page' as const, weight: 70 },
-      { path: '/newsletter', title: 'Daily Digest Newsletter', cat: 'page' as const, weight: 75 },
-      { path: '/privacy', title: 'Privacy Policy', cat: 'page' as const, weight: 60 },
-    ];
-    return publicationPaths.map((item, idx) => ({
-      id: `synth_news_${idx + 1}`,
-      url: `${origin}${item.path}`,
-      path: item.path,
-      title: item.title,
-      description: `[Editorial Desk] ${item.title}`,
-      depth: item.path.split('/').filter(Boolean).length || 1,
-      status: 200,
-      includedInVisits: true,
-      visitWeight: item.weight,
-      gaDetected,
-      category: item.cat,
-    }));
-  }
-
-  // 4. Default Enterprise, SaaS & Dynamic Web App Routes
-  const defaultPaths = [
-    { path: '/features', title: 'Platform Features & Architecture', cat: 'page' as const, weight: 85 },
-    { path: '/services', title: 'Core Services & Capabilities', cat: 'page' as const, weight: 85 },
-    { path: '/solutions', title: 'Enterprise & Individual Solutions', cat: 'page' as const, weight: 82 },
-    { path: '/pricing', title: 'Plans, Pricing & Tiers', cat: 'product' as const, weight: 90 },
-    { path: '/about', title: 'About Company & Mission', cat: 'page' as const, weight: 75 },
-    { path: '/contact', title: 'Contact Us & Customer Support', cat: 'page' as const, weight: 75 },
-    { path: '/blog', title: 'Company Blog & Updates', cat: 'category' as const, weight: 88 },
-    { path: '/faq', title: 'Frequently Asked Questions', cat: 'page' as const, weight: 70 },
-    { path: '/docs', title: 'Product Documentation & Guides', cat: 'page' as const, weight: 85 },
-    { path: '/terms', title: 'Terms of Service', cat: 'page' as const, weight: 60 },
-    { path: '/privacy', title: 'Privacy Policy', cat: 'page' as const, weight: 60 },
-  ];
-  return defaultPaths.map((item, idx) => ({
-    id: `synth_gen_${idx + 1}`,
-    url: `${origin}${item.path}`,
-    path: item.path,
-    title: item.title,
-    description: `[Core Pathway] ${item.title}`,
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: item.weight,
-    gaDetected,
-    category: item.cat,
-  }));
+  // Never fabricate synthetic placeholder links (no fake /jobs, /careers, /benefits, etc.)
+  // Real crawling only
+  return [];
 }
 
 /**
@@ -618,7 +464,7 @@ export async function executeUniversalCrawl(
     : standardTitleMatch
     ? standardTitleMatch[1].trim()
     : `${hostname} - Home`;
-  const title = rawTitle
+  let title = rawTitle
     .replace(/&amp;/g, '&')
     .replace(/&#8217;/g, "'")
     .replace(/&#8211;/g, '-')
@@ -631,12 +477,30 @@ export async function executeUniversalCrawl(
     primaryHtml.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i) ||
     primaryHtml.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i);
   const rawDesc = descMatch ? descMatch[1].trim() : `Main website for ${hostname}`;
-  const description = rawDesc
+  let description = rawDesc
     .replace(/&amp;/g, '&')
     .replace(/&#8217;/g, "'")
     .replace(/&#8211;/g, '-')
     .replace(/<[^>]*>/g, '')
     .trim();
+
+  // If page was blocked by WAF or returned generic 403 / Forbidden / Cloudflare, probe WordPress root API for real title & tagline
+  if (statusCode >= 400 || !primaryHtml || title.includes('403') || title.includes('Forbidden') || title.includes('Just a moment') || title.includes('Attention Required')) {
+    try {
+      const wpRootRes = await fetchFn(`${origin}/wp-json`, 4000);
+      if (wpRootRes.ok && wpRootRes.text) {
+        try {
+          const wpData = JSON.parse(wpRootRes.text);
+          if (wpData.name) {
+            title = wpData.name;
+          }
+          if (wpData.description) {
+            description = wpData.description;
+          }
+        } catch {}
+      }
+    } catch {}
+  }
 
   // Detect GA4 / GTM across comprehensive tag patterns
   const ga4Regexes = [
@@ -1247,15 +1111,16 @@ export async function executeUniversalCrawl(
     }
 
     // 3D. RSS, Atom & Syndication Feeds
-    if (discoveredPages.length < 35 && discoveredPages.length < maxLinks) {
-      const feedPaths = ['/feed', '/rss', '/rss.xml', '/feed.xml', '/atom.xml', '/index.xml'];
+    if (discoveredPages.length < maxLinks) {
+      const feedPaths = ['/feed/', '/feed', '/rss', '/rss.xml', '/feed.xml', '/atom.xml', '/index.xml', '/?feed=rss2'];
       const feedTasks = feedPaths.map(async (fPath) => {
         try {
-          const fRes = await fetchFn(`${origin}${fPath}`, 2000);
+          const fRes = await fetchFn(`${origin}${fPath}`, 4000);
           if (!fRes.ok || !fRes.text) return;
           const fXml = fRes.text;
           if (!fXml.includes('<rss') && !fXml.includes('<feed') && !fXml.includes('<channel') && !fXml.includes('<atom')) return;
 
+          // RSS 2.0 <item> entries
           const itemRegex = /<item\b[^>]*>[\s\S]*?<link>\s*([^<\s]+)\s*<\/link>(?:[\s\S]*?<title>\s*([^<]+)\s*<\/title>)?[\s\S]*?<\/item>/gi;
           let im: RegExpExecArray | null;
           while ((im = itemRegex.exec(fXml)) !== null && discoveredPages.length < maxLinks) {
@@ -1267,14 +1132,46 @@ export async function executeUniversalCrawl(
                 const fPathStr = normalizePathWithQuery(parsed);
                 if (isCleanPublicPage(fPathStr, rawTitle) && !discoveredPaths.has(fPathStr)) {
                   discoveredPaths.add(fPathStr);
-                  const pTitle = rawTitle ? rawTitle.replace(/&amp;/g, '&').replace(/<[^>]*>/g, '').trim() : slugToTitle(fPathStr);
+                  const pTitle = rawTitle ? rawTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim() : slugToTitle(fPathStr);
                   const cat = classifyPageCategory(fPathStr, pTitle);
                   discoveredPages.push({
                     id: `feed_${discoveredPages.length + 1}`,
                     url: parsed.toString(),
                     path: fPathStr,
                     title: pTitle.length > 75 ? pTitle.slice(0, 75) + '...' : pTitle,
-                    description: `[Syndication Feed] ${pTitle}`,
+                    description: `[Article Feed] ${pTitle}`,
+                    depth: fPathStr.split('/').filter(Boolean).length || 1,
+                    status: 200,
+                    includedInVisits: true,
+                    visitWeight: 95,
+                    gaDetected: !!gaMeasurementId || !!gtmId,
+                    category: cat,
+                  });
+                }
+              }
+            } catch {}
+          }
+
+          // Atom <entry> entries
+          const entryRegex = /<entry\b[^>]*>[\s\S]*?<link\b[^>]*href=["']([^"']+)["'][\s\S]*?<title\b[^>]*>([^<]+)<\/title>[\s\S]*?<\/entry>/gi;
+          let em: RegExpExecArray | null;
+          while ((em = entryRegex.exec(fXml)) !== null && discoveredPages.length < maxLinks) {
+            const rawLink = em[1].trim();
+            const rawTitle = (em[2] || '').trim().replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1');
+            try {
+              const parsed = new URL(rawLink, origin);
+              if (isSameApexDomain(parsed.hostname, hostname)) {
+                const fPathStr = normalizePathWithQuery(parsed);
+                if (isCleanPublicPage(fPathStr, rawTitle) && !discoveredPaths.has(fPathStr)) {
+                  discoveredPaths.add(fPathStr);
+                  const pTitle = rawTitle ? rawTitle.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim() : slugToTitle(fPathStr);
+                  const cat = classifyPageCategory(fPathStr, pTitle);
+                  discoveredPages.push({
+                    id: `atom_${discoveredPages.length + 1}`,
+                    url: parsed.toString(),
+                    path: fPathStr,
+                    title: pTitle.length > 75 ? pTitle.slice(0, 75) + '...' : pTitle,
+                    description: `[Article Entry] ${pTitle}`,
                     depth: fPathStr.split('/').filter(Boolean).length || 1,
                     status: 200,
                     includedInVisits: true,
@@ -1336,33 +1233,51 @@ export async function executeUniversalCrawl(
   }
 
   // ----------------------------------------------------
-  // STEP 4: WORDPRESS & GENERIC REST API PROBING (Real JSON only)
+  // STEP 4: WORDPRESS, SHOPIFY & GENERIC REST API PROBING (Real Content Only)
   // ----------------------------------------------------
-  if (discoveredPages.length < 50 && discoveredPages.length < maxLinks) {
+  if (discoveredPages.length < maxLinks) {
     const wpEndpoints = [
-      `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug`,
-      `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug`,
+      `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug,date`,
+      `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug,date`,
+      `${origin}/wp-json/wp/v2/categories?per_page=50&_fields=id,link,name,slug`,
+      `${origin}/wp-json/wp/v2/tags?per_page=50&_fields=id,link,name,slug`,
+      `${origin}/products.json?limit=250`,
+      `${origin}/collections.json?limit=50`,
     ];
 
     const genericApiEndpoints = [
-      `${origin}/api/jobs`,
       `${origin}/api/posts`,
       `${origin}/api/articles`,
-      `${origin}/api/listings`,
+      `${origin}/api/news`,
+      `${origin}/api/v1/posts`,
       `${origin}/api/products`,
       `${origin}/api/items`,
-      `${origin}/api/v1/jobs`,
-      `${origin}/api/v1/posts`,
-      `${origin}/api/v1/listings`,
+      `${origin}/api/jobs`,
+      `${origin}/api/listings`,
     ];
 
     const wpTasks = wpEndpoints.map(async (wpUrl) => {
       try {
-        const wpRes = await fetchFn(wpUrl, 2000);
-        if (wpRes.ok && wpRes.text && wpRes.text.startsWith('[')) {
-          const data = JSON.parse(wpRes.text);
-          if (Array.isArray(data) && data.length > 0) {
-            for (const item of data) {
+        const wpRes = await fetchFn(wpUrl, 6000);
+        if (wpRes.ok && wpRes.text && (wpRes.text.startsWith('[') || wpRes.text.startsWith('{'))) {
+          let parsedData: any;
+          try {
+            parsedData = JSON.parse(wpRes.text);
+          } catch {
+            return;
+          }
+
+          // Handle WordPress posts / pages array or Shopify products / collections object
+          const items: any[] = Array.isArray(parsedData) 
+            ? parsedData 
+            : (Array.isArray(parsedData?.products) 
+              ? parsedData.products.map((p: any) => ({ link: `/products/${p.handle}`, title: { rendered: p.title }, id: p.id, slug: p.handle }))
+              : (Array.isArray(parsedData?.collections)
+                ? parsedData.collections.map((c: any) => ({ link: `/collections/${c.handle}`, title: { rendered: c.title }, id: c.id, slug: c.handle }))
+                : []));
+
+          if (Array.isArray(items) && items.length > 0) {
+            for (const item of items) {
               if (discoveredPages.length >= maxLinks) break;
               if (item.link) {
                 try {
@@ -1370,15 +1285,15 @@ export async function executeUniversalCrawl(
                   const pPath = normalizePathWithQuery(resolved);
                   if (isCleanPublicPage(pPath) && !discoveredPaths.has(pPath)) {
                     discoveredPaths.add(pPath);
-                    const rawT = item.title?.rendered || item.slug || 'Article';
-                    const cleanT = rawT.replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
+                    const rawT = item.title?.rendered || item.title || item.name || item.slug || 'Article';
+                    const cleanT = String(rawT).replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&#8211;/g, '-').replace(/<[^>]*>/g, '').trim();
                     const cat = classifyPageCategory(pPath, cleanT);
                     discoveredPages.push({
                       id: `wp_${item.id || discoveredPages.length + 1}`,
                       url: resolved.toString(),
                       path: pPath,
                       title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
-                      description: `[WordPress] ${cleanT}`,
+                      description: `[Article/Post] ${cleanT}`,
                       depth: pPath.split('/').filter(Boolean).length || 1,
                       status: 200,
                       includedInVisits: true,
@@ -1397,7 +1312,7 @@ export async function executeUniversalCrawl(
 
     const apiTasks = genericApiEndpoints.map(async (apiUrl) => {
       try {
-        const apiRes = await fetchFn(apiUrl, 2000);
+        const apiRes = await fetchFn(apiUrl, 4000);
         if (apiRes.ok && apiRes.text && (apiRes.text.startsWith('[') || apiRes.text.startsWith('{'))) {
           let parsed: any;
           try {
@@ -1407,7 +1322,7 @@ export async function executeUniversalCrawl(
           }
           const rawItems = Array.isArray(parsed)
             ? parsed
-            : (Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed.items) ? parsed.items : (Array.isArray(parsed.results) ? parsed.results : (Array.isArray(parsed.jobs) ? parsed.jobs : (Array.isArray(parsed.posts) ? parsed.posts : [])))));
+            : (Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed.items) ? parsed.items : (Array.isArray(parsed.results) ? parsed.results : (Array.isArray(parsed.posts) ? parsed.posts : (Array.isArray(parsed.articles) ? parsed.articles : [])))));
 
           if (Array.isArray(rawItems) && rawItems.length > 0) {
             for (const item of rawItems) {
@@ -1416,7 +1331,7 @@ export async function executeUniversalCrawl(
 
               const candidateLink = item.url || item.link || item.permalink || item.path || '';
               const candidateSlug = item.slug || item.id || item._id;
-              const candidateTitle = item.title || item.name || item.heading || item.jobTitle || item.position || candidateSlug || 'Listing';
+              const candidateTitle = item.title || item.name || item.heading || item.headline || candidateSlug || 'Article';
 
               let itemPath = '';
               if (candidateLink && typeof candidateLink === 'string') {
@@ -1440,7 +1355,7 @@ export async function executeUniversalCrawl(
                   url: `${origin}${itemPath}`,
                   path: itemPath,
                   title: cleanT.length > 75 ? cleanT.slice(0, 75) + '...' : cleanT,
-                  description: `[REST API Catalog] ${cleanT}`,
+                  description: `[Live Content] ${cleanT}`,
                   depth: itemPath.split('/').filter(Boolean).length || 1,
                   status: 200,
                   includedInVisits: true,
@@ -1524,18 +1439,26 @@ export async function executeUniversalCrawl(
   }
 
   // ----------------------------------------------------
-  // STEP 6: DOMAIN-ADAPTIVE CATALOG SYNTHESIS (Fail-Safe)
+  // STEP 6: VERIFIED GENUINE TARGET INTEGRITY
   // ----------------------------------------------------
-  // If the site rendered purely on the client or blocked scraping such that
-  // only 1 page (the root) exists, synthesize an authentic catalog of domain routes
-  // so the user's graph is never stuck on just the main domain given.
+  // Never inject fake synthetic routes or generic placeholder career links.
+  // Ensure that if target URL had a specific path, both root and target path exist.
   if (discoveredPages.length <= 1) {
-    const synthPages = generateDomainAdaptivePages(targetUrl, hostname, origin, gaMeasurementId, gtmId, title, description);
-    for (const sp of synthPages) {
-      if (!discoveredPaths.has(sp.path) && discoveredPages.length < maxLinks) {
-        discoveredPaths.add(sp.path);
-        discoveredPages.push(sp);
-      }
+    if (rootPathIdent !== '/' && !discoveredPaths.has('/')) {
+      discoveredPaths.add('/');
+      discoveredPages.push({
+        id: 'page_root_clean',
+        url: `${origin}/`,
+        path: '/',
+        title: `${hostname} - Home`,
+        description: `Home page for ${hostname}`,
+        depth: 0,
+        status: 200,
+        includedInVisits: true,
+        visitWeight: 100,
+        gaDetected: !!gaMeasurementId || !!gtmId,
+        category: 'page',
+      });
     }
   }
 
