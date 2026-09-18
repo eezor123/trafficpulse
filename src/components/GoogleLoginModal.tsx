@@ -34,7 +34,7 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
   onSuccess,
   isRegistrationMode = false,
 }) => {
-  const [tab, setTab] = useState<'popup' | 'direct'>('popup');
+  const [tab, setTab] = useState<'direct' | 'popup'>('direct');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [popupBlocked, setPopupBlocked] = useState(false);
@@ -296,20 +296,6 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
           <button
             type="button"
             onClick={() => {
-              setTab('popup');
-              setError(null);
-            }}
-            className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer ${
-              tab === 'popup'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            Google OAuth Popup
-          </button>
-          <button
-            type="button"
-            onClick={() => {
               setTab('direct');
               setError(null);
             }}
@@ -319,10 +305,24 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
                 : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <span>Direct Google Verification</span>
-            {unauthorizedDomain && (
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-            )}
+            <span>Instant Google Sign-In</span>
+            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-700 uppercase">
+              Recommended
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTab('popup');
+              setError(null);
+            }}
+            className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer ${
+              tab === 'popup'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Google Popup Window
           </button>
         </div>
 
