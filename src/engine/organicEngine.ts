@@ -131,17 +131,42 @@ export class OrganicTrafficEngine {
       }
     } catch {}
 
-    const validPages = pagesPool.filter(p => p.includedInVisits).map(p => {
-      let fullUrl = p.url;
-      try {
-        if (targetOrigin.startsWith('http')) {
-          const pagePath = p.path.startsWith('/') ? p.path : `/${p.path}`;
-          fullUrl = `${targetOrigin}${pagePath}`;
+    const resolvePageUrl = (p: CrawledPage): { url: string; path: string } => {
+      // 1. If page already has a valid absolute URL (e.g. uploaded / imported), PRESERVE IT COMPLETELY!
+      if (p.url && (p.url.startsWith('http://') || p.url.startsWith('https://'))) {
+        try {
+          const u = new URL(p.url);
+          const path = p.path && p.path.startsWith('/') ? p.path : `${u.pathname || '/'}${u.search || ''}`;
+          return { url: p.url, path };
+        } catch {
+          return { url: p.url, path: p.path || '/' };
         }
-      } catch {}
+      }
+
+      // 2. If page.path is an absolute URL, use it directly!
+      if (p.path && (p.path.startsWith('http://') || p.path.startsWith('https://'))) {
+        try {
+          const u = new URL(p.path);
+          return { url: p.path, path: `${u.pathname || '/'}${u.search || ''}` };
+        } catch {
+          return { url: p.path, path: p.path };
+        }
+      }
+
+      // 3. Otherwise, resolve relative path against targetOrigin only if targetOrigin is a real URL
+      const pagePath = p.path ? (p.path.startsWith('/') ? p.path : `/${p.path}`) : '/';
+      const isTargetValid = targetOrigin && (targetOrigin.startsWith('http://') || targetOrigin.startsWith('https://'));
+      const fullUrl = isTargetValid ? `${targetOrigin}${pagePath}` : (p.url || pagePath);
+
+      return { url: fullUrl, path: pagePath };
+    };
+
+    const validPages = pagesPool.filter(p => p.includedInVisits).map(p => {
+      const { url: fullUrl, path: cleanPath } = resolvePageUrl(p);
       return {
         ...p,
         url: fullUrl,
+        path: cleanPath,
       };
     });
 
@@ -174,17 +199,36 @@ export class OrganicTrafficEngine {
       }
     } catch {}
 
-    const validPages = newPages.filter(p => p.includedInVisits).map(p => {
-      let fullUrl = p.url;
-      try {
-        if (targetOrigin.startsWith('http')) {
-          const pagePath = p.path.startsWith('/') ? p.path : `/${p.path}`;
-          fullUrl = `${targetOrigin}${pagePath}`;
+    const resolvePageUrl = (p: CrawledPage): { url: string; path: string } => {
+      if (p.url && (p.url.startsWith('http://') || p.url.startsWith('https://'))) {
+        try {
+          const u = new URL(p.url);
+          const path = p.path && p.path.startsWith('/') ? p.path : `${u.pathname || '/'}${u.search || ''}`;
+          return { url: p.url, path };
+        } catch {
+          return { url: p.url, path: p.path || '/' };
         }
-      } catch {}
+      }
+      if (p.path && (p.path.startsWith('http://') || p.path.startsWith('https://'))) {
+        try {
+          const u = new URL(p.path);
+          return { url: p.path, path: `${u.pathname || '/'}${u.search || ''}` };
+        } catch {
+          return { url: p.path, path: p.path };
+        }
+      }
+      const pagePath = p.path ? (p.path.startsWith('/') ? p.path : `/${p.path}`) : '/';
+      const isTargetValid = targetOrigin && (targetOrigin.startsWith('http://') || targetOrigin.startsWith('https://'));
+      const fullUrl = isTargetValid ? `${targetOrigin}${pagePath}` : (p.url || pagePath);
+      return { url: fullUrl, path: pagePath };
+    };
+
+    const validPages = newPages.filter(p => p.includedInVisits).map(p => {
+      const { url: fullUrl, path: cleanPath } = resolvePageUrl(p);
       return {
         ...p,
         url: fullUrl,
+        path: cleanPath,
       };
     });
 
@@ -1021,14 +1065,22 @@ export class OrganicTrafficEngine {
             visitor.referrerName = nextReferrerName;
           } else {
             // Natural internal referrer from previous page
-            visitor.referrerUrl = `${this.config.targetUrl}${currentPage.path}`;
+            if (currentPage.url && (currentPage.url.startsWith('http://') || currentPage.url.startsWith('https://'))) {
+              visitor.referrerUrl = currentPage.url;
+            } else {
+              visitor.referrerUrl = `${this.config.targetUrl}${currentPage.path}`;
+            }
             visitor.referrerName = `Internal Link (${currentPage.title || currentPage.path})`;
           }
 
           // Dispatch GA4 click beacon representing the user clicking the navigation link
           let siteHost = 'mysite.com';
           try {
-            if (this.config.targetUrl) siteHost = new URL(this.config.targetUrl).hostname;
+            if (nextPage.url && (nextPage.url.startsWith('http://') || nextPage.url.startsWith('https://'))) {
+              siteHost = new URL(nextPage.url).hostname;
+            } else if (this.config.targetUrl) {
+              siteHost = new URL(this.config.targetUrl).hostname;
+            }
           } catch {}
 
           this.dispatchGa4Beacon(
@@ -1881,7 +1933,13 @@ export class OrganicTrafficEngine {
     const effectiveEngagement = Math.max(1200, engagementTimeMs || 2000);
     const campaignSource = visitor.canonicalSource || (visitor.trafficSource === 'Organic Search' ? 'google' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource.toLowerCase());
     const campaignMedium = visitor.canonicalMedium || (visitor.trafficSource === 'Organic Search' ? 'organic' : visitor.trafficSource === 'Social' ? 'social' : visitor.trafficSource === 'Direct' ? '(none)' : 'referral');
-    const pageLocation = `${this.config.targetUrl}${pagePath}`;
+    let pageLocation = `${this.config.targetUrl}${pagePath}`;
+    const activeStep = visitor.visitedPages[visitor.currentPageIndex];
+    if (activeStep?.url && (activeStep.url.startsWith('http://') || activeStep.url.startsWith('https://'))) {
+      pageLocation = activeStep.url;
+    } else if (pagePath && (pagePath.startsWith('http://') || pagePath.startsWith('https://'))) {
+      pageLocation = pagePath;
+    }
     const proxyRegion = visitor.country.region || visitor.proxyUsed?.region || 'Global';
     const visitorLocale = visitor.country.locale?.split(',')[0]?.trim() || 'en-GB';
     const visitorIp = visitor.ipAddress || visitor.country.ipSample || '24.120.45.18';

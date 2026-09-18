@@ -22,6 +22,7 @@ export interface CrawledPage {
   foundLinks?: string[];
   gaDetected: boolean;
   category?: 'post' | 'category' | 'page' | 'tag' | 'archive' | 'product' | 'other';
+  isUploaded?: boolean;
 }
 
 export interface RealHttpTrafficHit {

@@ -1056,37 +1056,59 @@ export default function App() {
 
   const handleAddCustomPage = (path: string, title: string) => {
     let cleanOrigin = crawlState.targetUrl;
-    try {
-      const u = new URL(crawlState.targetUrl);
-      cleanOrigin = u.origin;
-    } catch {}
+    let fullUrl = '';
+    let finalPath = path;
 
-    const isJobOrPost = path.includes('job=') || path.includes('job_') || path.includes('/job/') || path.includes('post=') || path.includes('/post/') || path.includes('article=') || path.includes('/article/') || path.includes('listing=');
-    const isCat = path.includes('category') || path.includes('topics') || path.includes('section');
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      fullUrl = path;
+      try {
+        const u = new URL(path);
+        cleanOrigin = u.origin;
+        finalPath = `${u.pathname || '/'}${u.search || ''}`;
+        if (!crawlState.hostname || crawlState.hostname === 'example.com') {
+          setCrawlState(prev => ({ ...prev, targetUrl: u.origin, hostname: u.hostname, origin: u.origin }));
+          setOrganicConfig(prev => ({ ...prev, targetUrl: u.origin }));
+        }
+      } catch {
+        finalPath = path;
+      }
+    } else {
+      try {
+        const u = new URL(crawlState.targetUrl);
+        cleanOrigin = u.origin;
+      } catch {}
+      finalPath = path.startsWith('/') ? path : `/${path}`;
+      fullUrl = `${cleanOrigin}${finalPath}`;
+    }
+
+    const isJobOrPost = finalPath.includes('job=') || finalPath.includes('job_') || finalPath.includes('/job/') || finalPath.includes('post=') || finalPath.includes('/post/') || finalPath.includes('article=') || finalPath.includes('/article/') || finalPath.includes('listing=');
+    const isCat = finalPath.includes('category') || finalPath.includes('topics') || finalPath.includes('section');
 
     const category: 'post' | 'category' | 'page' = isJobOrPost ? 'post' : isCat ? 'category' : 'page';
     const visitWeight = isJobOrPost ? 95 : isCat ? 85 : 75;
 
     setCrawlState(prev => {
-      // If path already exists, update title & weight instead of duplicating
-      const existingIdx = prev.pages.findIndex(p => p.path === path);
+      // If page already exists by URL or path, update title & weight instead of duplicating
+      const existingIdx = prev.pages.findIndex(p => (fullUrl && p.url === fullUrl) || p.path === finalPath);
       if (existingIdx >= 0) {
         const updated = [...prev.pages];
         updated[existingIdx] = {
           ...updated[existingIdx],
+          url: fullUrl || updated[existingIdx].url,
           title: title || updated[existingIdx].title,
           includedInVisits: true,
           visitWeight: Math.max(updated[existingIdx].visitWeight, visitWeight),
           category,
+          isUploaded: true,
         };
         return { ...prev, pages: updated };
       }
 
       const newPage: CrawledPage = {
         id: `custom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        url: `${cleanOrigin}${path}`,
-        path,
-        title: title || (isJobOrPost ? `Job Listing: ${path.replace(/^\/\?job=/, '')}` : path),
+        url: fullUrl,
+        path: finalPath,
+        title: title || (isJobOrPost ? `Job Listing: ${finalPath.replace(/^\/\?job=/, '')}` : finalPath),
         description: isJobOrPost ? `Specific content listing on ${prev.hostname}` : 'Custom added navigation route',
         depth: 1,
         status: 200,
@@ -1094,6 +1116,7 @@ export default function App() {
         visitWeight,
         gaDetected: true,
         category,
+        isUploaded: true,
       };
 
       return {
@@ -1127,30 +1150,67 @@ export default function App() {
       targetHostname = discoveredHostname;
     }
 
+    // Check first item URL to discover origin if not set
+    if ((!cleanOrigin || cleanOrigin.includes('example.com')) && newItems.length > 0) {
+      for (const it of newItems) {
+        if (it.url && (it.url.startsWith('http://') || it.url.startsWith('https://'))) {
+          try {
+            const u = new URL(it.url);
+            cleanOrigin = u.origin;
+            targetHostname = u.hostname;
+            break;
+          } catch {}
+        }
+      }
+    }
+
     setCrawlState(prev => {
       const existingMap = new Map<string, CrawledPage>();
-      prev.pages.forEach(p => existingMap.set(p.path, p));
+      prev.pages.forEach(p => existingMap.set(p.url || p.path, p));
 
       newItems.forEach((item, index) => {
         const isJobOrPost = item.category === 'post' || item.path.includes('job=') || item.path.includes('job_') || item.path.includes('/job/') || item.path.includes('post=') || item.path.includes('/post/') || item.path.includes('article=') || item.path.includes('/article/') || item.path.includes('listing=') || item.path.includes('/blog/');
         const isCat = item.category === 'category' || item.path.includes('category') || item.path.includes('topics') || item.path.includes('section');
         const category: 'post' | 'category' | 'page' = item.category || (isJobOrPost ? 'post' : isCat ? 'category' : 'page');
         const visitWeight = item.weight || (isJobOrPost ? 95 : isCat ? 85 : 75);
-        const cleanPath = item.path.startsWith('/') ? item.path : `/${item.path}`;
+        
+        let itemFullUrl = item.url || '';
+        let cleanPath = item.path;
 
-        if (existingMap.has(cleanPath)) {
-          const existing = existingMap.get(cleanPath)!;
-          existingMap.set(cleanPath, {
+        if (item.url && (item.url.startsWith('http://') || item.url.startsWith('https://'))) {
+          itemFullUrl = item.url;
+          try {
+            const u = new URL(item.url);
+            cleanPath = `${u.pathname || '/'}${u.search || ''}`;
+          } catch {}
+        } else if (item.path && (item.path.startsWith('http://') || item.path.startsWith('https://'))) {
+          itemFullUrl = item.path;
+          try {
+            const u = new URL(item.path);
+            cleanPath = `${u.pathname || '/'}${u.search || ''}`;
+          } catch {}
+        } else {
+          cleanPath = item.path.startsWith('/') ? item.path : `/${item.path}`;
+          itemFullUrl = `${cleanOrigin}${cleanPath}`;
+        }
+
+        const mapKey = itemFullUrl || cleanPath;
+
+        if (existingMap.has(mapKey)) {
+          const existing = existingMap.get(mapKey)!;
+          existingMap.set(mapKey, {
             ...existing,
+            url: itemFullUrl || existing.url,
             title: item.title || existing.title,
             includedInVisits: true,
             visitWeight: Math.max(existing.visitWeight, visitWeight),
             category,
+            isUploaded: true,
           });
         } else {
           const newPage: CrawledPage = {
             id: `manual_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 6)}`,
-            url: item.url || `${cleanOrigin}${cleanPath}`,
+            url: itemFullUrl,
             path: cleanPath,
             title: item.title || (isJobOrPost ? `Listing: ${cleanPath}` : cleanPath),
             description: isJobOrPost ? `Target content listing on ${targetHostname || prev.hostname}` : 'Custom imported route',
@@ -1160,19 +1220,24 @@ export default function App() {
             visitWeight,
             gaDetected: true,
             category,
+            isUploaded: true,
           };
-          existingMap.set(cleanPath, newPage);
+          existingMap.set(mapKey, newPage);
         }
       });
 
       const mergedPages = Array.from(existingMap.values());
       const recentItems = buildRecentDiscoveredItems(mergedPages);
 
+      const shouldUpdateTarget = !prev.targetUrl || prev.targetUrl.includes('example.com') || (cleanOrigin && !cleanOrigin.includes('example.com'));
+      const updatedTargetUrl = shouldUpdateTarget ? cleanOrigin : prev.targetUrl;
+      const updatedHostname = shouldUpdateTarget ? (targetHostname || prev.hostname) : prev.hostname;
+
       return {
         ...prev,
-        targetUrl: prev.targetUrl && prev.targetUrl !== 'https://9jajobs.vercel.app' ? prev.targetUrl : (discoveredUrl || prev.targetUrl),
-        hostname: prev.hostname && prev.hostname !== '9jajobs.vercel.app' ? prev.hostname : (targetHostname || prev.hostname),
-        origin: prev.origin && prev.origin !== 'https://9jajobs.vercel.app' ? prev.origin : (cleanOrigin || prev.origin),
+        targetUrl: updatedTargetUrl,
+        hostname: updatedHostname,
+        origin: shouldUpdateTarget ? cleanOrigin : prev.origin,
         pages: mergedPages,
         realLinksCount: mergedPages.length,
         visitedUrlsCount: Math.max(prev.visitedUrlsCount, mergedPages.length),
@@ -1310,10 +1375,51 @@ export default function App() {
       countryCount: {},
     });
 
-    const targetUrl = (organicConfig.targetUrl || crawlState.targetUrl || 'https://example.com').trim();
-    let pagesToUse = crawlState.pages && crawlState.pages.length > 0 ? crawlState.pages : getClientSideCrawledPages(targetUrl);
-
     const effectiveGa4Id = getMemberGa4Id();
+    const targetUrl = (organicConfig.targetUrl || crawlState.targetUrl || 'https://example.com').trim();
+    let cleanTargetUrl = targetUrl;
+    if (!cleanTargetUrl.startsWith('http://') && !cleanTargetUrl.startsWith('https://')) {
+      cleanTargetUrl = `https://${cleanTargetUrl}`;
+    }
+    let targetPath = '/';
+    let targetHost = cleanTargetUrl;
+    try {
+      const u = new URL(cleanTargetUrl);
+      targetPath = `${u.pathname || '/'}${u.search || ''}`;
+      targetHost = u.hostname;
+    } catch {}
+
+    // Check if user has uploaded URLs or previously initiated a crawl
+    const hasUploadedPages = (crawlState.pages || []).some(
+      p => p.isUploaded || p.id.startsWith('manual_') || p.id.startsWith('custom_')
+    );
+    const hasExplicitPages = (crawlState.pages || []).length > 0 && 
+      !crawlState.pages.every(p => p.id.startsWith('p_root'));
+
+    let pagesToUse: CrawledPage[] = [];
+
+    if (hasUploadedPages || hasExplicitPages) {
+      // All uploaded or discovered pages should be visited (respecting inclusion toggle if active)
+      const activePages = (crawlState.pages || []).filter(p => p.includedInVisits !== false);
+      pagesToUse = activePages.length > 0 ? activePages : crawlState.pages.map(p => ({ ...p, includedInVisits: true }));
+    } else {
+      // User pasted a URL in the launch bar without uploading or crawling: visit ONLY the site targeted
+      pagesToUse = [
+        {
+          id: `target_direct_${Date.now()}`,
+          url: cleanTargetUrl,
+          path: targetPath,
+          title: `${targetHost}${targetPath !== '/' ? ` (${targetPath})` : ''}`,
+          description: `Target Site: ${cleanTargetUrl}`,
+          depth: 0,
+          status: 200,
+          includedInVisits: true,
+          visitWeight: 100,
+          gaDetected: !!effectiveGa4Id,
+          category: 'page',
+        }
+      ];
+    }
 
     const effectiveOrganicConfig: OrganicVisitorConfig = {
       ...organicConfig,
@@ -1383,19 +1489,6 @@ export default function App() {
       setSaveBannerMessage(`🚀 Simulation running on ${currentHost}. Tip: Attach GA4 Measurement ID in the top bar to view real-time visits in Google Analytics!`);
     }
     setTimeout(() => setSaveBannerMessage(null), 6500);
-
-    // Asynchronously refresh route catalog in background if initial sample or domain changed
-    if (
-      crawlState.pages.some(p => p.id.startsWith('p_root')) || 
-      crawlState.targetUrl !== targetUrl || 
-      crawlState.pages.length <= 5
-    ) {
-      handleStartCrawl(targetUrl).then(scraped => {
-        if (scraped && scraped.length > 0 && organicEngineRef.current) {
-          // Engine continues smoothly with discovered routes
-        }
-      }).catch(() => {});
-    }
   };
 
   const handleStopOrganic = () => {

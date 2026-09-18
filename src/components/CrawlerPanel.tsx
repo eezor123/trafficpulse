@@ -92,11 +92,12 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
   }, [crawlState.targetUrl]);
 
   // Helper to parse any raw input (URL, query, ID, path) into clean path and title
-  const parseListingInput = (raw: string, userTitle?: string): { path: string; title: string; category: 'post' | 'category' | 'page' } => {
+  const parseListingInput = (raw: string, userTitle?: string): { path: string; title: string; category: 'post' | 'category' | 'page'; url?: string } => {
     const trimmed = raw.trim();
     let formattedPath = trimmed;
     let fallbackTitle = userTitle?.trim() || '';
     let category: 'post' | 'category' | 'page' = 'page';
+    let rawUrl: string | undefined = undefined;
 
     // 1. Raw Job/Post ID (e.g. job_1787164089747 or job_1785681865131)
     if (/^job_\d{3,25}$/i.test(trimmed) || /^job_[a-zA-Z0-9_\-]+$/i.test(trimmed)) {
@@ -116,6 +117,7 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
     }
     // 2. Full URL (e.g. https://jobs.eezor.com/?job=job_1787164089747)
     else if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      rawUrl = trimmed;
       try {
         const parsed = new URL(trimmed);
         formattedPath = `${parsed.pathname || '/'}${parsed.search || ''}`;
@@ -181,15 +183,15 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
     }
 
     const finalTitle = userTitle?.trim() || fallbackTitle || formattedPath.replace(/^\//, '').replace(/[-_?=&]/g, ' ') || 'Listing Page';
-    return { path: formattedPath, title: finalTitle, category };
+    return { path: formattedPath, title: finalTitle, category, url: rawUrl };
   };
 
   const handleAddPage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customPath.trim()) return;
-    const { path, title } = parseListingInput(customPath, customTitle);
-    onAddCustomPage(path, title);
-    setFeedbackMessage(`Added Listing: "${title}" (${path})`);
+    const { path, title, url } = parseListingInput(customPath, customTitle);
+    onAddCustomPage(url || path, title);
+    setFeedbackMessage(`Added Listing: "${title}" (${url || path})`);
     setActiveFilter('all');
     setCustomPath('');
     setCustomTitle('');
@@ -280,21 +282,31 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
     // Also process line-by-line IDs/URLs
     if (count === 0) {
       const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
-      const itemsToAdd: Array<{ path: string; title: string; category?: 'post' | 'category' | 'page' }> = [];
+      const itemsToAdd: Array<{ path: string; title: string; category?: 'post' | 'category' | 'page'; url?: string }> = [];
+      let discoveredOrigin: string | undefined = undefined;
+      let discoveredHost: string | undefined = undefined;
+
       lines.forEach(line => {
         const parts = line.split('|');
         const rawUrlOrId = parts[0].trim();
         const rawTitle = parts[1]?.trim();
         if (rawUrlOrId) {
-          const { path, title, category } = parseListingInput(rawUrlOrId, rawTitle);
-          itemsToAdd.push({ path, title, category });
+          const { path, title, category, url } = parseListingInput(rawUrlOrId, rawTitle);
+          if (url && !discoveredOrigin) {
+            try {
+              const u = new URL(url);
+              discoveredOrigin = u.origin;
+              discoveredHost = u.hostname;
+            } catch {}
+          }
+          itemsToAdd.push({ path, title, category, url });
           count++;
         }
       });
       if (onAddMultiplePages && itemsToAdd.length > 0) {
-        onAddMultiplePages(itemsToAdd);
+        onAddMultiplePages(itemsToAdd, discoveredOrigin, discoveredHost);
       } else {
-        itemsToAdd.forEach(item => onAddCustomPage(item.path, item.title));
+        itemsToAdd.forEach(item => onAddCustomPage(item.url || item.path, item.title));
       }
     }
 
@@ -1182,15 +1194,55 @@ ${crawlState.origin || 'https://example.com'}/features | Core Features`}
               </button>
             </div>
 
+            {/* File Upload Dropzone (Supports Drag-and-Drop & File Picker) */}
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files?.[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onload = (evt) => {
+                    const text = evt.target?.result as string;
+                    if (text) setBulkInput(text);
+                  };
+                  reader.readAsText(file);
+                }
+              }}
+              onClick={() => document.getElementById('bulk-file-upload')?.click()}
+              className="border border-dashed border-slate-700 hover:border-indigo-500 rounded-xl p-3 bg-slate-950/60 hover:bg-slate-900/60 text-center cursor-pointer transition-colors"
+            >
+              <input
+                id="bulk-file-upload"
+                type="file"
+                accept=".txt,.csv,.xml"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                      const text = evt.target?.result as string;
+                      if (text) setBulkInput(text);
+                    };
+                    reader.readAsText(file);
+                  }
+                }}
+              />
+              <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
+                <UploadCloud className="w-4 h-4 text-indigo-400" />
+                <span>Drop a <strong className="text-slate-200 font-medium">.txt, .csv, or .xml</strong> URL list here, or click to browse</span>
+              </div>
+            </div>
+
             <textarea
               rows={6}
               value={bulkInput}
               onChange={(e) => setBulkInput(e.target.value)}
-              placeholder={`/about | About Us
-/blog/getting-started | Getting Started Guide
-/services | Services Catalog
-/pricing | Pricing Plans
-/contact | Contact & Support`}
+              placeholder={`https://yourwebsite.com/page-1 | Title 1
+https://yourwebsite.com/page-2 | Title 2
+/about | About Us
+/services | Services Catalog`}
               className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl p-3 text-xs text-slate-100 placeholder:text-slate-600 font-mono focus:outline-none"
             />
 

@@ -64,8 +64,17 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
     setInputUrl(targetUrl);
   }, [targetUrl]);
 
-  const handleCrawlSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!inputUrl.trim()) return;
+    const formatted = inputUrl.trim().startsWith('http://') || inputUrl.trim().startsWith('https://') || inputUrl.trim().startsWith('/')
+      ? inputUrl.trim()
+      : `https://${inputUrl.trim()}`;
+    onUpdateTargetUrl(formatted);
+    // Pressing Enter updates and locks the target URL without launching an unwanted crawl
+  };
+
+  const handleExplicitCrawl = () => {
     if (!inputUrl.trim()) return;
     const formatted = inputUrl.trim().startsWith('http://') || inputUrl.trim().startsWith('https://') || inputUrl.trim().startsWith('/')
       ? inputUrl.trim()
@@ -77,7 +86,16 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
   const handleApplyPreset = (url: string) => {
     setInputUrl(url);
     onUpdateTargetUrl(url);
-    onStartCrawl(url);
+  };
+
+  const handleLaunchTraffic = () => {
+    if (inputUrl.trim()) {
+      const formatted = inputUrl.trim().startsWith('http://') || inputUrl.trim().startsWith('https://') || inputUrl.trim().startsWith('/')
+        ? inputUrl.trim()
+        : `https://${inputUrl.trim()}`;
+      onUpdateTargetUrl(formatted);
+    }
+    onStartTraffic();
   };
 
   const handleTestPing = async () => {
@@ -166,11 +184,19 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
 
         {/* Right Input and Action Buttons */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1 max-w-3xl">
-          <form onSubmit={handleCrawlSubmit} className="relative flex-1">
+          <form onSubmit={handleFormSubmit} className="relative flex-1">
             <input
               type="text"
               value={inputUrl}
               onChange={(e) => setInputUrl(e.target.value)}
+              onBlur={() => {
+                if (inputUrl.trim()) {
+                  const formatted = inputUrl.trim().startsWith('http://') || inputUrl.trim().startsWith('https://') || inputUrl.trim().startsWith('/')
+                    ? inputUrl.trim()
+                    : `https://${inputUrl.trim()}`;
+                  onUpdateTargetUrl(formatted);
+                }
+              }}
               placeholder="https://yourwebsite.com or news.ycombinator.com"
               className="w-full bg-slate-950 border-2 border-slate-700/90 focus:border-cyan-400 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 transition-all font-mono shadow-inner"
             />
@@ -188,7 +214,7 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
           {/* Crawl Button */}
           <button
             type="button"
-            onClick={handleCrawlSubmit}
+            onClick={handleExplicitCrawl}
             disabled={crawlState.isCrawling || !inputUrl.trim()}
             className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 active:scale-95 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all shrink-0"
             title="Scan website and discover internal pages"
@@ -213,7 +239,7 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
           {!isRunning ? (
             <button
               type="button"
-              onClick={onStartTraffic}
+              onClick={handleLaunchTraffic}
               disabled={!inputUrl.trim()}
               className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-950/40 transition-all shrink-0"
             >
