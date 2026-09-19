@@ -212,9 +212,9 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
       >
         {/* Top bar with Google Identity Services & Close button */}
         <div className="flex items-center justify-between px-6 pt-5 pb-2">
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
             <Shield className="w-3.5 h-3.5 text-blue-600" />
-            <span>Google Identity Services</span>
+            <span className="font-semibold text-slate-700">TrafficPulse • Google Identity</span>
           </div>
           <button
             type="button"
@@ -246,7 +246,7 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
             </div>
             <div className="text-center">
               <p className="text-sm font-semibold text-slate-800">Verifying Google Credentials...</p>
-              <p className="text-xs text-slate-500 mt-1">Authenticating session & validating trial quota</p>
+              <p className="text-xs text-slate-500 mt-1">Authenticating session for TrafficPulse (eezor.com)</p>
             </div>
           </div>
         )}
@@ -264,10 +264,8 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
           <h2 className="text-xl font-bold text-slate-900 tracking-tight">
             {isRegistrationMode ? 'Create Account with Google' : 'Sign in with Google'}
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {isRegistrationMode
-              ? 'New Google accounts automatically receive 500 Free Trial Visits'
-              : 'Authenticate securely using your Google account'}
+          <p className="text-xs text-slate-600 mt-1">
+            to continue to <strong className="text-blue-700 font-semibold">TrafficPulse</strong> (<span className="font-mono text-slate-700">eezor.com</span>)
           </p>
         </div>
 
@@ -291,39 +289,15 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
           </div>
         </div>
 
-        {/* Mode Selector Tabs */}
-        <div className="mx-6 mb-4 flex rounded-lg bg-slate-100 p-1 text-xs font-semibold">
-          <button
-            type="button"
-            onClick={() => {
-              setTab('direct');
-              setError(null);
-            }}
-            className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-              tab === 'direct'
-                ? 'bg-white text-blue-700 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <span>Instant Google Sign-In</span>
-            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-700 uppercase">
-              Recommended
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setTab('popup');
-              setError(null);
-            }}
-            className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer ${
-              tab === 'popup'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            Google Popup Window
-          </button>
+        {/* Free trial guarantee badge */}
+        <div className="mx-6 mb-4 p-2.5 rounded-xl bg-blue-50/80 border border-blue-200/80 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-blue-900 font-medium">
+            <Shield className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>Authenticated for <strong>TrafficPulse</strong></span>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white uppercase tracking-wider">
+            eezor.com
+          </span>
         </div>
 
         {/* Domain Notice (When unauthorized-domain is detected) */}
@@ -379,44 +353,8 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
           </div>
         )}
 
-        {/* TAB 1: Authentic Google OAuth Popup Button */}
-        {tab === 'popup' && (
-          <div className="px-6 pb-6 space-y-3 animate-fadeIn">
-            <button
-              type="button"
-              onClick={handleFirebaseGoogleSignIn}
-              disabled={loading}
-              className="w-full py-3 px-4 bg-white hover:bg-slate-50 text-slate-800 border-2 border-slate-200 hover:border-slate-300 rounded-xl font-semibold text-sm flex items-center justify-center gap-3 cursor-pointer shadow-xs hover:shadow transition-all active:scale-[0.99] disabled:opacity-50 group"
-            >
-              <svg className="w-5 h-5 shrink-0 transition-transform group-hover:scale-110" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-              </svg>
-              <span>Continue with Google Account</span>
-              <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-slate-600 ml-auto" />
-            </button>
-
-            <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-              <span>Domain not yet authorized in Firebase?</span>
-              <button
-                type="button"
-                onClick={() => setTab('direct')}
-                className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer hover:underline"
-              >
-                Use Direct Google Verification →
-              </button>
-            </div>
-
-            <p className="text-[11px] text-center text-slate-400 leading-normal pt-1">
-              By signing in with Google, your identity is verified directly through Google Identity Services.
-            </p>
-          </div>
-        )}
-
-        {/* TAB 2: Direct Google Account Verification Form */}
-        {tab === 'direct' && (
+        {/* Direct Google Account Verification Form (Primary) */}
+        {tab === 'direct' ? (
           <form onSubmit={handleDirectGoogleAuth} className="px-6 pb-6 space-y-3 animate-fadeIn">
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 mb-1">
@@ -508,6 +446,34 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({
               <ArrowRight className="w-3.5 h-3.5 ml-auto" />
             </button>
           </form>
+        ) : (
+          <div className="px-6 pb-6 space-y-3 animate-fadeIn">
+            <button
+              type="button"
+              onClick={handleFirebaseGoogleSignIn}
+              disabled={loading}
+              className="w-full py-3 px-4 bg-white hover:bg-slate-50 text-slate-800 border-2 border-slate-200 hover:border-slate-300 rounded-xl font-semibold text-sm flex items-center justify-center gap-3 cursor-pointer shadow-xs hover:shadow transition-all active:scale-[0.99] disabled:opacity-50 group"
+            >
+              <svg className="w-5 h-5 shrink-0 transition-transform group-hover:scale-110" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+              </svg>
+              <span>Continue with Google Account</span>
+              <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-slate-600 ml-auto" />
+            </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => setTab('direct')}
+                className="text-xs text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+              >
+                ← Back to Instant Google Sign-In (eezor.com)
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Clean, Secure Footer */}

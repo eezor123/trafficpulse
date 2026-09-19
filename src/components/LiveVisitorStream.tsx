@@ -181,6 +181,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const [browserHeight, setBrowserHeight] = useState<'standard' | 'expanded'>('expanded');
   const [logFilter, setLogFilter] = useState<'all' | 'scroll' | 'click' | 'ad' | 'popup' | 'nav'>('all');
   const [autoScrollLogs, setAutoScrollLogs] = useState(true);
+  const [isWebviewLoading, setIsWebviewLoading] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const liveIframeRef = useRef<HTMLIFrameElement>(null);
@@ -212,15 +213,17 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const currentPath = selectedVisitor?.visitedPages[selectedVisitor.currentPageIndex]?.path || '/';
   const fullLiveUrl = computeFullUrl(currentPath);
 
-  // Proxy webview URL for full live rendering (stabilized so iframe does not reload continuously on scroll updates)
+  // Proxy webview URL for full live rendering: STABILIZED strictly on target URL and allowAds
+  // NEVER reload the iframe when switching between concurrent visitors or auto-follow updates!
   const liveWebviewSrc = useMemo(() => {
-    return `/api/browser/live-page?url=${encodeURIComponent(fullLiveUrl)}&visitorNumber=${selectedVisitor?.visitorNumber || 1}&country=${selectedVisitor?.country?.code || 'US'}&allowAds=${allowAdsInBrowser ? 'true' : 'false'}`;
-  }, [fullLiveUrl, selectedVisitor?.visitorNumber, selectedVisitor?.country?.code, allowAdsInBrowser]);
+    setIsWebviewLoading(true);
+    return `/api/browser/live-page?url=${encodeURIComponent(fullLiveUrl)}&allowAds=${allowAdsInBrowser ? 'true' : 'false'}`;
+  }, [fullLiveUrl, allowAdsInBrowser]);
 
-  // Synchronize active visitor status, scroll percentage, and cursor coordinates to the live iframe (rate-limited to 200ms)
+  // Synchronize active visitor status, scroll percentage, and cursor coordinates to the live iframe (rate-limited to 280ms to prevent main-thread layout thrashing)
   useEffect(() => {
     const now = Date.now();
-    if (now - lastPostMessageTimeRef.current < 180) {
+    if (now - lastPostMessageTimeRef.current < 280) {
       return;
     }
     lastPostMessageTimeRef.current = now;
@@ -229,9 +232,9 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
       try {
         liveIframeRef.current.contentWindow.postMessage({
           type: 'TP_UPDATE_VISITOR',
-          scrollPct: selectedVisitor.currentScrollDepthPct,
-          cursorX: selectedVisitor.cursorX,
-          cursorY: selectedVisitor.cursorY,
+          scrollPct: Math.round(selectedVisitor.currentScrollDepthPct),
+          cursorX: Math.round(selectedVisitor.cursorX),
+          cursorY: Math.round(selectedVisitor.cursorY),
           status: selectedVisitor.status,
           visitorNumber: selectedVisitor.visitorNumber,
           country: selectedVisitor.country?.code || 'US',
@@ -1059,6 +1062,13 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                     {/* Viewport Content by Selected Mode */}
                     {viewportMode === 'live_webview' ? (
                       <div className="w-full h-full relative bg-slate-950">
+                        {/* Top Loading Progress Bar */}
+                        {isWebviewLoading && (
+                          <div className="absolute top-0 left-0 right-0 h-1 bg-slate-800 overflow-hidden z-20">
+                            <div className="h-full bg-gradient-to-r from-cyan-500 to-indigo-500 animate-pulse w-3/4" />
+                          </div>
+                        )}
+
                         <iframe
                           ref={liveIframeRef}
                           key={`${fullLiveUrl}_ads_${allowAdsInBrowser}`}
@@ -1066,14 +1076,15 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                           title="Live Target URL Proxied Webview"
                           className="w-full h-full border-none bg-slate-950"
                           sandbox={allowAdsInBrowser 
-                            ? "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-modals allow-presentation allow-pointer-lock allow-downloads"
-                            : "allow-scripts allow-same-origin allow-forms"
+                            ? "allow-scripts allow-forms allow-popups"
+                            : "allow-scripts allow-forms"
                           }
                           allow="autoplay; encrypted-media; fullscreen; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"
+                          onLoad={() => setIsWebviewLoading(false)}
                         />
                         <div className="absolute bottom-2 left-2 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl pointer-events-none">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                          <span>Live Proxied Webview Active • Real Target DOM Loaded</span>
+                          <span className={`w-2 h-2 rounded-full ${isWebviewLoading ? 'bg-amber-400 animate-ping' : 'bg-emerald-400 animate-pulse'}`} />
+                          <span>{isWebviewLoading ? 'Loading Real Target DOM...' : 'Live Proxied Webview Active • Real Target DOM Loaded'}</span>
                           {allowAdsInBrowser && (
                             <span className="text-amber-300 font-mono text-[10px] bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/40 flex items-center gap-1">
                               <Megaphone className="w-2.5 h-2.5 text-amber-400" />
@@ -1093,8 +1104,8 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                             ? {}
                             : {
                                 sandbox: allowAdsInBrowser
-                                  ? "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-modals allow-presentation allow-pointer-lock allow-downloads"
-                                  : "allow-scripts allow-same-origin allow-forms",
+                                  ? "allow-scripts allow-forms allow-popups"
+                                  : "allow-scripts allow-forms",
                               }
                           )}
                           allow="autoplay; encrypted-media; fullscreen; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"

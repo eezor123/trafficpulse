@@ -1502,14 +1502,14 @@ async function startServer() {
   });
 
   // ----------------------------------------------------
+  // ----------------------------------------------------
   // 4. LIVE INTERACTIVE VIRTUAL BROWSER PROXY WEBVIEW
   // ----------------------------------------------------
+  const livePageCache = new Map<string, { html: string; timestamp: number }>();
+
   app.get('/api/browser/live-page', async (req: Request, res: Response) => {
     try {
       const rawUrl = (req.query.url as string) || '';
-      const visitorNumber = req.query.visitorNumber || '1';
-      const country = (req.query.country as string) || 'US';
-      const scrollPct = parseFloat((req.query.scroll as string) || '0');
       const allowAds = req.query.allowAds !== 'false'; // Defaults to true (allow ads to show)
 
       if (!rawUrl) {
@@ -1525,6 +1525,18 @@ async function startServer() {
 
       const targetUrl = parsed.toString();
       const origin = parsed.origin;
+
+      // In-memory 90s cache: prevents rapid multiple iframe reloads from hammering target server & hanging Express
+      const cacheKey = `${targetUrl}_ads_${allowAds}`;
+      const cached = livePageCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < 90000)) {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('X-Frame-Options', 'ALLOWALL');
+        res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob: https:; frame-src * data: blob: https:; img-src * data: blob: https:; connect-src * https:;");
+        res.setHeader('Permissions-Policy', 'autoplay=*, camera=*, microphone=*, fullscreen=*, geolocation=*, run-ad-auction=*, join-ad-interest-group=*, browsing-topics=*, attribution-reporting=*');
+        return res.send(cached.html);
+      }
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 9000);
@@ -1547,12 +1559,16 @@ async function startServer() {
 
         let html = await response.text();
 
-        // 1. Inject frame-busting neutralizer & <base href="..."> into <head> so all assets resolve
+        // 1. Inject anti-freeze defensive shims & <base href="..."> into <head>
         const headInjection = `
 <script>
   try {
-    window.top = window;
-    window.parent = window;
+    // Neutralize modal freezes & unhandled exceptions from 3rd party scripts
+    window.alert = function() {};
+    window.confirm = function() { return false; };
+    window.prompt = function() { return null; };
+    window.onerror = function() { return true; };
+    window.onunhandledrejection = function() { return true; };
   } catch(e) {}
 </script>
 <base href="${origin}/">
@@ -1567,7 +1583,16 @@ async function startServer() {
         html = html.replace(/<meta\b[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/gi, '');
         html = html.replace(/<meta\b[^>]*http-equiv=["']X-Frame-Options["'][^>]*>/gi, '');
 
-        // When allowAds is disabled explicitly, strip intrusive 3rd-party ad trackers.
+        // 3. ALWAYS strip intrusive auto-redirect & popunder scripts that crash or lock iframe rendering
+        html = html.replace(/<script\b[^>]*\bsrc=["'][^"']*(?:effectivecpmnetwork|popcash|adcash|propellerads|exoclick|monetag|clickadu|yllix|hilltopads|popunder)[^"']*["'][^>]*>[\s\S]*?<\/script>/gi, '');
+
+        // Neutralize top-level window location hijacking & debugger traps in inline scripts
+        html = html.replace(/\b(window\.)?(top|parent)\.location\s*=/g, '/*safe*/window.location=');
+        html = html.replace(/\b(window\.)?(top|parent)\.location\.href\s*=/g, '/*safe*/window.location.href=');
+        html = html.replace(/\b(window\.)?(top|parent)\.location\.replace\s*\(/g, '/*safe*/window.location.replace(');
+        html = html.replace(/\bdebugger\s*;/g, '/*safe*/;');
+
+        // When allowAds is disabled explicitly, strip all 3rd-party ad trackers.
         // When allowAds is TRUE (default), preserve all Google AdSense, DoubleClick, and publisher ad tags!
         if (!allowAds) {
           html = html.replace(/<script\b[^>]*\bsrc=["'][^"']*(?:googlesyndication|doubleclick|clarity\.ms|criteo|taboola|outbrain|pubmatic|rubiconproject|adnxs|amazon-adsystem|adsafeprotected|moatads)[^"']*["'][^>]*>[\s\S]*?<\/script>/gi, '');
@@ -1577,7 +1602,6 @@ async function startServer() {
 <script id="tp-ads-compat-shim">
   window.adsbygoogle = window.adsbygoogle || [];
   try {
-    // Ensure google_ad_client and container rendering initialize smoothly in framed virtual browser
     window['google_ad_output'] = 'html';
   } catch(e) {}
 </script>
@@ -1728,10 +1752,10 @@ async function startServer() {
   <svg id="tp-live-cursor-pointer" width="26" height="26" viewBox="0 0 24 24" fill="#06b6d4" stroke="#083344" stroke-width="1.5">
     <path d="M3 3l7 18 3-7 7-3L3 3z"/>
   </svg>
-  <div id="tp-live-badge">Visitor #${visitorNumber} (${country})</div>
+  <div id="tp-live-badge">Live Visitor Active</div>
 </div>
 <div id="tp-live-scroll-radar">
-  <div id="tp-live-scroll-indicator" style="top: ${Math.min(82, scrollPct * 0.82)}%;"></div>
+  <div id="tp-live-scroll-indicator" style="top: 0%;"></div>
 </div>
 <div id="tp-live-telemetry-hud">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:bold;color:#38bdf8;">
@@ -1739,7 +1763,7 @@ async function startServer() {
     <span id="tp-hud-coords" style="color:#94a3b8;">X: 50% • Y: 30%</span>
   </div>
   <div style="font-size:10px;color:#cbd5e1;display:flex;align-items:center;gap:8px;">
-    <span>📜 SCROLL: <strong id="tp-hud-scroll" style="color:#34d399;">${Math.round(scrollPct)}%</strong></span>
+    <span>📜 SCROLL: <strong id="tp-hud-scroll" style="color:#34d399;">0%</strong></span>
     <span>•</span>
     <span id="tp-hud-action" style="color:#e2e8f0;">Reading document body</span>
   </div>
@@ -1763,18 +1787,26 @@ async function startServer() {
 
   // Handle smooth scroll and cursor position updates from parent window
   var lastAppliedScrollPct = -1;
+  var isScrolling = false;
+
   window.addEventListener('message', function(event) {
     try {
       if (!event.data || event.data.type !== 'TP_UPDATE_VISITOR') return;
       
       var pct = typeof event.data.scrollPct === 'number' ? event.data.scrollPct : 0;
-      if (Math.abs(pct - lastAppliedScrollPct) >= 0.5) {
+      if (Math.abs(pct - lastAppliedScrollPct) >= 2.0 && !isScrolling) {
         lastAppliedScrollPct = pct;
-        var maxScroll = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) - window.innerHeight;
-        if (maxScroll > 0) {
-          var targetY = (pct / 100) * maxScroll;
-          window.scrollTo(0, targetY);
-        }
+        isScrolling = true;
+        requestAnimationFrame(function() {
+          try {
+            var maxScroll = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) - window.innerHeight;
+            if (maxScroll > 0) {
+              var targetY = (pct / 100) * maxScroll;
+              window.scrollTo({ top: targetY, behavior: 'smooth' });
+            }
+          } catch(e) {}
+          isScrolling = false;
+        });
       }
 
       if (hudScroll) hudScroll.textContent = Math.round(pct) + '%';
@@ -1797,33 +1829,35 @@ async function startServer() {
         }
 
         if (badge) {
+          var vNum = event.data.visitorNumber ? (' #' + event.data.visitorNumber) : '';
+          var cCode = event.data.country ? (' (' + event.data.country + ')') : '';
           if (st === 'clicking_ad') {
-            badge.textContent = '🎯 Clicking Sponsored Ad';
+            badge.textContent = '🎯 Clicking Sponsored Ad' + vNum;
             badge.style.color = '#f59e0b';
             badge.style.borderColor = '#f59e0b';
             if (hudAction) hudAction.textContent = 'Dispatched Ad Click on Sponsor Banner';
           } else if (st === 'clicking_link') {
-            badge.textContent = '👆 Navigating Deep Link';
+            badge.textContent = '👆 Navigating Deep Link' + vNum;
             badge.style.color = '#38bdf8';
             badge.style.borderColor = '#38bdf8';
             if (hudAction) hudAction.textContent = 'Clicked in-article link to child page';
           } else if (st === 'handling_popup') {
-            badge.textContent = '✨ Interacting with Newsletter';
+            badge.textContent = '✨ Interacting with Modal' + vNum;
             badge.style.color = '#c084fc';
             badge.style.borderColor = '#c084fc';
             if (hudAction) hudAction.textContent = 'Newsletter modal promo CTA dismissed';
           } else if (st === 'clicking_element') {
-            badge.textContent = '🖱️ Mouse Click on Element';
+            badge.textContent = '🖱️ Mouse Click' + vNum;
             badge.style.color = '#34d399';
             badge.style.borderColor = '#34d399';
             if (hudAction) hudAction.textContent = 'Dispatched click on interactive card/button';
           } else if (pct >= 95) {
-            badge.textContent = '📜 Reached 100% Footer';
+            badge.textContent = '📜 Reached Footer' + vNum;
             badge.style.color = '#2dd4bf';
             badge.style.borderColor = '#2dd4bf';
             if (hudAction) hudAction.textContent = 'Dwell pause at footer / comments';
           } else {
-            badge.textContent = '👁️ Reading (' + Math.round(pct) + '%)';
+            badge.textContent = '👁️ Reading ' + Math.round(pct) + '%' + vNum + cCode;
             badge.style.color = '#38bdf8';
             badge.style.borderColor = 'rgba(56, 189, 248, 0.5)';
             if (hudAction) hudAction.textContent = 'Reading page text content';
@@ -1864,6 +1898,13 @@ async function startServer() {
         } else {
           html += companionScript;
         }
+
+        // Cache the processed HTML
+        if (livePageCache.size > 50) {
+          const oldestKey = livePageCache.keys().next().value;
+          if (oldestKey) livePageCache.delete(oldestKey);
+        }
+        livePageCache.set(cacheKey, { html, timestamp: Date.now() });
 
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.setHeader('Access-Control-Allow-Origin', '*');
