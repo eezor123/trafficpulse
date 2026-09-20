@@ -86,18 +86,47 @@ const STORAGE_KEYS = {
 // Safe LocalStorage loader
 function loadInitialOrganicConfig(): OrganicVisitorConfig {
   try {
-    const saved = localStorage.getItem(STORAGE_KEYS.ORGANIC_CONFIG);
+    let saved = localStorage.getItem(STORAGE_KEYS.ORGANIC_CONFIG);
+    if (!saved) {
+      saved = sessionStorage.getItem(STORAGE_KEYS.ORGANIC_CONFIG);
+    }
     if (saved) {
       const parsed = JSON.parse(saved);
       const loadedGaId = (parsed.ga4?.measurementId || '').trim();
       return {
         ...DEFAULT_ORGANIC_CONFIG,
         ...parsed,
-        organic: { ...DEFAULT_ORGANIC_CONFIG.organic, ...(parsed.organic || {}) },
-        behavior: { ...DEFAULT_ORGANIC_CONFIG.behavior, ...(parsed.behavior || {}) },
+        organic: { 
+          ...DEFAULT_ORGANIC_CONFIG.organic, 
+          ...(parsed.organic || {}),
+          sourceShares: {
+            ...DEFAULT_ORGANIC_CONFIG.organic.sourceShares,
+            ...(parsed.organic?.sourceShares || {}),
+          },
+          searchEngines: {
+            ...DEFAULT_ORGANIC_CONFIG.organic.searchEngines,
+            ...(parsed.organic?.searchEngines || {}),
+          },
+          socialNetworks: {
+            ...DEFAULT_ORGANIC_CONFIG.organic.socialNetworks,
+            ...(parsed.organic?.socialNetworks || {}),
+          },
+          utmConfig: {
+            ...DEFAULT_ORGANIC_CONFIG.organic.utmConfig,
+            ...(parsed.organic?.utmConfig || {}),
+          },
+        },
+        behavior: { 
+          ...DEFAULT_ORGANIC_CONFIG.behavior, 
+          ...(parsed.behavior || {}) 
+        },
         fingerprint: {
           ...DEFAULT_ORGANIC_CONFIG.fingerprint,
           ...(parsed.fingerprint || {}),
+          devices: {
+            ...DEFAULT_ORGANIC_CONFIG.fingerprint.devices,
+            ...(parsed.fingerprint?.devices || {}),
+          },
           countries: Array.isArray(parsed.fingerprint?.countries) && parsed.fingerprint.countries.length > 0
             ? parsed.fingerprint.countries
             : DEFAULT_ORGANIC_CONFIG.fingerprint.countries,
@@ -212,6 +241,10 @@ export default function App() {
 
   // ==================== ORGANIC VISITOR STATE ====================
   const [organicConfig, setOrganicConfig] = useState<OrganicVisitorConfig>(loadInitialOrganicConfig);
+  const organicConfigRef = useRef<OrganicVisitorConfig>(organicConfig);
+  useEffect(() => {
+    organicConfigRef.current = organicConfig;
+  }, [organicConfig]);
   const [organicTab, setOrganicTab] = useState<'stream' | 'clock' | 'crawler' | 'sources' | 'geo' | 'behavior'>('stream');
   const [organicStatus, setOrganicStatus] = useState<TestStatus>('idle');
   const [activeVisitors, setActiveVisitors] = useState<ActiveVisitorSession[]>([]);
@@ -691,10 +724,25 @@ export default function App() {
     };
   }, [organicStatus, stressStatus]);
 
+  // Synchronous safe persistence helper
+  const persistOrganicConfig = (cfg: OrganicVisitorConfig) => {
+    organicConfigRef.current = cfg;
+    try {
+      localStorage.setItem(STORAGE_KEYS.ORGANIC_CONFIG, JSON.stringify(cfg));
+      sessionStorage.setItem(STORAGE_KEYS.ORGANIC_CONFIG, JSON.stringify(cfg));
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastSavedTimestamp(`Saved at ${now}`);
+    } catch (e) {
+      console.warn('Persistence error:', e);
+    }
+  };
+
   // Save organicConfig automatically whenever any setting changes
   useEffect(() => {
     try {
+      organicConfigRef.current = organicConfig;
       localStorage.setItem(STORAGE_KEYS.ORGANIC_CONFIG, JSON.stringify(organicConfig));
+      sessionStorage.setItem(STORAGE_KEYS.ORGANIC_CONFIG, JSON.stringify(organicConfig));
       const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setLastSavedTimestamp(`Saved at ${now}`);
     } catch (e) {
@@ -705,13 +753,15 @@ export default function App() {
   // Save crawl state automatically
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.CRAWL_STATE, JSON.stringify({
+      const crawlJson = JSON.stringify({
         targetUrl: crawlState.targetUrl,
         hostname: crawlState.hostname,
         title: crawlState.title,
         pages: crawlState.pages,
         gaMeasurementId: crawlState.gaMeasurementId,
-      }));
+      });
+      localStorage.setItem(STORAGE_KEYS.CRAWL_STATE, crawlJson);
+      sessionStorage.setItem(STORAGE_KEYS.CRAWL_STATE, crawlJson);
     } catch (e) {
       console.warn('Auto-save crawl state error:', e);
     }
@@ -742,16 +792,24 @@ export default function App() {
   }, [appMode]);
 
   // Explicit Save Handler
-  const handleExplicitSave = (tabName?: string) => {
+  const handleExplicitSave = (tabName?: string, explicitConfig?: OrganicVisitorConfig) => {
     try {
-      localStorage.setItem(STORAGE_KEYS.ORGANIC_CONFIG, JSON.stringify(organicConfig));
-      localStorage.setItem(STORAGE_KEYS.CRAWL_STATE, JSON.stringify({
+      const toSave = explicitConfig || organicConfigRef.current || organicConfig;
+      organicConfigRef.current = toSave;
+      setOrganicConfig(toSave);
+      localStorage.setItem(STORAGE_KEYS.ORGANIC_CONFIG, JSON.stringify(toSave));
+      sessionStorage.setItem(STORAGE_KEYS.ORGANIC_CONFIG, JSON.stringify(toSave));
+      
+      const crawlJson = JSON.stringify({
         targetUrl: crawlState.targetUrl,
         hostname: crawlState.hostname,
         title: crawlState.title,
         pages: crawlState.pages,
         gaMeasurementId: crawlState.gaMeasurementId,
-      }));
+      });
+      localStorage.setItem(STORAGE_KEYS.CRAWL_STATE, crawlJson);
+      sessionStorage.setItem(STORAGE_KEYS.CRAWL_STATE, crawlJson);
+
       const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setLastSavedTimestamp(`Saved at ${now}`);
       setSaveBannerMessage(tabName ? `All ${tabName} configurations successfully saved to browser storage!` : 'All campaign settings successfully saved!');
@@ -1902,8 +1960,8 @@ export default function App() {
               </div>
             )}
 
-            {/* Tab Views */}
-            {organicTab === 'stream' && (
+            {/* Tab Views - Kept mounted to preserve active subtabs, scroll positions, filters, and avoid reverting configuration on tab change */}
+            <div className={organicTab === 'stream' ? 'block' : 'hidden'}>
               <LiveVisitorStream
                 status={organicStatus}
                 activeVisitors={activeVisitors}
@@ -1916,9 +1974,9 @@ export default function App() {
                 detectedGaIdFromTarget={crawlState.gaMeasurementId}
                 onClearEvents={() => setTelemetryEvents([])}
               />
-            )}
+            </div>
 
-            {organicTab === 'clock' && (
+            <div className={organicTab === 'clock' ? 'block' : 'hidden'}>
               <CrawledUrlsRadarClock
                 crawlState={crawlState}
                 status={organicStatus}
@@ -1928,14 +1986,18 @@ export default function App() {
                 onStartCrawl={(url) => handleStartCrawl(url)}
                 onClearAllPages={handleClearAllPages}
               />
-            )}
+            </div>
 
-            {organicTab === 'crawler' && (
+            <div className={organicTab === 'crawler' ? 'block' : 'hidden'}>
               <CrawlerPanel
                 crawlState={crawlState}
                 onUpdateTargetUrl={(url) => {
                   setCrawlState(prev => ({ ...prev, targetUrl: url }));
-                  setOrganicConfig(prev => ({ ...prev, targetUrl: url }));
+                  setOrganicConfig(prev => {
+                    const next = { ...prev, targetUrl: url };
+                    persistOrganicConfig(next);
+                    return next;
+                  });
                 }}
                 onStartCrawl={(url) => handleStartCrawl(url)}
                 onTogglePageInclusion={handleTogglePageInclusion}
@@ -1947,42 +2009,80 @@ export default function App() {
                 onClearAllPages={handleClearAllPages}
                 onResetCrawler={handleResetCrawler}
               />
-            )}
+            </div>
 
-            {organicTab === 'sources' && (
+            <div className={organicTab === 'sources' ? 'block' : 'hidden'}>
               <TrafficSourcesMatrix
                 organicConfig={organicConfig.organic}
-                onChange={(newOrganic) => setOrganicConfig(prev => ({ ...prev, organic: newOrganic }))}
+                onChange={(newOrganic) => {
+                  setOrganicConfig(prev => {
+                    const next = { ...prev, organic: newOrganic };
+                    persistOrganicConfig(next);
+                    return next;
+                  });
+                }}
                 onOpenAiKeywords={handleAiKeywordsQuick}
                 isAiGeneratingKeywords={isAiGeneratingKeywords}
-                onSaveSettings={() => handleExplicitSave('Traffic Sources & Keywords')}
+                onSaveSettings={(latestOrganic) => {
+                  const current = organicConfigRef.current || organicConfig;
+                  const toSave = latestOrganic ? { ...current, organic: latestOrganic } : current;
+                  handleExplicitSave('Traffic Sources & Keywords', toSave);
+                }}
                 onResetDefaults={handleResetToDefaults}
               />
-            )}
+            </div>
 
-            {organicTab === 'geo' && (
+            <div className={organicTab === 'geo' ? 'block' : 'hidden'}>
               <GeoAntiFingerprintPanel
                 fingerprintConfig={organicConfig.fingerprint}
-                onChange={(newFp) => setOrganicConfig(prev => ({ ...prev, fingerprint: newFp }))}
-                onSaveSettings={() => handleExplicitSave('Multi-Country & Proxy')}
+                onChange={(newFp) => {
+                  setOrganicConfig(prev => {
+                    const next = { ...prev, fingerprint: newFp };
+                    persistOrganicConfig(next);
+                    return next;
+                  });
+                }}
+                onSaveSettings={(latestFp) => {
+                  const current = organicConfigRef.current || organicConfig;
+                  const toSave = latestFp ? { ...current, fingerprint: latestFp } : current;
+                  handleExplicitSave('Multi-Country & Proxy', toSave);
+                }}
                 onResetDefaults={handleResetToDefaults}
               />
-            )}
+            </div>
 
-            {organicTab === 'behavior' && (
+            <div className={organicTab === 'behavior' ? 'block' : 'hidden'}>
               <BehaviorConfigPanel
                 behavior={organicConfig.behavior}
                 ga4={organicConfig.ga4}
-                onChangeBehavior={(newBehavior) => setOrganicConfig(prev => ({ ...prev, behavior: newBehavior }))}
-                onChangeGa4={(newGa4) => setOrganicConfig(prev => ({ ...prev, ga4: newGa4 }))}
-                onSaveSettings={() => handleExplicitSave('Dwell Time & Human Behavior')}
+                onChangeBehavior={(newBehavior) => {
+                  setOrganicConfig(prev => {
+                    const next = { ...prev, behavior: newBehavior };
+                    persistOrganicConfig(next);
+                    return next;
+                  });
+                }}
+                onChangeGa4={(newGa4) => {
+                  setOrganicConfig(prev => {
+                    const next = { ...prev, ga4: newGa4 };
+                    persistOrganicConfig(next);
+                    return next;
+                  });
+                }}
+                onSaveSettings={(latestBehavior, latestGa4) => {
+                  const current = organicConfigRef.current || organicConfig;
+                  const toSave = { ...current };
+                  if (latestBehavior) toSave.behavior = latestBehavior;
+                  if (latestGa4) toSave.ga4 = latestGa4;
+                  handleExplicitSave('Dwell Time & Human Behavior', toSave);
+                }}
                 onResetDefaults={handleResetToDefaults}
                 currentUser={authState.user}
                 onOpenAuth={() => openAuthModal('login')}
                 targetUrl={crawlState.targetUrl}
                 detectedGaMeasurementId={crawlState.gaMeasurementId}
               />
-            )}
+            </div>
           </>
         ) : (
           /* Stress Mode View */

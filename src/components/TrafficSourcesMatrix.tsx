@@ -20,7 +20,7 @@ interface TrafficSourcesMatrixProps {
   onChange: (config: OrganicTrafficConfig) => void;
   onOpenAiKeywords: () => void;
   isAiGeneratingKeywords?: boolean;
-  onSaveSettings?: () => void;
+  onSaveSettings?: (latestConfig?: OrganicTrafficConfig) => void;
   onResetDefaults?: () => void;
 }
 
@@ -157,7 +157,7 @@ export const TrafficSourcesMatrix: React.FC<TrafficSourcesMatrixProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (onSaveSettings) onSaveSettings();
+                if (onSaveSettings) onSaveSettings(organicConfig);
                 setSaveSuccessNotice(true);
                 setTimeout(() => setSaveSuccessNotice(false), 3000);
               }}

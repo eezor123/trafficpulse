@@ -30,7 +30,7 @@ interface BehaviorConfigPanelProps {
   ga4: Ga4TrackerConfig;
   onChangeBehavior: (behavior: VisitorBehaviorConfig) => void;
   onChangeGa4: (ga4: Ga4TrackerConfig) => void;
-  onSaveSettings?: () => void;
+  onSaveSettings?: (latestBehavior?: VisitorBehaviorConfig, latestGa4?: Ga4TrackerConfig) => void;
   onResetDefaults?: () => void;
   currentUser?: MemberUser | null;
   onOpenAuth?: () => void;
@@ -298,7 +298,7 @@ export const BehaviorConfigPanel: React.FC<BehaviorConfigPanelProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (onSaveSettings) onSaveSettings();
+                if (onSaveSettings) onSaveSettings(behavior, ga4);
                 setSaveSuccessNotice(true);
                 setTimeout(() => setSaveSuccessNotice(false), 3000);
               }}

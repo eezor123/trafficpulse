@@ -56,6 +56,7 @@ import {
   Edit2,
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
+import { RealtimeBounceRateChart } from './RealtimeBounceRateChart';
 import { ActiveVisitorSession, LiveTelemetryEvent, RealHttpTrafficHit, SimulatorActionLog } from '../types';
 
 interface LiveVisitorStreamProps {
@@ -2223,6 +2224,13 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
               )}
             </div>
           </div>
+
+          {/* D3.js Real-time Bounce Rate Trend Line Chart */}
+          <RealtimeBounceRateChart
+            status={status}
+            activeVisitors={activeVisitors}
+            stats={stats}
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Traffic Acquisition Donut Chart */}

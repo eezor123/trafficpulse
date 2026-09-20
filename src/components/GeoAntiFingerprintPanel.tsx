@@ -299,7 +299,7 @@ export const CONTINENT_THEME: Record<string, {
 interface GeoAntiFingerprintPanelProps {
   fingerprintConfig: AntiFingerprintConfig;
   onChange: (config: AntiFingerprintConfig) => void;
-  onSaveSettings?: () => void;
+  onSaveSettings?: (latestConfig?: AntiFingerprintConfig) => void;
   onResetDefaults?: () => void;
 }
 
@@ -1302,7 +1302,7 @@ export const GeoAntiFingerprintPanel: React.FC<GeoAntiFingerprintPanelProps> = (
             <button
               type="button"
               onClick={() => {
-                if (onSaveSettings) onSaveSettings();
+                if (onSaveSettings) onSaveSettings(fingerprintConfig);
                 setSaveSuccessNotice(true);
                 setTimeout(() => setSaveSuccessNotice(false), 3000);
               }}
