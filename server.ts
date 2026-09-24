@@ -1019,10 +1019,29 @@ async function startServer() {
 
     const isAdmin = isSaroneedamAdminEmail(member.email);
     const isValidAdminPass = isAdmin && (password === ADMIN_PASSCODE || password.trim() === ADMIN_PASSCODE);
-    const isMatchingMemberPass = !member.passwordHash || member.passwordHash === password || member.passwordHash === password.trim();
 
-    if (!isValidAdminPass && !isMatchingMemberPass) {
-      return res.status(401).json({ success: false, error: 'Invalid password credentials.' });
+    // If account was registered via Google OAuth and has no password configured:
+    if (member.authProvider === 'google' && (!member.passwordHash || member.passwordHash.trim().length === 0)) {
+      if (!isValidAdminPass) {
+        return res.status(401).json({
+          success: false,
+          error: 'This account was registered with Google Sign-In. Please click the "Sign In with Google" button to authenticate.',
+        });
+      }
+    }
+
+    if (!isValidAdminPass) {
+      if (!member.passwordHash || member.passwordHash.trim().length === 0) {
+        return res.status(401).json({
+          success: false,
+          error: 'No password is configured for this account. Please sign in with Google or contact support.',
+        });
+      }
+
+      const isMatchingMemberPass = member.passwordHash === password || member.passwordHash === password.trim();
+      if (!isMatchingMemberPass) {
+        return res.status(401).json({ success: false, error: 'Invalid password credentials.' });
+      }
     }
 
     // Check if account is verified
@@ -1099,15 +1118,24 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'Valid Google account email is required.' });
     }
 
+    const cleanUid = typeof uid === 'string' ? uid.trim() : '';
     const isAdmin = isSaroneedamAdminEmail(googleEmail);
-    if (isAdmin && !uid) {
-      if (adminPasscode !== ADMIN_PASSCODE && adminPasscode?.trim() !== ADMIN_PASSCODE) {
-        return res.status(401).json({
-          success: false,
-          requiresAdminPasscode: true,
-          error: 'Administrative security passkey is required to access this account.',
-        });
-      }
+    const isValidAdminPass = isAdmin && (adminPasscode === ADMIN_PASSCODE || adminPasscode?.trim() === ADMIN_PASSCODE);
+
+    // Enforce mandatory Google authentication / UID verification
+    if (!cleanUid && !isValidAdminPass) {
+      return res.status(401).json({
+        success: false,
+        error: 'Google OAuth verification required: A valid Google token (UID) from Google Identity Services is required. Direct unauthenticated email submissions are rejected.',
+      });
+    }
+
+    if (isAdmin && !cleanUid && !isValidAdminPass) {
+      return res.status(401).json({
+        success: false,
+        requiresAdminPasscode: true,
+        error: 'Administrative security passkey is required to access this account.',
+      });
     }
 
     const userAvatar = typeof avatar === 'string' && avatar.trim() ? avatar.trim() : undefined;

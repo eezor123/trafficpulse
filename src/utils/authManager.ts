@@ -728,7 +728,21 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
   try {
     const cloudUser = await getMemberFromCloud(query);
     if (cloudUser && cloudUser.email) {
-      const isMatchingPass = !cloudUser.passwordHash || cloudUser.passwordHash === password || cloudUser.passwordHash === password.trim();
+      if (cloudUser.authProvider === 'google' && (!cloudUser.passwordHash || cloudUser.passwordHash.trim().length === 0)) {
+        return {
+          success: false,
+          error: 'This account was registered with Google Sign-In. Please click the "Sign In with Google" button.',
+        };
+      }
+
+      if (!cloudUser.passwordHash || cloudUser.passwordHash.trim().length === 0) {
+        return {
+          success: false,
+          error: 'No password set for this account. Please sign in with Google or reset your password.',
+        };
+      }
+
+      const isMatchingPass = cloudUser.passwordHash === password || cloudUser.passwordHash === password.trim();
 
       if (isMatchingPass) {
         const { passwordHash: _, ...safeUser } = cloudUser;
@@ -773,7 +787,21 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
     return { success: false, error: 'No member account found with this email or username. Please register first.' };
   }
 
-  if (match.passwordHash && match.passwordHash !== password && match.passwordHash !== password.trim()) {
+  if (match.authProvider === 'google' && (!match.passwordHash || match.passwordHash.trim().length === 0)) {
+    return {
+      success: false,
+      error: 'This account was registered with Google Sign-In. Please click the "Sign In with Google" button.',
+    };
+  }
+
+  if (!match.passwordHash || match.passwordHash.trim().length === 0) {
+    return {
+      success: false,
+      error: 'No password configured for this account. Please sign in with Google.',
+    };
+  }
+
+  if (match.passwordHash !== password && match.passwordHash !== password.trim()) {
     return { success: false, error: 'Incorrect password. Please verify and try again.' };
   }
 
@@ -811,7 +839,8 @@ export async function loginWithGoogle(customProfile?: {
   }
 
   const isSaroneedamAdmin = providedEmail === 'saroneedam@yahoo.com' || providedEmail === 'saroneedam@gmail.com' || providedEmail === 'saroneedam';
-  const isGoogleVerified = Boolean(customProfile?.uid);
+  const cleanUid = (customProfile?.uid || '').trim();
+  const isGoogleVerified = Boolean(cleanUid && cleanUid.length >= 4);
   const providedPasscode = customProfile?.adminPasscode?.trim();
 
   // If administrative account access is requested without verified Google UID, require server passkey validation
@@ -820,6 +849,14 @@ export async function loginWithGoogle(customProfile?: {
       success: false,
       requiresAdminPasscode: true,
       error: 'Security Verification Required: Administrative security passkey is required to sign into this account.',
+    };
+  }
+
+  // Non-admins MUST have a valid Google UID returned by Google Identity Services
+  if (!isGoogleVerified && !(isSaroneedamAdmin && providedPasscode)) {
+    return {
+      success: false,
+      error: 'Google authentication required: Please complete Google OAuth Sign-In with Google Identity Services.',
     };
   }
 

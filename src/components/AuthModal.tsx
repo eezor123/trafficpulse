@@ -787,6 +787,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         isOpen={isGoogleModalOpen}
         isRegistrationMode={mode === 'register'}
         onClose={() => setIsGoogleModalOpen(false)}
+        onSwitchToEmail={() => {
+          setIsGoogleModalOpen(false);
+          setMode('login');
+        }}
         onSuccess={(user, token) => {
           setIsGoogleModalOpen(false);
           onAuthSuccess(user, token);
