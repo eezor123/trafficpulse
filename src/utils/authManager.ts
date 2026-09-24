@@ -580,11 +580,20 @@ export async function fetchFreshUserProfile(userHint?: {
         if (!freshUser) {
           freshUser = safeCloudUser as MemberUser;
         } else {
-          // Authoritative balance evaluation:
-          // If cloud user OR server user has balance <= 0 or status exhausted, exhaustion is permanent!
           let effectiveBal = freshUser.trafficBalance ?? 0;
-          if (safeCloudUser.trafficBalance !== undefined) {
-            effectiveBal = Number(safeCloudUser.trafficBalance);
+          const serverUpdated = Number(freshUser.updatedAt || 0);
+          const cloudUpdated = Number(safeCloudUser.updatedAt || 0);
+          const cloudBal = safeCloudUser.trafficBalance !== undefined ? Number(safeCloudUser.trafficBalance) : undefined;
+
+          if (cloudBal !== undefined) {
+            if (cloudUpdated > serverUpdated) {
+              effectiveBal = cloudBal;
+            } else if (serverUpdated > cloudUpdated) {
+              effectiveBal = freshUser.trafficBalance ?? cloudBal;
+            } else {
+              // Timestamps equal or missing: keep the higher balance so credits are never lost
+              effectiveBal = Math.max(effectiveBal, cloudBal);
+            }
           }
 
           const isPaid = (safeCloudUser.isPaidUser !== undefined ? Boolean(safeCloudUser.isPaidUser) : Boolean(freshUser.isPaidUser));
@@ -596,15 +605,15 @@ export async function fetchFreshUserProfile(userHint?: {
           const isExhausted = effectiveBal <= 0;
 
           freshUser = {
-            ...freshUser,
             ...safeCloudUser,
+            ...freshUser,
             trafficBalance: effectiveBal,
             totalTrafficAssigned: finalAssigned,
             isPaidUser: isPaid,
             trafficStatus: isExhausted
               ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
               : (isPaid ? 'paid_active' : 'trial_active'),
-            tier: safeCloudUser.tier || freshUser.tier,
+            tier: freshUser.tier || safeCloudUser.tier,
           };
         }
       }
@@ -1362,7 +1371,8 @@ export async function adminAssignTraffic(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        userId: targetUid || userId,
+        userId: userId,
+        uid: targetUid || undefined,
         email: cleanTargetEmail || undefined,
         additionalTraffic,
         visitsToAdd: additionalTraffic,

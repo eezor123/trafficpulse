@@ -675,6 +675,7 @@ export interface MemberUser {
   // Per-Member Isolated Google Analytics Tracking
   gaMeasurementId?: string; // Dedicated GA4 Measurement ID (e.g. G-XXXXXXXXXX)
   gaApiSecret?: string;     // Dedicated GA4 Measurement Protocol API Secret
+  updatedAt?: number;
 }
 
 export interface AuthState {

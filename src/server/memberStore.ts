@@ -9,6 +9,7 @@ import {
   deletePendingFromCloud,
   deleteMemberFromCloud,
   writeUserTrafficToFirestore,
+  emailToDocId,
 } from '../lib/firebase.ts';
 
 export interface ServerMember {
@@ -38,6 +39,7 @@ export interface ServerMember {
   authProvider?: 'google' | 'firebase' | 'email';
   gaMeasurementId?: string;
   gaApiSecret?: string;
+  updatedAt?: number;
 }
 
 export interface PendingVerification {
@@ -296,7 +298,8 @@ export async function findMember(query: string, forceCloudCheck = false): Promis
         (m.username && m.username.toLowerCase() === clean) ||
         (m.id && (m.id === query.trim() || m.id.toLowerCase() === clean)) ||
         ((m as any).uid && ((m as any).uid === query.trim() || (m as any).uid.toLowerCase() === clean)) ||
-        (m.email && m.email.toLowerCase() === clean)
+        (m.email && m.email.toLowerCase() === clean) ||
+        (m.email && emailToDocId(m.email).toLowerCase() === clean)
       ) {
         member = m;
         break;
@@ -314,7 +317,8 @@ export async function findMember(query: string, forceCloudCheck = false): Promis
         (m.username && m.username.toLowerCase() === clean) ||
         (m.id && (m.id === query.trim() || m.id.toLowerCase() === clean)) ||
         ((m as any).uid && ((m as any).uid === query.trim() || (m as any).uid.toLowerCase() === clean)) ||
-        (m.email && m.email.toLowerCase() === clean)
+        (m.email && m.email.toLowerCase() === clean) ||
+        (m.email && emailToDocId(m.email).toLowerCase() === clean)
       ) {
         member = m;
         break;
@@ -561,23 +565,30 @@ export async function adminDirectSetTraffic(
   newBalance: number,
   totalAssigned?: number,
   markAsPaid?: boolean,
-  tier?: 'starter' | 'pro' | 'enterprise'
+  tier?: 'starter' | 'pro' | 'enterprise',
+  optionalEmail?: string
 ): Promise<{ success: boolean; user?: ServerMember; error?: string }> {
   const clean = (identifier || '').trim().toLowerCase();
-  if (!clean) return { success: false, error: 'User identifier is required.' };
+  const cleanEmail = (optionalEmail || '').trim().toLowerCase();
+  if (!clean && !cleanEmail) return { success: false, error: 'User identifier or email is required.' };
 
-  let target: ServerMember | null = memoryMembers.get(clean) || null;
-  if (!target) {
+  let target: ServerMember | null = (cleanEmail ? memoryMembers.get(cleanEmail) : null) || (clean ? memoryMembers.get(clean) : null) || null;
+  if (!target && cleanEmail) {
+    target = await findMember(cleanEmail, true);
+  }
+  if (!target && clean) {
     target = await findMember(clean, true);
   }
   if (!target) {
-    // Search by id, uid, or username
+    // Search by id, uid, username, email, or encoded email docId
     for (const m of memoryMembers.values()) {
       if (
-        (m.id && m.id.toLowerCase() === clean) ||
-        ((m as any).uid && (m as any).uid.toLowerCase() === clean) ||
-        (m.username && m.username.toLowerCase() === clean) ||
-        (m.email && m.email.toLowerCase() === clean)
+        (cleanEmail && m.email && m.email.toLowerCase() === cleanEmail) ||
+        (clean && m.id && m.id.toLowerCase() === clean) ||
+        (clean && (m as any).uid && (m as any).uid.toLowerCase() === clean) ||
+        (clean && m.username && m.username.toLowerCase() === clean) ||
+        (clean && m.email && m.email.toLowerCase() === clean) ||
+        (clean && m.email && emailToDocId(m.email).toLowerCase() === clean)
       ) {
         target = m;
         break;
@@ -586,7 +597,7 @@ export async function adminDirectSetTraffic(
   }
 
   if (!target) {
-    return { success: false, error: `Member "${identifier}" not found.` };
+    return { success: false, error: `Member "${identifier || optionalEmail}" not found.` };
   }
 
   const bal = Math.max(0, Math.floor(Number(newBalance)));
@@ -596,6 +607,7 @@ export async function adminDirectSetTraffic(
 
   target.trafficBalance = bal;
   target.totalTrafficAssigned = assigned;
+  target.updatedAt = Date.now();
 
   if (markAsPaid !== undefined) {
     target.isPaidUser = Boolean(markAsPaid);

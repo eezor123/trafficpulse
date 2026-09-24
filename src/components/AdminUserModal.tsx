@@ -257,9 +257,44 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
       if (Array.isArray(cloudMembers)) {
         cloudMembers.forEach((m: any) => {
           if (m && m.email) {
-            const emailLower = m.email.toLowerCase();
+            const emailLower = m.email.toLowerCase().trim();
             const existing = allMerged.get(emailLower);
-            allMerged.set(emailLower, { ...(existing || {}), ...m });
+            if (!existing) {
+              allMerged.set(emailLower, m);
+            } else {
+              const serverBal = Number(existing.trafficBalance ?? 0);
+              const cloudBal = Number(m.trafficBalance ?? 0);
+              const serverUpdated = Number(existing.updatedAt ?? 0);
+              const cloudUpdated = Number(m.updatedAt ?? 0);
+
+              let finalBal = serverBal;
+              if (cloudUpdated > serverUpdated) {
+                finalBal = cloudBal;
+              } else if (serverUpdated > cloudUpdated) {
+                finalBal = serverBal;
+              } else {
+                // Keep the higher balance so assigned credits are never lost
+                finalBal = Math.max(serverBal, cloudBal);
+              }
+
+              const finalAssigned = Math.max(
+                Number(existing.totalTrafficAssigned || 0),
+                Number(m.totalTrafficAssigned || 0),
+                finalBal
+              );
+              const isPaid = Boolean(existing.isPaidUser || m.isPaidUser);
+
+              allMerged.set(emailLower, {
+                ...m,
+                ...existing,
+                trafficBalance: finalBal,
+                totalTrafficAssigned: finalAssigned,
+                isPaidUser: isPaid,
+                trafficStatus: finalBal <= 0
+                  ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
+                  : (isPaid ? 'paid_active' : 'trial_active'),
+              });
+            }
           }
         });
       }
@@ -385,7 +420,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
 
         // Server API and local persistence
         const res = await adminSetUserExactTraffic(
-          targetUid || selectedUserForAssign.id,
+          selectedUserForAssign.id || targetUid,
           exactBal,
           selectedUserForAssign.email,
           targetAssigned,
@@ -448,7 +483,7 @@ export const AdminUserModal: React.FC<AdminUserModalProps> = ({
 
         // Update server API and local persistence
         const res = await adminAssignTraffic(
-          targetUid || selectedUserForAssign.id,
+          selectedUserForAssign.id || targetUid,
           additional,
           assignMarkAsPaid,
           assignTier,

@@ -538,9 +538,11 @@ export default function App() {
       const stored = loadStoredAuth();
       if (stored && stored.isAuthenticated && stored.user) {
         if (e?.detail && (e.detail.id === stored.user.id || e.detail.email?.toLowerCase() === stored.user.email?.toLowerCase())) {
+          const merged = { ...stored.user, ...e.detail };
+          saveAuthSession(merged, stored.token || 'tok_valid');
           setAuthState({
             ...stored,
-            user: { ...stored.user, ...e.detail },
+            user: merged,
           });
         } else {
           setAuthState(stored);
@@ -615,10 +617,17 @@ export default function App() {
           if (prev.user.role === 'admin') return prev;
 
           const currentBal = prev.user.trafficBalance ?? 0;
+          const userUpdated = Number(prev.user.updatedAt || 0);
+          const snapUpdated = Number(data.updatedAt || 0);
           let newBal = currentBal;
 
           if (data.trafficBalance !== undefined) {
-            newBal = Math.max(0, Number(data.trafficBalance));
+            const incomingBal = Math.max(0, Number(data.trafficBalance));
+            if (snapUpdated >= userUpdated || snapUpdated === 0) {
+              newBal = incomingBal;
+            } else if (incomingBal > currentBal) {
+              newBal = incomingBal;
+            }
           }
 
           const isExhausted = newBal <= 0;

@@ -442,6 +442,7 @@ async function startServer() {
 
       target.trafficBalance = (target.trafficBalance || 0) + trafficNum;
       target.totalTrafficAssigned = (target.totalTrafficAssigned || 0) + trafficNum;
+      target.updatedAt = Date.now();
 
       if (markAsPaid) {
         target.isPaidUser = true;
@@ -491,7 +492,8 @@ async function startServer() {
         Number(newBalance),
         totalAssigned !== undefined ? Number(totalAssigned) : undefined,
         markAsPaid,
-        tier
+        tier,
+        email ? String(email) : undefined
       );
       if (!result.success || !result.user) {
         return res.status(404).json({ success: false, error: result.error || 'Failed setting member credit balance.' });

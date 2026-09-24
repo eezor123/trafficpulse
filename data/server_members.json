@@ -16,13 +16,13 @@
     "company": "TrafficPulse HQ (Super Admin)",
     "bankDetails": {
       "accountName": "Super Admin",
-      "bankName": "Guaranty Trust Bank (GTBank)",
-      "accountNumber": ""
+      "accountNumber": "",
+      "bankName": "Guaranty Trust Bank (GTBank)"
     },
     "rating": 5,
     "completedJobs": 25,
     "passwordHash": "Vivian123@",
-    "lastLoginAt": 1790153031662,
+    "lastLoginAt": 1790258898191,
     "bio": "Super Admin & Platform Compliance Officer.",
     "phoneNumber": "+2348030586729",
     "walletBalanceNgn": 5000000,
@@ -44,9 +44,9 @@
     "email": "saroneedam@gmail.com",
     "totalCampaignsRun": 0,
     "customVisitsLimit": 10000000,
-    "trafficBalance": 10000000,
+    "trafficBalance": 10000500,
     "city": "Ikeja",
-    "totalTrafficAssigned": 10000000,
+    "totalTrafficAssigned": 10000500,
     "trafficStatus": "unlimited",
     "escrowBalanceNgn": 0,
     "isPaidUser": true,
@@ -56,7 +56,7 @@
     "tier": "enterprise",
     "registrationIp": "102.90.102.116",
     "isBanned": false,
-    "updatedAt": 1790153032037
+    "updatedAt": 1790261326280
   },
   {
     "state": "Rivers",
@@ -64,13 +64,13 @@
     "verificationTier": "unverified",
     "isBanned": false,
     "address": "",
-    "updatedAt": 1790242563906,
+    "updatedAt": 1790261730402,
     "passwordHash": "vivian123",
     "joinedDate": "2026-08-01",
     "bankDetails": {
-      "bankName": "Guaranty Trust Bank (GTBank)",
       "accountNumber": "",
-      "accountName": "eezortech"
+      "accountName": "eezortech",
+      "bankName": "Guaranty Trust Bank (GTBank)"
     },
     "role": "member",
     "hourlyRateNgn": 10000,
@@ -93,12 +93,12 @@
       "HR Consultant"
     ],
     "isRegistered": true,
-    "lastLoginAt": 1790241472052,
+    "lastLoginAt": 1790260832893,
     "completedJobs": 0,
-    "trafficBalance": 0,
+    "trafficBalance": 15000,
     "tier": "pro",
-    "totalTrafficAssigned": 8100,
-    "trafficStatus": "paid_exhausted",
+    "totalTrafficAssigned": 18000,
+    "trafficStatus": "paid_active",
     "isPaidUser": true,
     "maxConcurrentVUs": 25,
     "authProvider": "email",
@@ -180,16 +180,16 @@
     "trafficStatus": "trial_active"
   },
   {
-    "trafficStatus": "trial_active",
+    "trafficStatus": "trial_exhausted",
     "lastLoginAt": 1790242594531,
-    "trafficBalance": 233,
+    "trafficBalance": 0,
     "name": "Eezor Needam",
     "isVerified": true,
     "avatar": "https://lh3.googleusercontent.com/a/ACg8ocJefJg6olFyW-S7BVq3ITpP0N5S8l7jaxM4omXjgL31dWhvYg=s96-c",
     "uid": "member_65657a6f727465636840676d61696c2e636f6d",
     "email": "eezortech@gmail.com",
     "lastLoginIp": "41.73.230.5",
-    "updatedAt": 1790243521051,
+    "updatedAt": 1790258835349,
     "isPaidUser": false,
     "totalTrafficAssigned": 500,
     "tier": "starter"
