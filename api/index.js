@@ -109,7 +109,7 @@ function classifyPageCategory(path3, linkText = "") {
   if (lowerPath.includes("/archive") || lowerPath.includes("/author/") || /\/\d{4}\/\d{2}/.test(lowerPath)) {
     return "archive";
   }
-  if (lowerPath.includes("/blog/") || lowerPath.includes("/posts/") || lowerPath.includes("/post/") || lowerPath.includes("/article/") || lowerPath.includes("/articles/") || lowerPath.includes("/news/") || lowerPath.includes("/story/") || lowerPath.includes("/job/") || lowerPath.includes("/jobs/") || lowerPath.includes("/careers/") || lowerPath.includes("/vacancy/") || lowerPath.includes("/vacancies/") || lowerPath.includes("/listing/") || lowerPath.includes("/listings/") || lowerPath.includes("post=") || lowerPath.includes("article=") || lowerPath.includes("job=") || lowerPath.includes("listing=") || lowerPath.includes("p=") || lowerPath.includes("id=")) {
+  if (lowerPath.includes("/blog/") || lowerPath.includes("/posts/") || lowerPath.includes("/post/") || lowerPath.includes("/article/") || lowerPath.includes("/articles/") || lowerPath.includes("/news/") || lowerPath.includes("/news-and-analysis") || lowerPath.includes("/help-and-support") || lowerPath.includes("/trading-guides") || lowerPath.includes("/trading-academy") || lowerPath.includes("/trading-tools") || lowerPath.includes("/trading-platforms") || lowerPath.includes("/markets-to-trade") || lowerPath.includes("/forex-trading") || lowerPath.includes("/commodity-trading") || lowerPath.includes("/cryptocurrency-trading") || lowerPath.includes("/gold-silver-trading") || lowerPath.includes("/cfd-trading") || lowerPath.includes("/forecast") || lowerPath.includes("/outlook") || lowerPath.includes("/analysis") || lowerPath.includes("/liquidation") || lowerPath.includes("/market-trading-hours") || lowerPath.includes("/story/") || lowerPath.includes("/job/") || lowerPath.includes("/jobs/") || lowerPath.includes("/careers/") || lowerPath.includes("/vacancy/") || lowerPath.includes("/vacancies/") || lowerPath.includes("/listing/") || lowerPath.includes("/listings/") || lowerPath.includes("post=") || lowerPath.includes("article=") || lowerPath.includes("job=") || lowerPath.includes("listing=") || lowerPath.includes("p=") || lowerPath.includes("id=")) {
     return "post";
   }
   const standardPages = [
@@ -598,6 +598,39 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
       }
     } catch {
     }
+    const mdLinkRegex = /\[([^\]]{1,150})\]\(((?:https?:\/\/|\/)[^\s\)]+)\)/g;
+    let mm;
+    while ((mm = mdLinkRegex.exec(primaryHtml)) !== null && discoveredPages.length < maxLinks) {
+      const rawTitle2 = mm[1].replace(/!\[[^\]]*\]/g, "").replace(/<[^>]*>/g, "").trim();
+      const rawHref = mm[2].trim();
+      if (!rawHref || rawHref.startsWith("#") || rawHref.startsWith("javascript:") || rawHref.startsWith("mailto:") || rawHref.startsWith("tel:")) continue;
+      try {
+        const resolvedUrl = new URL(rawHref, origin);
+        if (isSameApexDomain(resolvedUrl.hostname, hostname)) {
+          const pagePath = normalizePathWithQuery(resolvedUrl);
+          if (!isCleanPublicPage(pagePath, rawTitle2)) continue;
+          if (!discoveredPaths.has(pagePath) && discoveredPages.length < maxLinks) {
+            discoveredPaths.add(pagePath);
+            const cat = classifyPageCategory(pagePath, rawTitle2);
+            const cleanTitle = rawTitle2 && rawTitle2.length > 2 && !rawTitle2.startsWith("!") && !rawTitle2.startsWith("[") ? rawTitle2 : slugToTitle(pagePath);
+            discoveredPages.push({
+              id: `md_${discoveredPages.length + 1}`,
+              url: resolvedUrl.toString(),
+              path: pagePath,
+              title: cleanTitle.length > 75 ? cleanTitle.slice(0, 75) + "..." : cleanTitle,
+              description: `${cat.toUpperCase()}: ${cleanTitle}`,
+              depth: pagePath === "/" ? 0 : pagePath.split("/").filter(Boolean).length || 1,
+              status: 200,
+              includedInVisits: true,
+              visitWeight: cat === "post" ? 95 : cat === "category" ? 88 : cat === "product" ? 85 : 75,
+              gaDetected: !!gaMeasurementId || !!gtmId,
+              category: cat
+            });
+          }
+        }
+      } catch {
+      }
+    }
     const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
     let match;
     while ((match = linkRegex.exec(primaryHtml)) !== null && discoveredPages.length < maxLinks) {
@@ -977,15 +1010,17 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
     }
   }
   if (discoveredPages.length < maxLinks) {
-    const wpEndpoints = [
+    const isWpLikely = primaryHtml.includes("wp-content") || primaryHtml.includes("wp-includes") || primaryHtml.includes("wordpress");
+    const isShopifyLikely = primaryHtml.includes("cdn.shopify.com") || primaryHtml.includes("shopify");
+    const wpEndpoints = isWpLikely || isShopifyLikely || discoveredPages.length < 5 ? [
       `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug,date`,
       `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug,date`,
       `${origin}/wp-json/wp/v2/categories?per_page=50&_fields=id,link,name,slug`,
       `${origin}/wp-json/wp/v2/tags?per_page=50&_fields=id,link,name,slug`,
       `${origin}/products.json?limit=250`,
       `${origin}/collections.json?limit=50`
-    ];
-    const genericApiEndpoints = [
+    ] : [];
+    const genericApiEndpoints = discoveredPages.length < 15 ? [
       `${origin}/api/posts`,
       `${origin}/api/articles`,
       `${origin}/api/news`,
@@ -994,10 +1029,10 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
       `${origin}/api/items`,
       `${origin}/api/jobs`,
       `${origin}/api/listings`
-    ];
+    ] : [];
     const wpTasks = wpEndpoints.map(async (wpUrl) => {
       try {
-        const wpRes = await fetchFn(wpUrl, 6e3);
+        const wpRes = await fetchFn(wpUrl, 4e3);
         if (wpRes.ok && wpRes.text && (wpRes.text.startsWith("[") || wpRes.text.startsWith("{"))) {
           let parsedData;
           try {
@@ -1043,7 +1078,7 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
     });
     const apiTasks = genericApiEndpoints.map(async (apiUrl) => {
       try {
-        const apiRes = await fetchFn(apiUrl, 4e3);
+        const apiRes = await fetchFn(apiUrl, 3e3);
         if (apiRes.ok && apiRes.text && (apiRes.text.startsWith("[") || apiRes.text.startsWith("{"))) {
           let parsed;
           try {
@@ -1099,17 +1134,24 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
   }
   const targetMaxDepth = Math.min(3, Math.max(1, maxDepth));
   let currentDepth = 1;
-  while (currentDepth < targetMaxDepth && discoveredPages.length < 35 && discoveredPages.length < maxLinks) {
+  while (currentDepth < targetMaxDepth && discoveredPages.length < maxLinks) {
+    const batchLimit = discoveredPages.length >= 50 ? 4 : 8;
     const unvisitedPages = discoveredPages.filter((p) => {
       const canon = normalizeCanonicalUrl(new URL(p.url, origin));
       return !visitedUrls.has(canon);
-    }).slice(0, 6);
+    }).sort((a, b) => {
+      const aIsHub = a.category === "category" || /news|help|guide|market|post|article|academy|trade/i.test(a.path);
+      const bIsHub = b.category === "category" || /news|help|guide|market|post|article|academy|trade/i.test(b.path);
+      if (aIsHub && !bIsHub) return -1;
+      if (!aIsHub && bIsHub) return 1;
+      return 0;
+    }).slice(0, batchLimit);
     if (unvisitedPages.length === 0) break;
     const recursiveTasks = unvisitedPages.map(async (pageObj) => {
       const canon = normalizeCanonicalUrl(new URL(pageObj.url, origin));
       visitedUrls.add(canon);
       try {
-        const subRes = await fetchFn(pageObj.url, 2e3);
+        const subRes = await fetchFn(pageObj.url, 4e3);
         if (!subRes.ok || !subRes.text) return;
         const subHtml = subRes.text;
         const subLinkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
@@ -1129,6 +1171,39 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
                 const sTitle = slugToTitle(subCleanPath, sText);
                 discoveredPages.push({
                   id: `rec_${discoveredPages.length + 1}`,
+                  url: resolvedSub.toString(),
+                  path: subCleanPath,
+                  title: sTitle.length > 75 ? sTitle.slice(0, 75) + "..." : sTitle,
+                  description: `${subCat.toUpperCase()}: ${sTitle}`,
+                  depth: currentDepth + 1,
+                  status: 200,
+                  includedInVisits: true,
+                  visitWeight: subCat === "post" ? 95 : subCat === "category" ? 88 : 75,
+                  gaDetected: !!gaMeasurementId || !!gtmId,
+                  category: subCat
+                });
+              }
+            }
+          } catch {
+          }
+        }
+        const subMdRegex = /\[([^\]]{1,150})\]\(((?:https?:\/\/|\/)[^\s\)]+)\)/g;
+        let smm;
+        while ((smm = subMdRegex.exec(subHtml)) !== null && discoveredPages.length < maxLinks) {
+          const rawT = smm[1].replace(/!\[[^\]]*\]/g, "").replace(/<[^>]*>/g, "").trim();
+          const rawH = smm[2].trim();
+          if (!rawH || rawH.startsWith("#") || rawH.startsWith("javascript:") || rawH.startsWith("mailto:")) continue;
+          try {
+            const resolvedSub = new URL(rawH, origin);
+            if (isSameApexDomain(resolvedSub.hostname, hostname)) {
+              const subCleanPath = normalizePathWithQuery(resolvedSub);
+              if (!isCleanPublicPage(subCleanPath, rawT)) continue;
+              if (!discoveredPaths.has(subCleanPath)) {
+                discoveredPaths.add(subCleanPath);
+                const subCat = classifyPageCategory(subCleanPath, rawT);
+                const sTitle = rawT && rawT.length > 2 && !rawT.startsWith("!") && !rawT.startsWith("[") ? rawT : slugToTitle(subCleanPath);
+                discoveredPages.push({
+                  id: `rec_md_${discoveredPages.length + 1}`,
                   url: resolvedSub.toString(),
                   path: subCleanPath,
                   title: sTitle.length > 75 ? sTitle.slice(0, 75) + "..." : sTitle,
@@ -3746,36 +3821,76 @@ router.post("/crawler/scrape", async (req, res) => {
       "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     };
-    const resilientFetch = async (url, timeoutMs = 6e3) => {
+    const resilientFetch = async (url, timeoutMs = 8e3) => {
       try {
         const ctrl = new AbortController();
         const tm = setTimeout(() => ctrl.abort(), timeoutMs);
         const res2 = await fetch(url, { headers: browserHeaders, signal: ctrl.signal, redirect: "follow" });
         clearTimeout(tm);
-        if (res2.ok) {
-          const txt = await res2.text();
+        const txt = await res2.text();
+        const isBlocked = [401, 403, 429, 503].includes(res2.status) || txt.includes("Just a moment...") || txt.includes("challenges.cloudflare.com") || txt.includes("Attention Required! | Cloudflare") || txt.includes("Cloudflare Turnstile");
+        if (res2.ok && !isBlocked) {
           return { ok: true, status: res2.status, text: txt };
         }
-        if ([401, 403, 429, 503].includes(res2.status)) {
-          const bCtrl = new AbortController();
-          const bTm = setTimeout(() => bCtrl.abort(), timeoutMs);
-          const bRes = await fetch(url, { headers: botHeaders, signal: bCtrl.signal, redirect: "follow" });
-          clearTimeout(bTm);
-          if (bRes.ok) {
-            const bTxt = await bRes.text();
-            return { ok: true, status: bRes.status, text: bTxt };
-          }
-        }
-        return { ok: false, status: res2.status, text: "" };
-      } catch {
         try {
           const bCtrl = new AbortController();
           const bTm = setTimeout(() => bCtrl.abort(), timeoutMs);
           const bRes = await fetch(url, { headers: botHeaders, signal: bCtrl.signal, redirect: "follow" });
           clearTimeout(bTm);
-          if (bRes.ok) {
-            const bTxt = await bRes.text();
+          const bTxt = await bRes.text();
+          const isBotBlocked = [401, 403, 429, 503].includes(bRes.status) || bTxt.includes("Just a moment...") || bTxt.includes("challenges.cloudflare.com");
+          if (bRes.ok && !isBotBlocked) {
             return { ok: true, status: bRes.status, text: bTxt };
+          }
+        } catch {
+        }
+        const isBinaryOrData = /\.(xml|json|js|css|svg|png|jpg|ico|woff|woff2|ttf|wasm)($|\?)/i.test(url) || url.includes("/wp-json");
+        if (!isBinaryOrData) {
+          try {
+            const jCtrl = new AbortController();
+            const jTm = setTimeout(() => jCtrl.abort(), 8e3);
+            const jRes = await fetch(`https://r.jina.ai/${url}`, {
+              headers: { "Accept": "text/plain", "X-Return-Format": "markdown" },
+              signal: jCtrl.signal
+            });
+            clearTimeout(jTm);
+            if (jRes.ok) {
+              const jTxt = await jRes.text();
+              if (jTxt && jTxt.length > 150) {
+                return { ok: true, status: 200, text: jTxt };
+              }
+            }
+          } catch {
+          }
+        }
+        const corsProxies = [
+          `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+          `https://corsproxy.io/?url=${encodeURIComponent(url)}`
+        ];
+        for (const cProxy of corsProxies) {
+          try {
+            const cCtrl = new AbortController();
+            const cTm = setTimeout(() => cCtrl.abort(), 6e3);
+            const cRes = await fetch(cProxy, { signal: cCtrl.signal });
+            clearTimeout(cTm);
+            if (cRes.ok) {
+              const cTxt = await cRes.text();
+              if (cTxt && cTxt.length > 200 && !cTxt.includes("Just a moment...")) {
+                return { ok: true, status: 200, text: cTxt };
+              }
+            }
+          } catch {
+          }
+        }
+        return { ok: false, status: res2.status, text: txt };
+      } catch {
+        try {
+          const jRes = await fetch(`https://r.jina.ai/${url}`, { headers: { "Accept": "text/plain" } });
+          if (jRes.ok) {
+            const jTxt = await jRes.text();
+            if (jTxt && jTxt.length > 150) {
+              return { ok: true, status: 200, text: jTxt };
+            }
           }
         } catch {
         }

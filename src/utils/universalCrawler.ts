@@ -191,7 +191,7 @@ export function classifyPageCategory(
     return 'archive';
   }
 
-  // Posts / Articles / Blog / Listings / Jobs
+  // Posts / Articles / Blog / Listings / Jobs / Financial & Support Guides
   if (
     lowerPath.includes('/blog/') ||
     lowerPath.includes('/posts/') ||
@@ -199,6 +199,23 @@ export function classifyPageCategory(
     lowerPath.includes('/article/') ||
     lowerPath.includes('/articles/') ||
     lowerPath.includes('/news/') ||
+    lowerPath.includes('/news-and-analysis') ||
+    lowerPath.includes('/help-and-support') ||
+    lowerPath.includes('/trading-guides') ||
+    lowerPath.includes('/trading-academy') ||
+    lowerPath.includes('/trading-tools') ||
+    lowerPath.includes('/trading-platforms') ||
+    lowerPath.includes('/markets-to-trade') ||
+    lowerPath.includes('/forex-trading') ||
+    lowerPath.includes('/commodity-trading') ||
+    lowerPath.includes('/cryptocurrency-trading') ||
+    lowerPath.includes('/gold-silver-trading') ||
+    lowerPath.includes('/cfd-trading') ||
+    lowerPath.includes('/forecast') ||
+    lowerPath.includes('/outlook') ||
+    lowerPath.includes('/analysis') ||
+    lowerPath.includes('/liquidation') ||
+    lowerPath.includes('/market-trading-hours') ||
     lowerPath.includes('/story/') ||
     lowerPath.includes('/job/') ||
     lowerPath.includes('/jobs/') ||
@@ -822,6 +839,44 @@ export async function executeUniversalCrawl(
       }
     } catch {}
 
+    // 3B-0. Markdown Link parser (for Cloudflare-bypassed rendered Markdown responses)
+    const mdLinkRegex = /\[([^\]]{1,150})\]\(((?:https?:\/\/|\/)[^\s\)]+)\)/g;
+    let mm: RegExpExecArray | null;
+    while ((mm = mdLinkRegex.exec(primaryHtml)) !== null && discoveredPages.length < maxLinks) {
+      const rawTitle = mm[1].replace(/!\[[^\]]*\]/g, '').replace(/<[^>]*>/g, '').trim();
+      const rawHref = mm[2].trim();
+      if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:')) continue;
+      try {
+        const resolvedUrl = new URL(rawHref, origin);
+        if (isSameApexDomain(resolvedUrl.hostname, hostname)) {
+          const pagePath = normalizePathWithQuery(resolvedUrl);
+          if (!isCleanPublicPage(pagePath, rawTitle)) continue;
+
+          if (!discoveredPaths.has(pagePath) && discoveredPages.length < maxLinks) {
+            discoveredPaths.add(pagePath);
+            const cat = classifyPageCategory(pagePath, rawTitle);
+            const cleanTitle = (rawTitle && rawTitle.length > 2 && !rawTitle.startsWith('!') && !rawTitle.startsWith('['))
+              ? rawTitle
+              : slugToTitle(pagePath);
+
+            discoveredPages.push({
+              id: `md_${discoveredPages.length + 1}`,
+              url: resolvedUrl.toString(),
+              path: pagePath,
+              title: cleanTitle.length > 75 ? cleanTitle.slice(0, 75) + '...' : cleanTitle,
+              description: `${cat.toUpperCase()}: ${cleanTitle}`,
+              depth: pagePath === '/' ? 0 : pagePath.split('/').filter(Boolean).length || 1,
+              status: 200,
+              includedInVisits: true,
+              visitWeight: cat === 'post' ? 95 : cat === 'category' ? 88 : cat === 'product' ? 85 : 75,
+              gaDetected: !!gaMeasurementId || !!gtmId,
+              category: cat,
+            });
+          }
+        }
+      } catch {}
+    }
+
     // 3B. HTML Anchor links (<a href="...">)
     const linkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
     let match: RegExpExecArray | null;
@@ -1233,19 +1288,22 @@ export async function executeUniversalCrawl(
   }
 
   // ----------------------------------------------------
-  // STEP 4: WORDPRESS, SHOPIFY & GENERIC REST API PROBING (Real Content Only)
+  // STEP 4: WORDPRESS, SHOPIFY & GENERIC REST API PROBING (Smart Adaptive Probing)
   // ----------------------------------------------------
   if (discoveredPages.length < maxLinks) {
-    const wpEndpoints = [
+    const isWpLikely = primaryHtml.includes('wp-content') || primaryHtml.includes('wp-includes') || primaryHtml.includes('wordpress');
+    const isShopifyLikely = primaryHtml.includes('cdn.shopify.com') || primaryHtml.includes('shopify');
+
+    const wpEndpoints = (isWpLikely || isShopifyLikely || discoveredPages.length < 5) ? [
       `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug,date`,
       `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug,date`,
       `${origin}/wp-json/wp/v2/categories?per_page=50&_fields=id,link,name,slug`,
       `${origin}/wp-json/wp/v2/tags?per_page=50&_fields=id,link,name,slug`,
       `${origin}/products.json?limit=250`,
       `${origin}/collections.json?limit=50`,
-    ];
+    ] : [];
 
-    const genericApiEndpoints = [
+    const genericApiEndpoints = (discoveredPages.length < 15) ? [
       `${origin}/api/posts`,
       `${origin}/api/articles`,
       `${origin}/api/news`,
@@ -1254,11 +1312,11 @@ export async function executeUniversalCrawl(
       `${origin}/api/items`,
       `${origin}/api/jobs`,
       `${origin}/api/listings`,
-    ];
+    ] : [];
 
     const wpTasks = wpEndpoints.map(async (wpUrl) => {
       try {
-        const wpRes = await fetchFn(wpUrl, 6000);
+        const wpRes = await fetchFn(wpUrl, 4000);
         if (wpRes.ok && wpRes.text && (wpRes.text.startsWith('[') || wpRes.text.startsWith('{'))) {
           let parsedData: any;
           try {
@@ -1312,7 +1370,7 @@ export async function executeUniversalCrawl(
 
     const apiTasks = genericApiEndpoints.map(async (apiUrl) => {
       try {
-        const apiRes = await fetchFn(apiUrl, 4000);
+        const apiRes = await fetchFn(apiUrl, 3000);
         if (apiRes.ok && apiRes.text && (apiRes.text.startsWith('[') || apiRes.text.startsWith('{'))) {
           let parsed: any;
           try {
@@ -1379,11 +1437,18 @@ export async function executeUniversalCrawl(
   const targetMaxDepth = Math.min(3, Math.max(1, maxDepth));
   let currentDepth = 1;
 
-  while (currentDepth < targetMaxDepth && discoveredPages.length < 35 && discoveredPages.length < maxLinks) {
+  while (currentDepth < targetMaxDepth && discoveredPages.length < maxLinks) {
+    const batchLimit = discoveredPages.length >= 50 ? 4 : 8;
     const unvisitedPages = discoveredPages.filter(p => {
       const canon = normalizeCanonicalUrl(new URL(p.url, origin));
       return !visitedUrls.has(canon);
-    }).slice(0, 6);
+    }).sort((a, b) => {
+      const aIsHub = a.category === 'category' || /news|help|guide|market|post|article|academy|trade/i.test(a.path);
+      const bIsHub = b.category === 'category' || /news|help|guide|market|post|article|academy|trade/i.test(b.path);
+      if (aIsHub && !bIsHub) return -1;
+      if (!aIsHub && bIsHub) return 1;
+      return 0;
+    }).slice(0, batchLimit);
 
     if (unvisitedPages.length === 0) break;
 
@@ -1392,10 +1457,11 @@ export async function executeUniversalCrawl(
       visitedUrls.add(canon);
 
       try {
-        const subRes = await fetchFn(pageObj.url, 2000);
+        const subRes = await fetchFn(pageObj.url, 4000);
         if (!subRes.ok || !subRes.text) return;
         const subHtml = subRes.text;
 
+        // 5A. HTML Anchor links
         const subLinkRegex = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
         let sm: RegExpExecArray | null;
         while ((sm = subLinkRegex.exec(subHtml)) !== null && discoveredPages.length < maxLinks) {
@@ -1416,6 +1482,45 @@ export async function executeUniversalCrawl(
 
                 discoveredPages.push({
                   id: `rec_${discoveredPages.length + 1}`,
+                  url: resolvedSub.toString(),
+                  path: subCleanPath,
+                  title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,
+                  description: `${subCat.toUpperCase()}: ${sTitle}`,
+                  depth: currentDepth + 1,
+                  status: 200,
+                  includedInVisits: true,
+                  visitWeight: subCat === 'post' ? 95 : subCat === 'category' ? 88 : 75,
+                  gaDetected: !!gaMeasurementId || !!gtmId,
+                  category: subCat,
+                });
+              }
+            }
+          } catch {}
+        }
+
+        // 5B. Markdown links in sub-pages (for relay responses)
+        const subMdRegex = /\[([^\]]{1,150})\]\(((?:https?:\/\/|\/)[^\s\)]+)\)/g;
+        let smm: RegExpExecArray | null;
+        while ((smm = subMdRegex.exec(subHtml)) !== null && discoveredPages.length < maxLinks) {
+          const rawT = smm[1].replace(/!\[[^\]]*\]/g, '').replace(/<[^>]*>/g, '').trim();
+          const rawH = smm[2].trim();
+          if (!rawH || rawH.startsWith('#') || rawH.startsWith('javascript:') || rawH.startsWith('mailto:')) continue;
+
+          try {
+            const resolvedSub = new URL(rawH, origin);
+            if (isSameApexDomain(resolvedSub.hostname, hostname)) {
+              const subCleanPath = normalizePathWithQuery(resolvedSub);
+              if (!isCleanPublicPage(subCleanPath, rawT)) continue;
+
+              if (!discoveredPaths.has(subCleanPath)) {
+                discoveredPaths.add(subCleanPath);
+                const subCat = classifyPageCategory(subCleanPath, rawT);
+                const sTitle = (rawT && rawT.length > 2 && !rawT.startsWith('!') && !rawT.startsWith('['))
+                  ? rawT
+                  : slugToTitle(subCleanPath);
+
+                discoveredPages.push({
+                  id: `rec_md_${discoveredPages.length + 1}`,
                   url: resolvedSub.toString(),
                   path: subCleanPath,
                   title: sTitle.length > 75 ? sTitle.slice(0, 75) + '...' : sTitle,

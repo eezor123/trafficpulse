@@ -1695,37 +1695,94 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     };
 
-    // Resilient fetch helper with automatic Googlebot WAF fallback
-    const resilientFetch: FetchFunction = async (url: string, timeoutMs = 6000) => {
+    // Resilient fetch helper with automatic Googlebot and Cloudflare WAF bypass fallbacks
+    const resilientFetch: FetchFunction = async (url: string, timeoutMs = 8000) => {
       try {
         const ctrl = new AbortController();
         const tm = setTimeout(() => ctrl.abort(), timeoutMs);
         const res = await fetch(url, { headers: browserHeaders, signal: ctrl.signal, redirect: 'follow' });
         clearTimeout(tm);
-        if (res.ok) {
-          const txt = await res.text();
+        const txt = await res.text();
+
+        const isBlocked = [401, 403, 429, 503].includes(res.status) ||
+          txt.includes('Just a moment...') ||
+          txt.includes('challenges.cloudflare.com') ||
+          txt.includes('Attention Required! | Cloudflare') ||
+          txt.includes('Cloudflare Turnstile');
+
+        if (res.ok && !isBlocked) {
           return { ok: true, status: res.status, text: txt };
         }
-        if ([401, 403, 429, 503].includes(res.status)) {
-          const bCtrl = new AbortController();
-          const bTm = setTimeout(() => bCtrl.abort(), timeoutMs);
-          const bRes = await fetch(url, { headers: botHeaders, signal: bCtrl.signal, redirect: 'follow' });
-          clearTimeout(bTm);
-          if (bRes.ok) {
-            const bTxt = await bRes.text();
-            return { ok: true, status: bRes.status, text: bTxt };
-          }
+
+        // If standard 404/410/400 (Not Found / Gone), do NOT retry through Googlebot, Jina, and CORS proxies
+        if (res.status === 404 || res.status === 410 || res.status === 400) {
+          return { ok: false, status: res.status, text: '' };
         }
-        return { ok: false, status: res.status, text: '' };
-      } catch {
+
+        // 1. Try Googlebot headers fallback (for bot-discriminating firewalls)
         try {
           const bCtrl = new AbortController();
-          const bTm = setTimeout(() => bCtrl.abort(), timeoutMs);
+          const bTm = setTimeout(() => bCtrl.abort(), Math.min(2500, timeoutMs));
           const bRes = await fetch(url, { headers: botHeaders, signal: bCtrl.signal, redirect: 'follow' });
           clearTimeout(bTm);
-          if (bRes.ok) {
-            const bTxt = await bRes.text();
+          const bTxt = await bRes.text();
+          const isBotBlocked = [401, 403, 429, 503].includes(bRes.status) ||
+            bTxt.includes('Just a moment...') ||
+            bTxt.includes('challenges.cloudflare.com');
+          if (bRes.ok && !isBotBlocked) {
             return { ok: true, status: bRes.status, text: bTxt };
+          }
+        } catch {}
+
+        // 2. High-speed Cloudflare WAF Bypass Relay (Jina reader engine for HTML/web pages)
+        const isBinaryOrData = /\.(svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|wasm|zip|pdf)($|\?)/i.test(url);
+        if (!isBinaryOrData) {
+          try {
+            const jCtrl = new AbortController();
+            const jTm = setTimeout(() => jCtrl.abort(), 4500);
+            const jRes = await fetch(`https://r.jina.ai/${url}`, {
+              headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' },
+              signal: jCtrl.signal,
+            });
+            clearTimeout(jTm);
+            if (jRes.ok) {
+              const jTxt = await jRes.text();
+              if (jTxt && jTxt.length > 150) {
+                return { ok: true, status: 200, text: jTxt };
+              }
+            }
+          } catch {}
+        }
+
+        // 3. Public CORS / scraping proxy fallbacks
+        const corsProxies = [
+          `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+          `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+        ];
+        for (const cProxy of corsProxies) {
+          try {
+            const cCtrl = new AbortController();
+            const cTm = setTimeout(() => cCtrl.abort(), 3000);
+            const cRes = await fetch(cProxy, { signal: cCtrl.signal });
+            clearTimeout(cTm);
+            if (cRes.ok) {
+              const cTxt = await cRes.text();
+              if (cTxt && cTxt.length > 200 && !cTxt.includes('Just a moment...')) {
+                return { ok: true, status: 200, text: cTxt };
+              }
+            }
+          } catch {}
+        }
+
+        return { ok: false, status: res.status, text: txt };
+      } catch {
+        try {
+          const jRes = await fetch(`https://r.jina.ai/${url}`, { headers: { 'Accept': 'text/plain' } });
+          if (jRes.ok) {
+            const jTxt = await jRes.text();
+            if (jTxt && jTxt.length > 150) {
+              return { ok: true, status: 200, text: jTxt };
+            }
           }
         } catch {}
         return { ok: false, status: 0, text: '' };

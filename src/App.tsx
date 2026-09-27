@@ -863,7 +863,7 @@ export default function App() {
       ...prev, 
       targetUrl: urlToCrawl,
       hostname: initialHostname || prev.hostname,
-      pages: isDomainChange ? [] : prev.pages,
+      pages: prev.pages,
       gaMeasurementId: existingGaForDomain || undefined,
       isCrawling: true, 
       error: undefined,

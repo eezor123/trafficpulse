@@ -2183,43 +2183,95 @@ async function startServer() {
         'Accept': 'text/html,application/xhtml+xml,application/xml,application/json,*/*;q=0.8',
       };
 
-      // Resilient fetch helper with automatic Googlebot WAF fallback
+      // Resilient fetch helper with automatic Googlebot and Cloudflare WAF bypass fallbacks
       const resilientFetch: FetchFunction = async (url: string, timeoutMs = 8000) => {
         try {
           const ctrl = new AbortController();
           const tm = setTimeout(() => ctrl.abort(), timeoutMs);
           const res = await fetch(url, { headers: browserHeaders, signal: ctrl.signal, redirect: 'follow' });
           clearTimeout(tm);
-          if (res.ok) {
-            const txt = await res.text();
+          const txt = await res.text();
+
+          const isBlocked = [401, 403, 429, 503].includes(res.status) ||
+            txt.includes('Just a moment...') ||
+            txt.includes('challenges.cloudflare.com') ||
+            txt.includes('Attention Required! | Cloudflare') ||
+            txt.includes('Cloudflare Turnstile');
+
+          if (res.ok && !isBlocked) {
             return { ok: true, status: res.status, text: txt };
           }
-          if ([401, 403, 429, 503].includes(res.status)) {
-            const bCtrl = new AbortController();
-            const bTm = setTimeout(() => bCtrl.abort(), timeoutMs);
-            const bRes = await fetch(url, { headers: botHeaders, signal: bCtrl.signal, redirect: 'follow' });
-            clearTimeout(bTm);
-            if (bRes.ok) {
-              const bTxt = await bRes.text();
-              return { ok: true, status: bRes.status, text: bTxt };
-            }
-          }
-          // Read error text if present
-          try {
-            const errTxt = await res.text();
-            return { ok: false, status: res.status, text: errTxt };
-          } catch {
+
+          // If standard 404/410/400 (Not Found / Gone), do NOT retry through Googlebot, Jina, and CORS proxies
+          if (res.status === 404 || res.status === 410 || res.status === 400) {
             return { ok: false, status: res.status, text: '' };
           }
-        } catch {
+
+          // 1. Try Googlebot headers fallback (for bot-discriminating firewalls)
           try {
             const bCtrl = new AbortController();
-            const bTm = setTimeout(() => bCtrl.abort(), timeoutMs);
+            const bTm = setTimeout(() => bCtrl.abort(), Math.min(2500, timeoutMs));
             const bRes = await fetch(url, { headers: botHeaders, signal: bCtrl.signal, redirect: 'follow' });
             clearTimeout(bTm);
-            if (bRes.ok) {
-              const bTxt = await bRes.text();
+            const bTxt = await bRes.text();
+            const isBotBlocked = [401, 403, 429, 503].includes(bRes.status) ||
+              bTxt.includes('Just a moment...') ||
+              bTxt.includes('challenges.cloudflare.com');
+            if (bRes.ok && !isBotBlocked) {
               return { ok: true, status: bRes.status, text: bTxt };
+            }
+          } catch {}
+
+          // 2. High-speed Cloudflare WAF Bypass Relay (Jina reader engine for HTML/web pages)
+          const isBinaryOrData = /\.(svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|wasm|zip|pdf)($|\?)/i.test(url);
+          if (!isBinaryOrData) {
+            try {
+              const jCtrl = new AbortController();
+              const jTm = setTimeout(() => jCtrl.abort(), 4500);
+              const jRes = await fetch(`https://r.jina.ai/${url}`, {
+                headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' },
+                signal: jCtrl.signal,
+              });
+              clearTimeout(jTm);
+              if (jRes.ok) {
+                const jTxt = await jRes.text();
+                if (jTxt && jTxt.length > 150) {
+                  return { ok: true, status: 200, text: jTxt };
+                }
+              }
+            } catch {}
+          }
+
+          // 3. Public CORS / scraping proxy fallbacks
+          const corsProxies = [
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+            `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+          ];
+          for (const cProxy of corsProxies) {
+            try {
+              const cCtrl = new AbortController();
+              const cTm = setTimeout(() => cCtrl.abort(), 3000);
+              const cRes = await fetch(cProxy, { signal: cCtrl.signal });
+              clearTimeout(cTm);
+              if (cRes.ok) {
+                const cTxt = await cRes.text();
+                if (cTxt && cTxt.length > 200 && !cTxt.includes('Just a moment...')) {
+                  return { ok: true, status: 200, text: cTxt };
+                }
+              }
+            } catch {}
+          }
+
+          return { ok: false, status: res.status, text: txt };
+        } catch {
+          // If direct fetch threw network/DNS error, attempt Jina and proxy fallbacks
+          try {
+            const jRes = await fetch(`https://r.jina.ai/${url}`, { headers: { 'Accept': 'text/plain' } });
+            if (jRes.ok) {
+              const jTxt = await jRes.text();
+              if (jTxt && jTxt.length > 150) {
+                return { ok: true, status: 200, text: jTxt };
+              }
             }
           } catch {}
           return { ok: false, status: 0, text: '' };
@@ -2252,6 +2304,65 @@ async function startServer() {
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Crawler failed to scrape target URL' });
+    }
+  });
+
+  // Sitemap Fetcher Endpoint
+  app.post('/api/crawler/fetch-sitemap', async (req: Request, res: Response) => {
+    try {
+      const rawUrl = req.body.url;
+      if (!rawUrl) {
+        return res.status(400).json({ error: 'URL is required' });
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+
+      try {
+        const response = await fetch(rawUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 TrafficPulse-Sitemap/2.5',
+            'Accept': 'application/xml,text/xml,application/xhtml+xml,text/html;q=0.9,*/*;q=0.8',
+          },
+          signal: controller.signal,
+          redirect: 'follow',
+        });
+        clearTimeout(timer);
+
+        if (response.ok) {
+          const text = await response.text();
+          if (text.includes('<loc>') || text.includes('<urlset') || text.includes('<sitemapindex') || text.includes('<rss') || text.includes('<url>')) {
+            return res.json({
+              success: true,
+              url: rawUrl,
+              status: response.status,
+              xml: text,
+              length: text.length,
+            });
+          }
+        }
+      } catch {}
+
+      // Fallback via Jina or CORS proxies
+      try {
+        const jRes = await fetch(`https://r.jina.ai/${rawUrl}`, { headers: { 'Accept': 'text/plain' } });
+        if (jRes.ok) {
+          const jTxt = await jRes.text();
+          if (jTxt && jTxt.length > 50) {
+            return res.json({
+              success: true,
+              url: rawUrl,
+              status: 200,
+              xml: jTxt,
+              length: jTxt.length,
+            });
+          }
+        }
+      } catch {}
+
+      return res.status(502).json({ error: 'Failed to retrieve XML sitemap content' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to fetch sitemap' });
     }
   });
 

@@ -500,6 +500,7 @@ export const CrawlerPanel: React.FC<CrawlerPanelProps> = ({
           <div className="flex items-center gap-1.5 flex-wrap pt-1">
             <span className="text-[10px] uppercase font-bold text-slate-500">Quick Test Targets:</span>
             {[
+              { label: 'Forex.com (FX Markets)', url: 'https://www.forex.com' },
               { label: 'Example Domain', url: 'https://example.com' },
               { label: 'Wikipedia', url: 'https://www.wikipedia.org' },
               { label: 'Hacker News', url: 'https://news.ycombinator.com' },
@@ -719,6 +720,115 @@ ${base}/contact | Contact & Support`);
                 >
                   <ListPlus className="w-3 h-3 text-indigo-400" />
                   <span>Sample URL List & Titles</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSitemapInput(`https://www.forex.com/en-ca/help-and-support/liquidation
+https://www.forex.com/en-au/news-and-analysis/nasdaq-100-forecast-magnificent-seven-q3-2025-earnings-preview
+https://www.forex.com/ie/news-and-analysis/bitcoin-takes-shine-from-gold-even-as-pullback-begins
+https://www.forex.com/en/news-and-analysis/gold-q4-2026-outlook-resilience-in-the-face-of-rallying-dollar-and-yields/
+https://www.forex.com/en-ca/help-and-support/market-trading-hours
+https://www.forex.com/en-us/news-and-analysis/gold-q4-2026-outlook-resilience-in-the-face-of-rallying-dollar-and-yields
+https://www.forex.com/en-sg/news-and-analysis/sandp-500-forecast-stocks-remain-on-the-front-foot-after-big-upsurge
+https://www.forex.com/en/gold-silver-trading
+https://www.forex.com/en-sg/cryptocurrency-trading/cryptocurrency-market-hours
+https://www.forex.com/en-ca/trading-guides/what-are-cryptocurrencies
+https://www.forex.com/en-us/news-and-analysis/sandp-500-nasdaq-dow-forecast-wall-street-split-widens-into-month-end-9-26-2026/
+https://www.forex.com/en-sg/news-and-analysis/sandp-500-forecast-spx-rises-as-oil-prices-fall-but-treasuries-remain-at-multi-decade-highs
+https://www.forex.com/en-ca
+https://www.forex.com/en-us/news-and-analysis/sandp-500-nasdaq-dow-forecast-wall-street-split-widens-into-month-end-9-26-2026
+https://www.forex.com/en-sg/news-and-analysis/usd-jpy-q4-2026-outlook-hawkish-fed-pricing-clashes-with-intervention-risk
+https://www.forex.com/en-ca/trading-accounts/compare-trading-accounts
+https://www.forex.com/en-uk
+https://www.forex.com/ie/news-and-analysis/us-jpy-q4-2026-outlook-hawkish-fed-pricing-clashes-with-intervention-risk
+https://www.forex.com/en/news-and-analysis
+https://www.forex.com/en-sg
+https://www.forex.com/en-au/cfd-trading/cfds-vs-investing
+https://www.forex.com/en/glossary
+https://www.forex.com/en-us/trading-academy/courses/fundamental-analysis/central-banks
+https://www.forex.com/en-us/news-and-analysis/eur-usd-weekly-outlook-oil-inflation-and-nfp-in-focus
+https://www.forex.com/en-ca/help-and-support/opening-trading-account
+https://www.forex.com/en-ca/help-and-support/withdrawals
+https://www.forex.com/en-us/news-and-analysis/forex-com-analysts/fawad-razaqzada
+https://www.forex.com/en-ca/help-and-support/metatrader
+https://www.forex.com/en-us/trading-academy/courses/managing-risk/six-steps-to-manage-risk-efficiently
+https://www.forex.com/en/news-and-analysis/usd-jpy-dips-still-being-bid-into-jackson-hole
+https://www.forex.com/en-ca/trading-accounts/standard-trading-account
+https://www.forex.com/cn/markets-to-trade/shares/byd-company
+https://www.forex.com/en-sg/news-and-analysis/euro-short-term-outlook-eur-usd-selloff-nears-critical-yearly-support-9-23-2026
+https://www.forex.com/en-uk/trading-guides/what-is-the-vix
+https://www.forex.com/en/news-and-analysis/gold-price-forecast-xau-usd-avoids-breakdown-as-yields-surged-but-can-it-continue
+https://www.forex.com/en-ca/markets-to-trade
+https://www.forex.com/en/news-and-analysis/gold-2026-outlook-xau-usd-technical-analysis
+https://www.forex.com/en-sg/news-and-analysis/gold-forecast-xau-usd-could-take-a-larger-dive-after-the-big-rise-in-yields
+https://www.forex.com/en-sg/news-and-analysis/gold-q4-2026-outlook-resilience-in-the-face-of-rallying-dollar-and-yields
+https://www.forex.com/en-uk/news-and-analysis/forex-leverage
+https://www.forex.com/en-uk/news-and-analysis/what-are-the-best-technical-indicators
+https://www.forex.com/en-sg/news-and-analysis/sandp-500-nasdaq-dow-forecast-walls-street-split-widens-into-month-end-9-26-2026
+https://www.forex.com/en-ca/about-us/financial-transparency/margin-requirements
+https://www.forex.com/en-us/news-and-analysis/what-are-emerging-markets
+https://www.forex.com/en-ca/help-and-support/funding-your-account
+https://www.forex.com/en-sg/news-and-analysis/gold-forecast-xau-usd-breakout-needs-confirmation
+https://www.forex.com/en-ca/demo-account
+https://www.forex.com/en-ca/lp/raw-fx-pricing-aff/
+https://www.forex.com/en-ca/help-and-support/rollover
+https://www.forex.com/en-sg/news-and-analysis/gold-silver-price-forecast-metals-test-bullish-breakouts-on-us-iran-deal-optimism
+https://www.forex.com/en-us/news-and-analysis/usd-jpy-q4-2026-outlook-hawkish-fed-pricing-clashes-with-intervention-risk
+https://www.forex.com/en-us/trading-guides/how-to-invest-in-the-brazilian-stock-market
+https://www.forex.com/en-uk/news-and-analysis/gold-silver-slammed-as-hawkish-fed-repricing-reignites-dollar-upside
+https://www.forex.com/en/help-and-support/desktop-trading-platform
+https://www.forex.com/en-us/news-and-analysis/usd-jpy-forecast-what-now-after-intervention
+https://www.forex.com/en/news-and-analysis/sandp-500-nasdaq-dow-forecast-wall-street-split-widens-into-month-end-9-26-2026
+https://www.forex.com/en-ca/help-and-support/account-forms
+https://www.forex.com/en-ca/trading-guides/how-to-trade-bitcoin
+https://www.forex.com/en-us/news-and-analysis/gold-price-forecast-xau-usd-avoids-breakdown-as-yields-surged-but-can-it-continue
+https://www.forex.com/en-ca/help-and-support/cfds
+https://www.forex.com/en-sg/news-and-analysis/sandp-500-forecast-spx-falls-after-failed-us-iran-peace-talks-and-strait-blockade-lift-oil-prices
+https://www.forex.com/en-ca/terms-and-policies/risk-disclosure
+https://www.forex.com/en-uk/news-and-analysis/fomc-meeting-preview-fed-to-cut-but-will-powell-end-qt-too
+https://www.forex.com/en-us/news-and-analysis/crypto-outlook-altcoins-lead-the-rally-as-bitcoin-pauses
+https://www.forex.com/en-us/news-and-analysis/ftse-100-trading-guide
+https://www.forex.com/en-sg/news-and-analysis/what-is-news-trading
+https://www.forex.com/ie/cfd-trading
+https://www.forex.com/en/cryptocurrency-trading
+https://www.forex.com/en/gold-silver-trading/xau-usd
+https://www.forex.com/en-sg/news-and-analysis/equity-indices-q4-2026-outlook-cracks-begin-to-show
+https://www.forex.com/ie/news-and-analysis/bitcoin-tests-support-as-gold-rally-falls-flat-falls-to-fomc-lows
+https://www.forex.com/en-us/news-and-analysis
+https://www.forex.com/en-sg/news-and-analysis/dax-crude-oil-forecast-rising-energy-prices-yields-threaten-risk-assets
+https://www.forex.com/en-ca/trading-guides/what-is-cryptocurrency-trading
+https://www.forex.com/en-au/news-and-analysis/crypto-outlook-fears-of-a-more-aggressive-fed-return-to-the-market
+https://www.forex.com/en-uk/gold-silver-trading
+https://www.forex.com/ie/news-and-analysis/eur-usd-nasdaq-price-outlook-reversal-risks-build
+https://www.forex.com/en-us/news-and-analysis/eur-usd-q4-2026-outlook-euro-at-a-crossroads-as-fed-ecb-tighten-9-25-2026
+https://www.forex.com/en-ca/about-us/financial-transparency/trade-prices
+https://www.forex.com/ie/cryptocurrency-trading/why-trade-cryptocurrencies
+https://www.forex.com/ie/glossary/last-trading-day
+https://www.forex.com/en-us/trading-academy/courses/advanced-trading-strategies/interest-rate-trading
+https://www.forex.com/en-sg/news-and-analysis/eur-usd-forecast-undermined-by-energy-shock-ahead-of-fomc
+https://www.forex.com/en-us
+https://www.forex.com/en-ca/trading-academy
+https://www.forex.com/en/news-and-analysis/japanese-yen-forecast-usd-jpy-4pct-rally-challenges-post-intervention-downtrend-9-24-2026
+https://www.forex.com/en-ca/help-and-support/pricing-and-fees
+https://www.forex.com/en-sg/news-and-analysis/usd-jpy-outlook-hawkish-fed-recalibration-pressures-the-yen
+https://www.forex.com/en-us/news-and-analysis/bitcoin-analysis-btc-plunges-below-70k
+https://www.forex.com/en
+https://www.forex.com/ie/news-and-analysis/sandp-500-forecast-stocks-extend-drop-as-correction-risks-grow
+https://www.forex.com/en-us/news-and-analysis/tags/metals
+https://www.forex.com/en-ca/forex-trading
+https://www.forex.com/en-us/trading-guides/scalp-trading-forex
+https://www.forex.com/en/trading-guides/hang-seng-index-trading-guide
+https://www.forex.com/en-ca/help-and-support/orders-and-execution
+https://www.forex.com/en-sg/news-and-analysis/japanese-yen-forecast-usd-jpy-4pct-rally-challenges-post-intervention-downtrend-9-24-2026
+https://www.forex.com/en-us/raw-pricing-demo-account
+https://www.forex.com/en-uk/news-and-analysis/cac-40-trading-guide
+https://www.forex.com/en-sg/news-and-analysis/us-dollar-rallies-on-hawkish-fed-hike-though-upside-could-be-limited-9-16-2026`);
+                  }}
+                  className="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 transition-colors font-mono cursor-pointer flex items-center gap-1"
+                >
+                  <FileText className="w-3 h-3 text-emerald-400" />
+                  <span>Insert Forex.com URLs (100+)</span>
                 </button>
               </div>
 

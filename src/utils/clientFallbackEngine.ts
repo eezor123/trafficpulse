@@ -160,9 +160,10 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
   gtmId?: string;
 }> {
   const browserResilientFetch: FetchFunction = async (url: string, timeoutMs = 6000) => {
-    // 1. High-speed local server proxy (direct backend relay) + CORS proxy fallbacks
+    // 1. High-speed local server proxy (direct backend relay) + Jina Cloudflare bypass + CORS proxy fallbacks
     const proxies = [
       `/api/proxy?url=${encodeURIComponent(url)}`,
+      `https://r.jina.ai/${url}`,
       `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
       `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
       `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
@@ -186,12 +187,18 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
     return { ok: false, status: 0, text: '' };
   };
 
-  const crawlResult = await executeUniversalCrawl(targetUrl, 2, 1000, browserResilientFetch);
+  const safeTargetUrl = targetUrl.startsWith('http') || targetUrl.startsWith('/') ? targetUrl : `https://${targetUrl}`;
+  const crawlResult = await executeUniversalCrawl(safeTargetUrl, 2, 1000, browserResilientFetch);
+
+  let fallbackHostname = 'target-site.com';
+  try {
+    fallbackHostname = safeTargetUrl.startsWith('http') ? new URL(safeTargetUrl).hostname : targetUrl.replace(/\/.*$/, '');
+  } catch {}
 
   if (crawlResult.pages.length <= 1) {
-    const fallback = getClientSideCrawledPages(targetUrl);
+    const fallback = getClientSideCrawledPages(safeTargetUrl);
     return {
-      title: crawlResult.title || `${new URL(targetUrl).hostname} - Catalog`,
+      title: crawlResult.title || `${fallbackHostname} - Catalog`,
       description: crawlResult.description || `Verified routes for ${targetUrl}`,
       pages: fallback,
       gaMeasurementId: crawlResult.gaMeasurementId || undefined,

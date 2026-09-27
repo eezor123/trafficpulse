@@ -99,6 +99,21 @@ export function categorizeRoute(pathOrUrl: string): 'post' | 'category' | 'page'
     lower.includes('post') ||
     lower.includes('/article') ||
     lower.includes('/news/') ||
+    lower.includes('/news-and-analysis') ||
+    lower.includes('/help-and-support') ||
+    lower.includes('/trading-guides') ||
+    lower.includes('/trading-academy') ||
+    lower.includes('/trading-tools') ||
+    lower.includes('/trading-platforms') ||
+    lower.includes('/forecast') ||
+    lower.includes('/outlook') ||
+    lower.includes('/analysis') ||
+    lower.includes('/liquidation') ||
+    lower.includes('/market-trading') ||
+    lower.includes('/forex-trading') ||
+    lower.includes('/commodity-trading') ||
+    lower.includes('/cryptocurrency-trading') ||
+    lower.includes('/gold-silver-trading') ||
     lower.includes('/blog/') ||
     lower.includes('/listing/') ||
     lower.includes('/product/') ||
