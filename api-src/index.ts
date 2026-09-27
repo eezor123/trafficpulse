@@ -24,6 +24,7 @@ import {
   sendVerificationOtpEmail,
   getEmailProviderStatus,
 } from '../src/server/emailService.ts';
+import { writeUserTrafficToFirestore } from '../src/lib/firebase.ts';
 
 dotenv.config();
 
@@ -230,6 +231,219 @@ router.post('/auth/set-traffic', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Failed setting traffic balance' });
+  }
+});
+
+// Admin endpoint: Assign traffic credits to a member
+router.post('/auth/assign-traffic', async (req: Request, res: Response) => {
+  const { userId, email, additionalTraffic, visitsToAdd, markAsPaid = true, newTier, tier } = req.body;
+  const trafficNum = Number(additionalTraffic ?? visitsToAdd ?? 0);
+  if ((!userId && !email) || isNaN(trafficNum) || trafficNum <= 0) {
+    return res.status(400).json({ success: false, error: 'Valid user identifier and positive traffic amount are required.' });
+  }
+  try {
+    const all = await listAllMembers(true);
+    const cleanTarget = String(userId || email).trim().toLowerCase();
+    const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+    let target = all.find(m =>
+      (userId && m.id === userId) ||
+      (cleanEmail && m.email.toLowerCase() === cleanEmail) ||
+      m.email.toLowerCase() === cleanTarget ||
+      ((m as any).uid && (m as any).uid === userId)
+    );
+    if (!target) {
+      target = (userId ? await findMember(userId, true) : null) || (cleanEmail ? await findMember(cleanEmail, true) : null) || await findMember(cleanTarget, true);
+    }
+    if (!target) {
+      return res.status(404).json({ success: false, error: `Member "${userId || email}" not found on server.` });
+    }
+
+    target.trafficBalance = (target.trafficBalance || 0) + trafficNum;
+    target.totalTrafficAssigned = (target.totalTrafficAssigned || 0) + trafficNum;
+    target.updatedAt = Date.now();
+
+    if (markAsPaid) {
+      target.isPaidUser = true;
+      target.trafficStatus = 'paid_active';
+    } else if (!target.isPaidUser) {
+      target.trafficStatus = 'trial_active';
+    }
+
+    const assignedTier = newTier || tier;
+    if (assignedTier) {
+      target.tier = assignedTier;
+    }
+
+    await persistMember(target);
+
+    writeUserTrafficToFirestore(target.id, target.trafficBalance, {
+      totalTrafficAssigned: target.totalTrafficAssigned,
+      isPaidUser: target.isPaidUser,
+      trafficStatus: target.trafficStatus,
+      tier: target.tier,
+      email: target.email,
+      name: target.name,
+    }).catch(err => console.warn('[SERVER] Async Firestore write error:', err));
+
+    const { passwordHash: _, ...safeUser } = target;
+    return res.json({
+      success: true,
+      user: safeUser,
+      message: `Successfully assigned +${trafficNum.toLocaleString()} traffic visits to ${target.name}. New Balance: ${target.trafficBalance.toLocaleString()} visits.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed assigning traffic' });
+  }
+});
+
+// Dedicated traffic deduction endpoint - permanently persists credit consumption
+router.post('/auth/deduct-traffic', async (req: Request, res: Response) => {
+  const { userId, email, amount = 1, totalVisitsGenerated } = req.body;
+  if (!userId && !email) {
+    return res.status(400).json({ success: false, error: 'User identifier or email is required.' });
+  }
+
+  try {
+    const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+    const cleanId = userId ? String(userId).trim() : '';
+    let member = (cleanEmail ? await findMember(cleanEmail, true) : null) || (cleanId ? await findMember(cleanId, true) : null);
+
+    if (!member) {
+      const all = await listAllMembers(true);
+      member = all.find(m =>
+        (cleanEmail && m.email.toLowerCase() === cleanEmail) ||
+        (cleanId && (m.id === cleanId || (m as any).uid === cleanId))
+      ) || null;
+    }
+
+    if (!member) {
+      return res.status(404).json({ success: false, error: 'Member account not found.' });
+    }
+
+    // Super Admins have permanent unlimited traffic
+    if (member.role === 'admin' || (member.email && (member.email.toLowerCase() === 'saroneedam@gmail.com' || member.email.toLowerCase() === 'saroneedam@yahoo.com'))) {
+      return res.json({
+        success: true,
+        trafficBalance: 10000000,
+        totalTrafficAssigned: 10000000,
+        trafficStatus: 'unlimited',
+        exhausted: false,
+      });
+    }
+
+    const deductAmount = Math.max(0, Number(amount || 0));
+    let currentBal = member.trafficBalance !== undefined ? Number(member.trafficBalance) : 100;
+
+    if (deductAmount > 0) {
+      currentBal = Math.max(0, currentBal - deductAmount);
+    }
+
+    member.trafficBalance = currentBal;
+    member.totalVisitsGenerated = Math.max(
+      Number(member.totalVisitsGenerated || 0) + deductAmount,
+      Number(totalVisitsGenerated || 0)
+    );
+
+    if (member.trafficBalance <= 0) {
+      member.trafficBalance = 0;
+      member.trafficStatus = member.isPaidUser ? 'paid_exhausted' : 'trial_exhausted';
+    } else {
+      member.trafficStatus = member.isPaidUser ? 'paid_active' : 'trial_active';
+    }
+
+    member.updatedAt = Date.now();
+    await persistMember(member);
+
+    writeUserTrafficToFirestore(member.id, member.trafficBalance, {
+      totalTrafficAssigned: member.totalTrafficAssigned,
+      isPaidUser: member.isPaidUser,
+      trafficStatus: member.trafficStatus,
+      tier: member.tier,
+      email: member.email,
+      name: member.name,
+    }).catch(err => console.warn('[SERVER] Firestore deduct write note:', err));
+
+    return res.json({
+      success: true,
+      trafficBalance: member.trafficBalance,
+      totalVisitsGenerated: member.totalVisitsGenerated,
+      trafficStatus: member.trafficStatus,
+      isPaidUser: member.isPaidUser,
+      exhausted: member.trafficBalance <= 0,
+    });
+  } catch (err: any) {
+    console.error('[SERVER] Deduct traffic error:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to deduct traffic visits' });
+  }
+});
+
+// Admin endpoint: Reset user traffic back to trial quota
+router.post('/auth/reset-traffic', async (req: Request, res: Response) => {
+  const { userId, email } = req.body;
+  if (!userId && !email) return res.status(400).json({ success: false, error: 'userId or email is required' });
+  try {
+    const all = await listAllMembers(true);
+    const cleanTarget = String(userId || email).trim().toLowerCase();
+    const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+    let target = all.find(m =>
+      (userId && m.id === userId) ||
+      (cleanEmail && m.email.toLowerCase() === cleanEmail) ||
+      m.email.toLowerCase() === cleanTarget
+    ) || (userId ? await findMember(userId, true) : null) || (cleanEmail ? await findMember(cleanEmail, true) : null) || await findMember(cleanTarget, true);
+    if (!target) return res.status(404).json({ success: false, error: 'Member not found' });
+
+    const quota = getServerConfig().defaultTrialQuota;
+    target.trafficBalance = quota;
+    target.totalTrafficAssigned = quota;
+    target.isPaidUser = false;
+    target.trafficStatus = quota <= 0 ? 'trial_exhausted' : 'trial_active';
+    target.updatedAt = Date.now();
+    await persistMember(target);
+
+    writeUserTrafficToFirestore(target.id, quota, {
+      totalTrafficAssigned: quota,
+      isPaidUser: false,
+      trafficStatus: target.trafficStatus,
+      tier: target.tier,
+      email: target.email,
+      name: target.name,
+    }).catch(err => console.warn('[SERVER] Reset Firestore write note:', err));
+
+    const { passwordHash: _, ...safeUser } = target;
+    res.json({ success: true, user: safeUser, message: `Reset ${target.name}'s balance to ${quota} visits.` });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed resetting member' });
+  }
+});
+
+// Admin endpoint: Toggle member paid status
+router.post('/auth/toggle-paid', async (req: Request, res: Response) => {
+  const { userId, isPaid } = req.body;
+  if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
+  try {
+    const all = await listAllMembers(true);
+    const cleanTarget = String(userId).trim().toLowerCase();
+    let target = all.find(m => m.id === userId || m.email.toLowerCase() === cleanTarget) || await findMember(cleanTarget, true);
+    if (!target) return res.status(404).json({ success: false, error: 'Member not found' });
+
+    target.isPaidUser = Boolean(isPaid);
+    target.trafficStatus = isPaid ? 'paid_active' : 'trial_active';
+    target.updatedAt = Date.now();
+    await persistMember(target);
+
+    writeUserTrafficToFirestore(target.id, target.trafficBalance || 0, {
+      totalTrafficAssigned: target.totalTrafficAssigned,
+      isPaidUser: target.isPaidUser,
+      trafficStatus: target.trafficStatus,
+      tier: target.tier,
+      email: target.email,
+      name: target.name,
+    }).catch(err => console.warn('[SERVER] Toggle paid Firestore write note:', err));
+
+    const { passwordHash: _, ...safeUser } = target;
+    res.json({ success: true, user: safeUser, isPaid: target.isPaidUser });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to toggle paid status' });
   }
 });
 

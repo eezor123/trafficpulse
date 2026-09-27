@@ -151,6 +151,37 @@ export function saveAuthSession(user: MemberUser, token: string) {
       token,
     };
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+
+    // Keep members database in localStorage synchronized with active session user
+    try {
+      const raw = localStorage.getItem(MEMBERS_DB_KEY);
+      let list: any[] = [];
+      if (raw) {
+        try { list = JSON.parse(raw) || []; } catch {}
+      }
+      if (Array.isArray(list)) {
+        const cleanEmail = user.email?.toLowerCase();
+        const idx = list.findIndex(m => m.id === user.id || (cleanEmail && m.email?.toLowerCase() === cleanEmail));
+        if (idx !== -1) {
+          list[idx] = {
+            ...list[idx],
+            ...user,
+            trafficBalance: user.trafficBalance !== undefined ? user.trafficBalance : list[idx].trafficBalance,
+            totalTrafficAssigned: user.totalTrafficAssigned !== undefined ? user.totalTrafficAssigned : list[idx].totalTrafficAssigned,
+            isPaidUser: user.isPaidUser !== undefined ? user.isPaidUser : list[idx].isPaidUser,
+            trafficStatus: user.trafficStatus || list[idx].trafficStatus,
+            updatedAt: user.updatedAt || Date.now(),
+          };
+        } else {
+          list.push({
+            ...user,
+            passwordHash: '',
+            updatedAt: user.updatedAt || Date.now(),
+          });
+        }
+        localStorage.setItem(MEMBERS_DB_KEY, JSON.stringify(list));
+      }
+    } catch {}
   } catch (e) {
     console.warn('Failed saving auth session:', e);
   }
@@ -1161,22 +1192,38 @@ export async function flushTrafficDeductionsToServerAndCloud(): Promise<void> {
   const user = auth.user;
   const currentBal = Number(user.trafficBalance ?? 0);
   const visitsGen = Number(user.totalVisitsGenerated ?? 0);
-  const amountToSync = Math.max(1, pendingDeductionAmount);
+  const amountToSync = pendingDeductionAmount;
   pendingDeductionAmount = 0;
+
+  if (amountToSync <= 0 && currentBal > 0) {
+    return;
+  }
 
   // 1. Persist to server API
   try {
-    await fetch('/api/auth/deduct-traffic', {
+    const res = await fetch('/api/auth/deduct-traffic', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: user.id,
         email: user.email,
-        amount: amountToSync,
+        amount: Math.max(1, amountToSync),
         clientBalance: currentBal,
         totalVisitsGenerated: visitsGen,
       }),
     });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && typeof data.trafficBalance === 'number') {
+        // If server returns a higher balance (e.g. admin assigned credits), adopt the server balance!
+        if (data.trafficBalance > currentBal) {
+          user.trafficBalance = data.trafficBalance;
+          if (data.trafficStatus) user.trafficStatus = data.trafficStatus;
+          saveAuthSession(user, auth.token || 'tok_valid');
+          broadcastSessionRefresh(user);
+        }
+      }
+    }
   } catch (err) {
     console.warn('[AUTH] Server deduction sync deferred:', err);
   }
@@ -1253,72 +1300,101 @@ export function deductTrafficCredit(amount: number = 1): {
   }
 
   const members = getStoredMembers();
-  const match = members.find(m => m.id === auth.user?.id || m.email.toLowerCase() === auth.user?.email.toLowerCase());
+  let matchIndex = members.findIndex(m => m.id === auth.user?.id || (auth.user?.email && m.email?.toLowerCase() === auth.user.email.toLowerCase()));
 
-  if (!match) {
-    return {
-      allowed: false,
-      remaining: 0,
-      exhausted: true,
-      isPaid: false,
-      user: auth.user,
-    };
-  }
+  // Authoritative Effective Balance:
+  // MUST use the highest valid balance available across the active session and stored members.
+  // This guarantees that newly assigned credits from Admin (e.g. 5,000) are NEVER overwritten
+  // by a stale 0 balance in local storage when the user clicks Launch!
+  const sessionBal = auth.user.trafficBalance !== undefined && auth.user.trafficBalance !== null ? Number(auth.user.trafficBalance) : 0;
+  const matchBal = matchIndex !== -1 && members[matchIndex].trafficBalance !== undefined && members[matchIndex].trafficBalance !== null
+    ? Number(members[matchIndex].trafficBalance)
+    : 0;
 
-  // Initialize balance if missing
-  if (match.trafficBalance === undefined || match.trafficBalance === null) {
-    match.trafficBalance = 100;
-    match.totalTrafficAssigned = 100;
-    match.isPaidUser = false;
-    match.trafficStatus = 'trial_active';
-  }
+  let currentBalance = Math.max(sessionBal, matchBal);
+  const isPaid = Boolean(auth.user.isPaidUser || (matchIndex !== -1 && members[matchIndex].isPaidUser));
+  const currentAssigned = Math.max(
+    Number(auth.user.totalTrafficAssigned || 0),
+    matchIndex !== -1 ? Number(members[matchIndex].totalTrafficAssigned || 0) : 0,
+    currentBalance
+  );
 
-  // Check if balance is already exhausted
-  if (match.trafficBalance <= 0) {
-    match.trafficBalance = 0;
-    match.trafficStatus = match.isPaidUser ? 'paid_exhausted' : 'trial_exhausted';
-    saveMembers(members);
-
+  // If user truly has zero or negative balance, they cannot launch traffic
+  if (currentBalance <= 0) {
+    const exhaustedStatus = isPaid ? 'paid_exhausted' : 'trial_exhausted';
     auth.user.trafficBalance = 0;
-    auth.user.trafficStatus = match.trafficStatus;
+    auth.user.trafficStatus = exhaustedStatus;
+    auth.user.isPaidUser = isPaid;
     saveAuthSession(auth.user, auth.token || 'tok_valid');
 
-    // Ensure exhaustion is written to server and cloud immediately
-    queueTrafficDeductionSync(0, true);
+    if (matchIndex !== -1) {
+      members[matchIndex].trafficBalance = 0;
+      members[matchIndex].trafficStatus = exhaustedStatus;
+      members[matchIndex].isPaidUser = isPaid;
+      saveMembers(members);
+    }
 
     return {
       allowed: false,
       remaining: 0,
       exhausted: true,
-      isPaid: !!match.isPaidUser,
+      isPaid,
       user: auth.user,
     };
   }
 
-  // Deduct credit
-  match.trafficBalance = Math.max(0, match.trafficBalance - amount);
-  match.totalVisitsGenerated = (match.totalVisitsGenerated || 0) + amount;
-  const isExhausted = match.trafficBalance <= 0;
-  if (isExhausted) {
-    match.trafficStatus = match.isPaidUser ? 'paid_exhausted' : 'trial_exhausted';
+  // User has positive balance (> 0). Deduct for this visitor:
+  const deductUnits = Math.max(1, amount);
+  const remaining = Math.max(0, currentBalance - deductUnits);
+  const currentVisits = Math.max(
+    Number(auth.user.totalVisitsGenerated || 0),
+    matchIndex !== -1 ? Number(members[matchIndex].totalVisitsGenerated || 0) : 0
+  );
+  const newVisits = currentVisits + deductUnits;
+  const isNowExhausted = remaining <= 0;
+  const newStatus = isNowExhausted
+    ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
+    : (isPaid ? 'paid_active' : 'trial_active');
+
+  // Update session
+  auth.user.trafficBalance = remaining;
+  auth.user.totalTrafficAssigned = currentAssigned;
+  auth.user.totalVisitsGenerated = newVisits;
+  auth.user.trafficStatus = newStatus;
+  auth.user.isPaidUser = isPaid;
+  saveAuthSession(auth.user, auth.token || 'tok_valid');
+
+  // Update members array
+  if (matchIndex !== -1) {
+    members[matchIndex] = {
+      ...members[matchIndex],
+      trafficBalance: remaining,
+      totalTrafficAssigned: currentAssigned,
+      totalVisitsGenerated: newVisits,
+      trafficStatus: newStatus,
+      isPaidUser: isPaid,
+    };
+  } else {
+    members.push({
+      ...auth.user,
+      passwordHash: '',
+      trafficBalance: remaining,
+      totalTrafficAssigned: currentAssigned,
+      totalVisitsGenerated: newVisits,
+      trafficStatus: newStatus,
+      isPaidUser: isPaid,
+    });
   }
   saveMembers(members);
 
-  // Sync to current active session
-  auth.user.trafficBalance = match.trafficBalance;
-  auth.user.totalVisitsGenerated = match.totalVisitsGenerated;
-  auth.user.trafficStatus = match.trafficStatus;
-  auth.user.isPaidUser = match.isPaidUser;
-  saveAuthSession(auth.user, auth.token || 'tok_valid');
-
-  // Trigger real-time sync: immediate if exhausted, debounced while running
-  queueTrafficDeductionSync(amount, isExhausted);
+  // Queue background synchronization to server API and Firestore
+  queueTrafficDeductionSync(deductUnits, isNowExhausted);
 
   return {
-    allowed: !isExhausted,
-    remaining: match.trafficBalance,
-    exhausted: isExhausted,
-    isPaid: !!match.isPaidUser,
+    allowed: true, // This visitor is permitted because balance was > 0
+    remaining,
+    exhausted: isNowExhausted,
+    isPaid,
     user: auth.user,
   };
 }

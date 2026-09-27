@@ -367,13 +367,11 @@ async function startServer() {
         });
       }
 
-      const deductAmount = Math.max(1, Number(amount || 1));
+      const deductAmount = Math.max(0, Number(amount || 0));
       let currentBal = member.trafficBalance !== undefined ? Number(member.trafficBalance) : 100;
 
-      // If client provides an explicit remaining balance, take the minimum of current server balance and client balance
-      if (clientBalance !== undefined && !isNaN(Number(clientBalance))) {
-        currentBal = Math.min(currentBal, Math.max(0, Number(clientBalance)));
-      } else {
+      // Authoritative deduction: subtract actual visits dispatched from current balance
+      if (deductAmount > 0) {
         currentBal = Math.max(0, currentBal - deductAmount);
       }
 
@@ -390,6 +388,7 @@ async function startServer() {
         member.trafficStatus = member.isPaidUser ? 'paid_active' : 'trial_active';
       }
 
+      member.updatedAt = Date.now();
       await persistMember(member);
 
       // Immediately write new consumed balance to Firestore cloud database

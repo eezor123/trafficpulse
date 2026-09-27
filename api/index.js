@@ -205,155 +205,6 @@ function isCleanPublicPage(testPath, testTitle = "") {
   }
   return true;
 }
-function generateDomainAdaptivePages(targetUrl, hostname, origin, gaMeasurementId, gtmId, siteTitle, siteDesc) {
-  const lowerHost = hostname.toLowerCase();
-  const lowerUrl = targetUrl.toLowerCase();
-  const gaDetected = !!gaMeasurementId || !!gtmId;
-  const rawBrand = siteTitle && siteTitle.length < 35 && !siteTitle.includes("|") && !siteTitle.includes("-") ? siteTitle.trim() : hostname.replace(/^(?:www\.|jobs\.|careers\.|blog\.|app\.|shop\.)/i, "").replace(/\.[a-z.]+$/i, "");
-  const brandName = rawBrand ? rawBrand.charAt(0).toUpperCase() + rawBrand.slice(1) : "Platform";
-  if (lowerHost.includes("job") || lowerHost.includes("career") || lowerHost.includes("work") || lowerHost.includes("vacancy") || lowerHost.includes("hire") || lowerHost.includes("talent") || lowerHost.includes("eezor") || lowerUrl.includes("job")) {
-    const jobPaths = [
-      // Live Member-Created & User-Posted Listings (From Member Submissions)
-      { path: "/?job=job_1787164089747", title: "Male Barbecue sales person is urgently needed", cat: "post", weight: 99 },
-      { path: "/?job=job_1785681865131", title: "Social Media & Community Engagement Manager for Tech Hub", cat: "post", weight: 98 },
-      { path: "/?job=job_1784920193847", title: "Executive Virtual Assistant & WhatsApp Client Support Specialist", cat: "post", weight: 98 },
-      { path: "/?job=job_1783419082918", title: "Urgent: Dispatch Rider with Valid Riders Card (Lagos Island & Ikeja)", cat: "post", weight: 97 },
-      { path: "/?job=job_1782019482710", title: "Barista and Cafe Supervisor for Artisan Coffee House (Victoria Island)", cat: "post", weight: 97 },
-      // Core Verified Catalog Job Listings
-      { path: "/?job=job_101", title: "Mobile App Developer for Dispatch Rider Tracking System", cat: "post", weight: 96 },
-      { path: "/?job=job_102", title: "Brand Identity & Web UI/UX for Abuja Federal Contractor Portal", cat: "post", weight: 96 },
-      { path: "/?job=job_103", title: "15kVA Commercial Solar & Lithium Battery Setup in Trans-Amadi", cat: "post", weight: 95 },
-      { path: "/?job=job_104", title: "Tax Compliance & Audit Specialist for Enugu Tech Startup", cat: "post", weight: 95 },
-      { path: "/?job=job_105", title: "Urgently Needed: Full-Stack Next.js & Stripe/Paystack Engineer", cat: "post", weight: 96 },
-      { path: "/?job=job_106", title: "Social Media Content Creator & Video Editor for Skincare Brand", cat: "post", weight: 94 },
-      { path: "/?job=job_107", title: "Flutterwave & Monnify Virtual Account Payment Specialist", cat: "post", weight: 95 },
-      { path: "/?job=job_108", title: "Corporate Legal Advisor for Tech Startup Incorporation & NDPR", cat: "post", weight: 93 },
-      { path: "/?job=job_109", title: "Executive Real Estate Architectural Renderings & 3D Flythrough", cat: "post", weight: 94 },
-      { path: "/?job=job_110", title: "Hospitality CCTV & Biometric Access Control Installation Lead", cat: "post", weight: 94 },
-      { path: "/?job=job_111", title: "High-Scale PostgreSQL Database Administrator & Query Optimization", cat: "post", weight: 95 },
-      { path: "/?job=job_112", title: "E-commerce SEO Audit & Conversion Rate Optimization (CRO)", cat: "post", weight: 94 },
-      { path: "/?job=job_113", title: "Solar Inverter System Installation & Farm Automation Control", cat: "post", weight: 93 },
-      { path: "/?job=job_114", title: "Textile E-commerce Store & Hausa Multi-language UI Development", cat: "post", weight: 93 },
-      { path: "/?job=job_115", title: "Offshore Logistics Fleet Tracking & Petroleum Inventory Dashboard", cat: "post", weight: 94 },
-      { path: "/?job=job_116", title: "Hospitality Management Software & POS Integration for Owerri Hotel", cat: "post", weight: 94 },
-      // Category Hubs & Structural Portals
-      { path: "/jobs", title: `All Open Vacancies | ${brandName}`, cat: "category", weight: 95 },
-      { path: "/jobs/remote", title: "Remote & Hybrid Opportunities", cat: "category", weight: 94 },
-      { path: "/jobs/engineering", title: "Software & Technology Roles", cat: "category", weight: 90 },
-      { path: "/jobs/product", title: "Product & Design Positions", cat: "category", weight: 88 },
-      { path: "/jobs/marketing", title: "Marketing & Sales Opportunities", cat: "category", weight: 86 },
-      { path: "/companies", title: "Hiring Companies & Employers", cat: "page", weight: 85 },
-      { path: "/salaries", title: "Compensation Benchmarks & Salaries", cat: "page", weight: 82 },
-      { path: "/post-job", title: "Post a Job Opening", cat: "page", weight: 85 },
-      { path: "/about", title: `About ${brandName}`, cat: "page", weight: 75 },
-      { path: "/contact", title: "Candidate & Employer Support", cat: "page", weight: 70 },
-      { path: "/faq", title: "Frequently Asked Questions", cat: "page", weight: 70 },
-      { path: "/terms", title: "Terms of Service", cat: "page", weight: 60 },
-      { path: "/privacy", title: "Privacy Policy", cat: "page", weight: 60 }
-    ];
-    return jobPaths.map((item, idx) => ({
-      id: `synth_job_${idx + 1}`,
-      url: `${origin}${item.path}`,
-      path: item.path,
-      title: item.title,
-      description: `[Career Portal] ${item.title}`,
-      depth: item.path.split("/").filter(Boolean).length || 1,
-      status: 200,
-      includedInVisits: true,
-      visitWeight: item.weight,
-      gaDetected,
-      category: item.cat
-    }));
-  }
-  if (lowerHost.includes("shop") || lowerHost.includes("store") || lowerHost.includes("cart") || lowerHost.includes("market") || lowerHost.includes("buy")) {
-    const commercePaths = [
-      { path: "/products", title: "All Products & Catalog", cat: "category", weight: 90 },
-      { path: "/categories", title: "Product Categories", cat: "category", weight: 88 },
-      { path: "/category/electronics", title: "Electronics & Gadgets", cat: "category", weight: 85 },
-      { path: "/category/fashion", title: "Fashion & Apparel", cat: "category", weight: 85 },
-      { path: "/category/home", title: "Home & Living Essentials", cat: "category", weight: 80 },
-      { path: "/featured", title: "Featured Deals & Specials", cat: "post", weight: 95 },
-      { path: "/deals", title: "Daily Discount Offers", cat: "post", weight: 92 },
-      { path: "/bestsellers", title: "Bestselling Items", cat: "post", weight: 94 },
-      { path: "/reviews", title: "Customer Reviews & Ratings", cat: "page", weight: 75 },
-      { path: "/about", title: "About Our Store", cat: "page", weight: 70 },
-      { path: "/contact", title: "Customer Support & Contact", cat: "page", weight: 70 },
-      { path: "/shipping", title: "Shipping & Delivery Policy", cat: "page", weight: 65 },
-      { path: "/faq", title: "Frequently Asked Questions", cat: "page", weight: 65 },
-      { path: "/terms", title: "Terms of Service", cat: "page", weight: 60 },
-      { path: "/privacy", title: "Privacy Policy", cat: "page", weight: 60 }
-    ];
-    return commercePaths.map((item, idx) => ({
-      id: `synth_store_${idx + 1}`,
-      url: `${origin}${item.path}`,
-      path: item.path,
-      title: item.title,
-      description: `[Store Catalog] ${item.title}`,
-      depth: item.path.split("/").filter(Boolean).length || 1,
-      status: 200,
-      includedInVisits: true,
-      visitWeight: item.weight,
-      gaDetected,
-      category: item.cat
-    }));
-  }
-  if (lowerHost.includes("blog") || lowerHost.includes("news") || lowerHost.includes("times") || lowerHost.includes("post") || lowerHost.includes("daily") || lowerHost.includes("press") || lowerHost.includes("tech")) {
-    const publicationPaths = [
-      { path: "/latest", title: "Latest Breaking Headlines", cat: "category", weight: 95 },
-      { path: "/trending", title: "Trending Stories & Topics", cat: "category", weight: 92 },
-      { path: "/category/technology", title: "Technology & Innovation", cat: "category", weight: 88 },
-      { path: "/category/business", title: "Business & Economy Insights", cat: "category", weight: 88 },
-      { path: "/category/market-analysis", title: "Market & Industry Analysis", cat: "category", weight: 85 },
-      { path: "/category/opinions", title: "Editorial & Opinion Columns", cat: "category", weight: 82 },
-      { path: "/category/features", title: "In-Depth Feature Reports", cat: "category", weight: 85 },
-      { path: "/archive", title: "Publication Archives", cat: "archive", weight: 70 },
-      { path: "/authors", title: "Contributing Authors & Journalists", cat: "page", weight: 75 },
-      { path: "/about", title: "About the Publication", cat: "page", weight: 70 },
-      { path: "/contact", title: "Newsroom Contact & Submissions", cat: "page", weight: 70 },
-      { path: "/newsletter", title: "Daily Digest Newsletter", cat: "page", weight: 75 },
-      { path: "/privacy", title: "Privacy Policy", cat: "page", weight: 60 }
-    ];
-    return publicationPaths.map((item, idx) => ({
-      id: `synth_news_${idx + 1}`,
-      url: `${origin}${item.path}`,
-      path: item.path,
-      title: item.title,
-      description: `[Editorial Desk] ${item.title}`,
-      depth: item.path.split("/").filter(Boolean).length || 1,
-      status: 200,
-      includedInVisits: true,
-      visitWeight: item.weight,
-      gaDetected,
-      category: item.cat
-    }));
-  }
-  const defaultPaths = [
-    { path: "/features", title: "Platform Features & Architecture", cat: "page", weight: 85 },
-    { path: "/services", title: "Core Services & Capabilities", cat: "page", weight: 85 },
-    { path: "/solutions", title: "Enterprise & Individual Solutions", cat: "page", weight: 82 },
-    { path: "/pricing", title: "Plans, Pricing & Tiers", cat: "product", weight: 90 },
-    { path: "/about", title: "About Company & Mission", cat: "page", weight: 75 },
-    { path: "/contact", title: "Contact Us & Customer Support", cat: "page", weight: 75 },
-    { path: "/blog", title: "Company Blog & Updates", cat: "category", weight: 88 },
-    { path: "/faq", title: "Frequently Asked Questions", cat: "page", weight: 70 },
-    { path: "/docs", title: "Product Documentation & Guides", cat: "page", weight: 85 },
-    { path: "/terms", title: "Terms of Service", cat: "page", weight: 60 },
-    { path: "/privacy", title: "Privacy Policy", cat: "page", weight: 60 }
-  ];
-  return defaultPaths.map((item, idx) => ({
-    id: `synth_gen_${idx + 1}`,
-    url: `${origin}${item.path}`,
-    path: item.path,
-    title: item.title,
-    description: `[Core Pathway] ${item.title}`,
-    depth: 1,
-    status: 200,
-    includedInVisits: true,
-    visitWeight: item.weight,
-    gaDetected,
-    category: item.cat
-  }));
-}
 function extractRoutesFromDeepObject(obj, origin, hostname, discoveredPaths, discoveredPages, maxLinks, gaMeasurementId, gtmId, currentDepth = 0) {
   if (!obj || currentDepth > 5 || discoveredPages.length >= maxLinks) return;
   if (Array.isArray(obj)) {
@@ -443,27 +294,64 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
   const ogTitleMatch = primaryHtml.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) || primaryHtml.match(/<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["']/i);
   const standardTitleMatch = primaryHtml.match(/<title[^>]*>([^<]+)<\/title>/i);
   const rawTitle = ogTitleMatch ? ogTitleMatch[1].trim() : standardTitleMatch ? standardTitleMatch[1].trim() : `${hostname} - Home`;
-  const title = rawTitle.replace(/&amp;/g, "&").replace(/&#8217;/g, "'").replace(/&#8211;/g, "-").replace(/<[^>]*>/g, "").trim();
+  let title = rawTitle.replace(/&amp;/g, "&").replace(/&#8217;/g, "'").replace(/&#8211;/g, "-").replace(/<[^>]*>/g, "").trim();
   const descMatch = primaryHtml.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) || primaryHtml.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i) || primaryHtml.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i);
   const rawDesc = descMatch ? descMatch[1].trim() : `Main website for ${hostname}`;
-  const description = rawDesc.replace(/&amp;/g, "&").replace(/&#8217;/g, "'").replace(/&#8211;/g, "-").replace(/<[^>]*>/g, "").trim();
+  let description = rawDesc.replace(/&amp;/g, "&").replace(/&#8217;/g, "'").replace(/&#8211;/g, "-").replace(/<[^>]*>/g, "").trim();
+  if (statusCode >= 400 || !primaryHtml || title.includes("403") || title.includes("Forbidden") || title.includes("Just a moment") || title.includes("Attention Required")) {
+    try {
+      const wpRootRes = await fetchFn(`${origin}/wp-json`, 4e3);
+      if (wpRootRes.ok && wpRootRes.text) {
+        try {
+          const wpData = JSON.parse(wpRootRes.text);
+          if (wpData.name) {
+            title = wpData.name;
+          }
+          if (wpData.description) {
+            description = wpData.description;
+          }
+        } catch {
+        }
+      }
+    } catch {
+    }
+  }
   const ga4Regexes = [
-    /G-[A-Z0-9]{7,15}/i,
-    /gtag\(['"]config['"],\s*['"](G-[A-Z0-9]+)['"]/i,
     /googletagmanager\.com\/gtag\/js\?id=(G-[A-Z0-9]+)/i,
-    /["'](G-[A-Z0-9]{8,14})["']/,
-    /measurementId["']?\s*:\s*["'](G-[A-Z0-9]+)["']/
+    /gtag\(['"]config['"],\s*['"](G-[A-Z0-9]+)['"]/i,
+    /gtag\(['"]event['"],\s*[^,]+,\s*\{[^}]*send_to:\s*['"](G-[A-Z0-9]+)['"]/i,
+    /measurementId["']?\s*:\s*["'](G-[A-Z0-9]+)["']/i,
+    /["']measurement_id["']\s*:\s*["'](G-[A-Z0-9]+)["']/i,
+    /["'](G-[A-Z0-9]{7,15})["']/i,
+    /id=(G-[A-Z0-9]{7,15})/i,
+    /id%3D(G-[A-Z0-9]{7,15})/i,
+    /\b(G-[A-Z0-9]{8,14})\b/i
   ];
   for (const rx of ga4Regexes) {
     const m = primaryHtml.match(rx);
     if (m) {
-      gaMeasurementId = m[1] || m[0];
+      gaMeasurementId = (m[1] || m[0]).toUpperCase().trim();
       break;
     }
   }
   const gtmMatch = primaryHtml.match(/GTM-[A-Z0-9]{4,10}/i);
   if (gtmMatch) {
-    gtmId = gtmMatch[0];
+    gtmId = gtmMatch[0].toUpperCase().trim();
+    if (!gaMeasurementId) {
+      try {
+        const gtmRes = await fetchFn(`https://www.googletagmanager.com/gtm.js?id=${gtmId}`, 4e3);
+        if (gtmRes.ok && gtmRes.text) {
+          for (const rx of ga4Regexes) {
+            const gm = gtmRes.text.match(rx);
+            if (gm) {
+              gaMeasurementId = (gm[1] || gm[0]).toUpperCase().trim();
+              break;
+            }
+          }
+        }
+      } catch {
+      }
+    }
   }
   const rootCat = classifyPageCategory(rootPathIdent, title);
   discoveredPages.push({
@@ -839,6 +727,15 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
             const sRes = await fetchFn(sUrl, 8e3);
             if (!sRes.ok || !sRes.text) return;
             const jsCode = sRes.text;
+            if (!gaMeasurementId) {
+              for (const rx of ga4Regexes) {
+                const gm = jsCode.match(rx);
+                if (gm) {
+                  gaMeasurementId = (gm[1] || gm[0]).toUpperCase().trim();
+                  break;
+                }
+              }
+            }
             const jobMatches = jsCode.match(/["']?(job_[a-zA-Z0-9_]{2,32})["']?/g) || [];
             const uniqueJobIds = [...new Set(jobMatches.map((m) => m.replace(/["']/g, "")))];
             const artMatches = jsCode.match(/["']?(art_[a-zA-Z0-9_]{2,32}|article_[a-zA-Z0-9_]{2,32})["']?/g) || [];
@@ -950,11 +847,11 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
         await Promise.allSettled(scriptTasks);
       }
     }
-    if (discoveredPages.length < 35 && discoveredPages.length < maxLinks) {
-      const feedPaths = ["/feed", "/rss", "/rss.xml", "/feed.xml", "/atom.xml", "/index.xml"];
+    if (discoveredPages.length < maxLinks) {
+      const feedPaths = ["/feed/", "/feed", "/rss", "/rss.xml", "/feed.xml", "/atom.xml", "/index.xml", "/?feed=rss2"];
       const feedTasks = feedPaths.map(async (fPath) => {
         try {
-          const fRes = await fetchFn(`${origin}${fPath}`, 2e3);
+          const fRes = await fetchFn(`${origin}${fPath}`, 4e3);
           if (!fRes.ok || !fRes.text) return;
           const fXml = fRes.text;
           if (!fXml.includes("<rss") && !fXml.includes("<feed") && !fXml.includes("<channel") && !fXml.includes("<atom")) return;
@@ -969,14 +866,45 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
                 const fPathStr = normalizePathWithQuery(parsed);
                 if (isCleanPublicPage(fPathStr, rawTitle2) && !discoveredPaths.has(fPathStr)) {
                   discoveredPaths.add(fPathStr);
-                  const pTitle = rawTitle2 ? rawTitle2.replace(/&amp;/g, "&").replace(/<[^>]*>/g, "").trim() : slugToTitle(fPathStr);
+                  const pTitle = rawTitle2 ? rawTitle2.replace(/&amp;/g, "&").replace(/&#8217;/g, "'").replace(/&#8211;/g, "-").replace(/<[^>]*>/g, "").trim() : slugToTitle(fPathStr);
                   const cat = classifyPageCategory(fPathStr, pTitle);
                   discoveredPages.push({
                     id: `feed_${discoveredPages.length + 1}`,
                     url: parsed.toString(),
                     path: fPathStr,
                     title: pTitle.length > 75 ? pTitle.slice(0, 75) + "..." : pTitle,
-                    description: `[Syndication Feed] ${pTitle}`,
+                    description: `[Article Feed] ${pTitle}`,
+                    depth: fPathStr.split("/").filter(Boolean).length || 1,
+                    status: 200,
+                    includedInVisits: true,
+                    visitWeight: 95,
+                    gaDetected: !!gaMeasurementId || !!gtmId,
+                    category: cat
+                  });
+                }
+              }
+            } catch {
+            }
+          }
+          const entryRegex = /<entry\b[^>]*>[\s\S]*?<link\b[^>]*href=["']([^"']+)["'][\s\S]*?<title\b[^>]*>([^<]+)<\/title>[\s\S]*?<\/entry>/gi;
+          let em;
+          while ((em = entryRegex.exec(fXml)) !== null && discoveredPages.length < maxLinks) {
+            const rawLink = em[1].trim();
+            const rawTitle2 = (em[2] || "").trim().replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1");
+            try {
+              const parsed = new URL(rawLink, origin);
+              if (isSameApexDomain(parsed.hostname, hostname)) {
+                const fPathStr = normalizePathWithQuery(parsed);
+                if (isCleanPublicPage(fPathStr, rawTitle2) && !discoveredPaths.has(fPathStr)) {
+                  discoveredPaths.add(fPathStr);
+                  const pTitle = rawTitle2 ? rawTitle2.replace(/&amp;/g, "&").replace(/&#8217;/g, "'").replace(/&#8211;/g, "-").replace(/<[^>]*>/g, "").trim() : slugToTitle(fPathStr);
+                  const cat = classifyPageCategory(fPathStr, pTitle);
+                  discoveredPages.push({
+                    id: `atom_${discoveredPages.length + 1}`,
+                    url: parsed.toString(),
+                    path: fPathStr,
+                    title: pTitle.length > 75 ? pTitle.slice(0, 75) + "..." : pTitle,
+                    description: `[Article Entry] ${pTitle}`,
                     depth: fPathStr.split("/").filter(Boolean).length || 1,
                     status: 200,
                     includedInVisits: true,
@@ -1048,29 +976,38 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
       await Promise.allSettled(probeTasks);
     }
   }
-  if (discoveredPages.length < 50 && discoveredPages.length < maxLinks) {
+  if (discoveredPages.length < maxLinks) {
     const wpEndpoints = [
-      `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug`,
-      `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug`
+      `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug,date`,
+      `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug,date`,
+      `${origin}/wp-json/wp/v2/categories?per_page=50&_fields=id,link,name,slug`,
+      `${origin}/wp-json/wp/v2/tags?per_page=50&_fields=id,link,name,slug`,
+      `${origin}/products.json?limit=250`,
+      `${origin}/collections.json?limit=50`
     ];
     const genericApiEndpoints = [
-      `${origin}/api/jobs`,
       `${origin}/api/posts`,
       `${origin}/api/articles`,
-      `${origin}/api/listings`,
+      `${origin}/api/news`,
+      `${origin}/api/v1/posts`,
       `${origin}/api/products`,
       `${origin}/api/items`,
-      `${origin}/api/v1/jobs`,
-      `${origin}/api/v1/posts`,
-      `${origin}/api/v1/listings`
+      `${origin}/api/jobs`,
+      `${origin}/api/listings`
     ];
     const wpTasks = wpEndpoints.map(async (wpUrl) => {
       try {
-        const wpRes = await fetchFn(wpUrl, 2e3);
-        if (wpRes.ok && wpRes.text && wpRes.text.startsWith("[")) {
-          const data = JSON.parse(wpRes.text);
-          if (Array.isArray(data) && data.length > 0) {
-            for (const item of data) {
+        const wpRes = await fetchFn(wpUrl, 6e3);
+        if (wpRes.ok && wpRes.text && (wpRes.text.startsWith("[") || wpRes.text.startsWith("{"))) {
+          let parsedData;
+          try {
+            parsedData = JSON.parse(wpRes.text);
+          } catch {
+            return;
+          }
+          const items = Array.isArray(parsedData) ? parsedData : Array.isArray(parsedData?.products) ? parsedData.products.map((p) => ({ link: `/products/${p.handle}`, title: { rendered: p.title }, id: p.id, slug: p.handle })) : Array.isArray(parsedData?.collections) ? parsedData.collections.map((c) => ({ link: `/collections/${c.handle}`, title: { rendered: c.title }, id: c.id, slug: c.handle })) : [];
+          if (Array.isArray(items) && items.length > 0) {
+            for (const item of items) {
               if (discoveredPages.length >= maxLinks) break;
               if (item.link) {
                 try {
@@ -1078,15 +1015,15 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
                   const pPath = normalizePathWithQuery(resolved);
                   if (isCleanPublicPage(pPath) && !discoveredPaths.has(pPath)) {
                     discoveredPaths.add(pPath);
-                    const rawT = item.title?.rendered || item.slug || "Article";
-                    const cleanT = rawT.replace(/&amp;/g, "&").replace(/&#8217;/g, "'").replace(/&#8211;/g, "-").replace(/<[^>]*>/g, "").trim();
+                    const rawT = item.title?.rendered || item.title || item.name || item.slug || "Article";
+                    const cleanT = String(rawT).replace(/&amp;/g, "&").replace(/&#8217;/g, "'").replace(/&#8211;/g, "-").replace(/<[^>]*>/g, "").trim();
                     const cat = classifyPageCategory(pPath, cleanT);
                     discoveredPages.push({
                       id: `wp_${item.id || discoveredPages.length + 1}`,
                       url: resolved.toString(),
                       path: pPath,
                       title: cleanT.length > 75 ? cleanT.slice(0, 75) + "..." : cleanT,
-                      description: `[WordPress] ${cleanT}`,
+                      description: `[Article/Post] ${cleanT}`,
                       depth: pPath.split("/").filter(Boolean).length || 1,
                       status: 200,
                       includedInVisits: true,
@@ -1106,7 +1043,7 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
     });
     const apiTasks = genericApiEndpoints.map(async (apiUrl) => {
       try {
-        const apiRes = await fetchFn(apiUrl, 2e3);
+        const apiRes = await fetchFn(apiUrl, 4e3);
         if (apiRes.ok && apiRes.text && (apiRes.text.startsWith("[") || apiRes.text.startsWith("{"))) {
           let parsed;
           try {
@@ -1114,14 +1051,14 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
           } catch {
             return;
           }
-          const rawItems = Array.isArray(parsed) ? parsed : Array.isArray(parsed.data) ? parsed.data : Array.isArray(parsed.items) ? parsed.items : Array.isArray(parsed.results) ? parsed.results : Array.isArray(parsed.jobs) ? parsed.jobs : Array.isArray(parsed.posts) ? parsed.posts : [];
+          const rawItems = Array.isArray(parsed) ? parsed : Array.isArray(parsed.data) ? parsed.data : Array.isArray(parsed.items) ? parsed.items : Array.isArray(parsed.results) ? parsed.results : Array.isArray(parsed.posts) ? parsed.posts : Array.isArray(parsed.articles) ? parsed.articles : [];
           if (Array.isArray(rawItems) && rawItems.length > 0) {
             for (const item of rawItems) {
               if (discoveredPages.length >= maxLinks) break;
               if (!item || typeof item !== "object") continue;
               const candidateLink = item.url || item.link || item.permalink || item.path || "";
               const candidateSlug = item.slug || item.id || item._id;
-              const candidateTitle = item.title || item.name || item.heading || item.jobTitle || item.position || candidateSlug || "Listing";
+              const candidateTitle = item.title || item.name || item.heading || item.headline || candidateSlug || "Article";
               let itemPath = "";
               if (candidateLink && typeof candidateLink === "string") {
                 try {
@@ -1143,7 +1080,7 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
                   url: `${origin}${itemPath}`,
                   path: itemPath,
                   title: cleanT.length > 75 ? cleanT.slice(0, 75) + "..." : cleanT,
-                  description: `[REST API Catalog] ${cleanT}`,
+                  description: `[Live Content] ${cleanT}`,
                   depth: itemPath.split("/").filter(Boolean).length || 1,
                   status: 200,
                   includedInVisits: true,
@@ -1215,12 +1152,21 @@ async function executeUniversalCrawl(rawInput, maxDepth = 2, maxLinks = 1500, fe
     currentDepth++;
   }
   if (discoveredPages.length <= 1) {
-    const synthPages = generateDomainAdaptivePages(targetUrl, hostname, origin, gaMeasurementId, gtmId, title, description);
-    for (const sp of synthPages) {
-      if (!discoveredPaths.has(sp.path) && discoveredPages.length < maxLinks) {
-        discoveredPaths.add(sp.path);
-        discoveredPages.push(sp);
-      }
+    if (rootPathIdent !== "/" && !discoveredPaths.has("/")) {
+      discoveredPaths.add("/");
+      discoveredPages.push({
+        id: "page_root_clean",
+        url: `${origin}/`,
+        path: "/",
+        title: `${hostname} - Home`,
+        description: `Home page for ${hostname}`,
+        depth: 0,
+        status: 200,
+        includedInVisits: true,
+        visitWeight: 100,
+        gaDetected: !!gaMeasurementId || !!gtmId,
+        category: "page"
+      });
     }
   }
   const latencyMs = Math.round(performance.now() - startTime);
@@ -1312,32 +1258,121 @@ function emailToDocId(email) {
   }
   return `member_${hex}`;
 }
+async function writeUserTrafficToFirestore(targetUid, trafficBalance, additionalFields = {}) {
+  try {
+    const timeoutPromise = new Promise(
+      (resolve) => setTimeout(() => resolve({ success: true, targetUid }), 4e3)
+    );
+    const writePromise = (async () => {
+      const db = getFirestoreDb();
+      const cleanEmail = (additionalFields.email || (targetUid.includes("@") ? targetUid : "")).trim().toLowerCase();
+      const payload = {
+        trafficBalance: Number(trafficBalance),
+        updatedAt: Date.now()
+      };
+      if (additionalFields.totalTrafficAssigned !== void 0) {
+        payload.totalTrafficAssigned = Number(additionalFields.totalTrafficAssigned);
+      }
+      if (additionalFields.isPaidUser !== void 0) {
+        payload.isPaidUser = Boolean(additionalFields.isPaidUser);
+      }
+      if (additionalFields.trafficStatus) {
+        payload.trafficStatus = additionalFields.trafficStatus;
+      }
+      if (additionalFields.tier) {
+        payload.tier = additionalFields.tier;
+      }
+      if (cleanEmail) {
+        payload.email = cleanEmail;
+      }
+      if (additionalFields.name) {
+        payload.name = additionalFields.name;
+      }
+      if (targetUid && !targetUid.includes("@")) {
+        try {
+          const userDocRef = doc(db, "users", targetUid);
+          await setDoc(userDocRef, { ...payload, uid: targetUid }, { merge: true });
+        } catch (err) {
+          console.warn("[FIRESTORE] Target user doc direct write note:", err);
+        }
+      }
+      if (cleanEmail) {
+        try {
+          const q = query(collection(db, "users"), where("email", "==", cleanEmail));
+          const qSnap = await getDocs(q);
+          for (const d of qSnap.docs) {
+            await setDoc(doc(db, "users", d.id), payload, { merge: true });
+          }
+        } catch (err) {
+          console.warn("[FIRESTORE] Query and update all email user docs note:", err);
+        }
+        try {
+          const legacyDocId = emailToDocId(cleanEmail);
+          const legacyRef = doc(db, "trafficpulse_members", legacyDocId);
+          await setDoc(legacyRef, payload, { merge: true });
+        } catch (legacyErr) {
+          console.warn("[FIRESTORE] Legacy mirror write note:", legacyErr);
+        }
+      }
+      return { success: true, targetUid };
+    })();
+    return await Promise.race([writePromise, timeoutPromise]);
+  } catch (error) {
+    console.warn(`[FIRESTORE] Write note for 'users/${targetUid}':`, error?.message);
+    return { success: false, targetUid, error: error?.message || "Firestore write deferred" };
+  }
+}
 async function saveMemberToCloud(member) {
   if (!member || !member.email) return false;
   try {
     const db = getFirestoreDb();
-    const uid = member.uid || member.id || emailToDocId(member.email);
+    const cleanEmail = member.email.trim().toLowerCase();
+    const uid = member.uid || member.id || emailToDocId(cleanEmail);
+    let authoritativeBalance = member.trafficBalance !== void 0 ? Number(member.trafficBalance) : 100;
+    let authoritativeAssigned = member.totalTrafficAssigned !== void 0 ? Number(member.totalTrafficAssigned) : authoritativeBalance;
+    let authoritativePaid = Boolean(member.isPaidUser);
+    try {
+      const existingCloud = await getMemberFromCloud(cleanEmail);
+      if (existingCloud) {
+        if (member.trafficBalance !== void 0) {
+          authoritativeBalance = Number(member.trafficBalance);
+        } else if (existingCloud.trafficBalance !== void 0) {
+          authoritativeBalance = Number(existingCloud.trafficBalance);
+        }
+        const cloudAssigned = Number(existingCloud.totalTrafficAssigned || 0);
+        authoritativeAssigned = Math.max(authoritativeAssigned, cloudAssigned, authoritativeBalance);
+        if (existingCloud.isPaidUser) {
+          authoritativePaid = true;
+        }
+      }
+    } catch {
+    }
+    const isExhausted = authoritativeBalance <= 0;
+    const safePayload = {
+      ...member,
+      email: cleanEmail,
+      uid,
+      trafficBalance: authoritativeBalance,
+      totalTrafficAssigned: authoritativeAssigned,
+      isPaidUser: authoritativePaid,
+      trafficStatus: isExhausted ? authoritativePaid ? "paid_exhausted" : "trial_exhausted" : authoritativePaid ? "paid_active" : "trial_active",
+      updatedAt: Date.now()
+    };
     const userDocRef = doc(db, "users", uid);
-    await setDoc(
-      userDocRef,
-      {
-        ...member,
-        uid,
-        updatedAt: Date.now()
-      },
-      { merge: true }
-    );
-    const docId = emailToDocId(member.email);
+    await setDoc(userDocRef, safePayload, { merge: true });
+    try {
+      const q = query(collection(db, "users"), where("email", "==", cleanEmail));
+      const qSnap = await getDocs(q);
+      for (const d of qSnap.docs) {
+        if (d.id !== uid) {
+          await setDoc(doc(db, "users", d.id), safePayload, { merge: true });
+        }
+      }
+    } catch {
+    }
+    const docId = emailToDocId(cleanEmail);
     const docRef = doc(db, "trafficpulse_members", docId);
-    await setDoc(
-      docRef,
-      {
-        ...member,
-        uid,
-        updatedAt: Date.now()
-      },
-      { merge: true }
-    );
+    await setDoc(docRef, safePayload, { merge: true });
     return true;
   } catch (e) {
     console.warn("Failed to persist member to Firestore cloud database:", e);
@@ -1349,48 +1384,83 @@ async function getMemberFromCloud(emailOrUsername) {
   if (!queryStr) return null;
   try {
     const db = getFirestoreDb();
-    try {
-      const snap = await getDoc(doc(db, "users", queryStr));
-      if (snap.exists()) {
-        return snap.data();
+    let bestCandidate = null;
+    const consider = (candidate) => {
+      if (!candidate || !candidate.email) return;
+      if (!bestCandidate) {
+        bestCandidate = candidate;
+        return;
       }
-    } catch {
-    }
+      const candBal = Number(candidate.trafficBalance ?? -1);
+      const bestBal = Number(bestCandidate.trafficBalance ?? -1);
+      const candAssigned = Number(candidate.totalTrafficAssigned ?? -1);
+      const bestAssigned = Number(bestCandidate.totalTrafficAssigned ?? -1);
+      const candUpdated = Number(candidate.updatedAt ?? 0);
+      const bestUpdated = Number(bestCandidate.updatedAt ?? 0);
+      if (candBal > bestBal || candBal === bestBal && candAssigned > bestAssigned || candBal === bestBal && candAssigned === bestAssigned && candUpdated > bestUpdated) {
+        bestCandidate = candidate;
+      }
+    };
     if (queryStr.includes("@")) {
       try {
-        const q = query(collection(db, "users"), where("email", "==", queryStr));
-        const qSnap = await getDocs(q);
-        if (!qSnap.empty) {
-          return qSnap.docs[0].data();
+        const docId = emailToDocId(queryStr);
+        const snap = await getDoc(doc(db, "trafficpulse_members", docId));
+        if (snap.exists()) {
+          consider(snap.data());
         }
       } catch {
       }
     }
     if (queryStr.includes("@")) {
-      const docId = emailToDocId(queryStr);
-      const snap = await getDoc(doc(db, "trafficpulse_members", docId));
-      if (snap.exists()) {
-        return snap.data();
+      try {
+        const q = query(collection(db, "users"), where("email", "==", queryStr));
+        const qSnap = await getDocs(q);
+        for (const d of qSnap.docs) {
+          consider(d.data());
+        }
+      } catch {
       }
+    }
+    try {
+      const snap = await getDoc(doc(db, "users", queryStr));
+      if (snap.exists()) {
+        consider(snap.data());
+      }
+    } catch {
+    }
+    if (bestCandidate) {
+      return bestCandidate;
     }
     try {
       const usersColSnap = await getDocs(collection(db, "users"));
       for (const d of usersColSnap.docs) {
         const data = d.data();
         if (data.email?.toLowerCase() === queryStr || data.username && data.username.toLowerCase() === queryStr) {
-          return data;
+          consider(data);
         }
       }
     } catch {
     }
-    const colSnap = await getDocs(collection(db, "trafficpulse_members"));
-    for (const d of colSnap.docs) {
-      const data = d.data();
-      if (data.email?.toLowerCase() === queryStr || data.username && data.username.toLowerCase() === queryStr) {
-        return data;
+    try {
+      const colSnap = await getDocs(collection(db, "trafficpulse_members"));
+      for (const d of colSnap.docs) {
+        const data = d.data();
+        if (data.email?.toLowerCase() === queryStr || data.username && data.username.toLowerCase() === queryStr) {
+          consider(data);
+        }
       }
+    } catch {
     }
-    return null;
+    if (bestCandidate && !bestCandidate.isPaidUser && bestCandidate.role !== "admin") {
+      if (bestCandidate.totalTrafficAssigned === void 0 || bestCandidate.totalTrafficAssigned === null) {
+        bestCandidate.totalTrafficAssigned = 100;
+      }
+      if (bestCandidate.trafficBalance === void 0 || bestCandidate.trafficBalance === null) {
+        bestCandidate.trafficBalance = 100;
+      }
+      bestCandidate.trafficStatus = bestCandidate.trafficBalance <= 0 ? "trial_exhausted" : "trial_active";
+    }
+    return bestCandidate;
   } catch (e) {
     console.warn("Failed to query member from Firestore:", e);
     return null;
@@ -1400,13 +1470,62 @@ async function getAllMembersFromCloud() {
   try {
     const db = getFirestoreDb();
     const membersMap = /* @__PURE__ */ new Map();
+    const sanitizeMemberData = (m) => {
+      if (!m || typeof m !== "object") return m;
+      const cleanEmail = String(m.email || "").toLowerCase().trim();
+      const cleanName = m.name || m.username || cleanEmail.split("@")[0] || "Member";
+      const isPaid = Boolean(m.isPaidUser);
+      let balance = m.trafficBalance !== void 0 ? Number(m.trafficBalance) : isPaid ? 1e3 : 100;
+      let assigned = m.totalTrafficAssigned !== void 0 ? Number(m.totalTrafficAssigned) : Math.max(balance, 100);
+      const isExhausted = balance <= 0;
+      return {
+        ...m,
+        name: cleanName,
+        email: cleanEmail,
+        totalTrafficAssigned: assigned,
+        trafficBalance: balance,
+        isPaidUser: isPaid,
+        trafficStatus: isExhausted ? isPaid ? "paid_exhausted" : "trial_exhausted" : isPaid ? "paid_active" : "trial_active"
+      };
+    };
+    const mergeIn = (data) => {
+      if (!data || !data.email) return;
+      const emailLower = data.email.toLowerCase().trim();
+      const sanitized = sanitizeMemberData(data);
+      const existing = membersMap.get(emailLower);
+      if (!existing) {
+        membersMap.set(emailLower, sanitized);
+      } else {
+        const existBal = Number(existing.trafficBalance ?? -1);
+        const newBal = Number(sanitized.trafficBalance ?? -1);
+        const existAssigned = Number(existing.totalTrafficAssigned ?? -1);
+        const newAssigned = Number(sanitized.totalTrafficAssigned ?? -1);
+        let finalBal = 0;
+        if (sanitized.updatedAt && existing.updatedAt) {
+          finalBal = sanitized.updatedAt >= existing.updatedAt ? newBal : existBal;
+        } else if (newBal >= 0 && existBal >= 0) {
+          finalBal = Math.max(existBal, newBal);
+        } else {
+          finalBal = Math.max(existBal, newBal, 0);
+        }
+        const isPaid = Boolean(existing.isPaidUser || sanitized.isPaidUser);
+        let finalAssigned = Math.max(existAssigned, newAssigned, finalBal);
+        const isExhausted = finalBal <= 0;
+        membersMap.set(emailLower, {
+          ...existing,
+          ...sanitized,
+          trafficBalance: finalBal,
+          totalTrafficAssigned: finalAssigned,
+          isPaidUser: isPaid,
+          tier: sanitized.tier || existing.tier,
+          trafficStatus: isExhausted ? isPaid ? "paid_exhausted" : "trial_exhausted" : isPaid ? "paid_active" : "trial_active"
+        });
+      }
+    };
     try {
       const usersSnap = await getDocs(collection(db, "users"));
       usersSnap.forEach((d) => {
-        const data = d.data();
-        if (data && data.email) {
-          membersMap.set(data.email.toLowerCase(), data);
-        }
+        mergeIn(d.data());
       });
     } catch (err) {
       console.warn("Failed to get docs from users collection:", err);
@@ -1414,15 +1533,23 @@ async function getAllMembersFromCloud() {
     try {
       const colSnap = await getDocs(collection(db, "trafficpulse_members"));
       colSnap.forEach((d) => {
-        const data = d.data();
-        if (data && data.email && !membersMap.has(data.email.toLowerCase())) {
-          membersMap.set(data.email.toLowerCase(), data);
-        }
+        mergeIn(d.data());
       });
     } catch (err) {
       console.warn("Failed to get docs from trafficpulse_members collection:", err);
     }
-    return Array.from(membersMap.values());
+    const mockEmails = /* @__PURE__ */ new Set([
+      "alex@trafficpulse.io",
+      "starter@trafficpulse.io",
+      "sarah@growthwave.agency",
+      "bashir@kukuholdings.ng",
+      "nneka@lagoslogistics.ng",
+      "emeka.dev@naijawork.ng",
+      "amina.design@naijawork.ng",
+      "tunde.solar@naijawork.ng",
+      "testuser999@example.com"
+    ]);
+    return Array.from(membersMap.values()).map(sanitizeMemberData).filter((m) => !mockEmails.has((m.email || "").toLowerCase()));
   } catch (e) {
     console.warn("Failed to get all members from Firestore:", e);
     return [];
@@ -1510,6 +1637,72 @@ function getActiveStoragePath() {
   }
   return activeStoragePath;
 }
+function getConfigFilePath() {
+  const localDataDir = path.join(process.cwd(), "data");
+  try {
+    if (!fs.existsSync(localDataDir)) {
+      fs.mkdirSync(localDataDir, { recursive: true });
+    }
+    return path.join(localDataDir, "server_config.json");
+  } catch {
+    return path.join("/tmp", "trafficpulse_server_config.json");
+  }
+}
+var activeConfig = { defaultTrialQuota: 100 };
+function getServerConfig() {
+  try {
+    const configPath = getConfigFilePath();
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.defaultTrialQuota === "number" && !isNaN(parsed.defaultTrialQuota)) {
+        activeConfig = { defaultTrialQuota: Math.max(0, Math.floor(parsed.defaultTrialQuota)) };
+      }
+    }
+  } catch {
+  }
+  return activeConfig;
+}
+function updateServerConfig(updates) {
+  const current = getServerConfig();
+  activeConfig = {
+    ...current,
+    ...updates
+  };
+  if (typeof activeConfig.defaultTrialQuota === "number") {
+    activeConfig.defaultTrialQuota = Math.max(0, Math.floor(activeConfig.defaultTrialQuota));
+  }
+  try {
+    const configPath = getConfigFilePath();
+    fs.writeFileSync(configPath, JSON.stringify(activeConfig, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[STORE] Failed saving server config:", err);
+  }
+  return activeConfig;
+}
+function sanitizeTrialQuotas(member) {
+  const config = getServerConfig();
+  const quota = config.defaultTrialQuota;
+  if (member.role === "admin") {
+    member.trafficBalance = member.trafficBalance || 1e7;
+    member.totalTrafficAssigned = member.totalTrafficAssigned || 1e7;
+    member.isPaidUser = true;
+    member.trafficStatus = "unlimited";
+  } else {
+    if (member.trafficBalance === void 0 || member.trafficBalance === null) {
+      member.trafficBalance = member.isPaidUser ? 1e3 : quota;
+    }
+    if (member.totalTrafficAssigned === void 0 || member.totalTrafficAssigned === null) {
+      member.totalTrafficAssigned = Math.max(Number(member.trafficBalance || 0), member.isPaidUser ? 1e3 : quota);
+    }
+    if (member.trafficBalance <= 0) {
+      member.trafficStatus = member.isPaidUser ? "paid_exhausted" : "trial_exhausted";
+    } else {
+      member.trafficStatus = member.isPaidUser ? "paid_active" : "trial_active";
+    }
+  }
+  return member;
+}
 function loadFromFileCache() {
   try {
     const filePath = getActiveStoragePath();
@@ -1519,7 +1712,7 @@ function loadFromFileCache() {
       if (Array.isArray(data)) {
         for (const m of data) {
           if (m && m.email) {
-            memoryMembers.set(m.email.toLowerCase(), m);
+            memoryMembers.set(m.email.toLowerCase(), sanitizeTrialQuotas(m));
           }
         }
       }
@@ -1539,8 +1732,8 @@ function saveToFileCache() {
 }
 loadFromFileCache();
 var hasSyncedWithCloud = false;
-async function syncMembersFromCloud() {
-  if (hasSyncedWithCloud) return;
+async function syncMembersFromCloud(force = false) {
+  if (hasSyncedWithCloud && !force) return;
   try {
     const cloudMembers = await getAllMembersFromCloud();
     if (cloudMembers && cloudMembers.length > 0) {
@@ -1548,8 +1741,28 @@ async function syncMembersFromCloud() {
         if (m && m.email) {
           const emailLower = m.email.toLowerCase();
           const existing = memoryMembers.get(emailLower);
-          if (!existing || m.lastLoginAt && m.lastLoginAt > (existing.lastLoginAt || 0)) {
-            memoryMembers.set(emailLower, m);
+          if (!existing) {
+            memoryMembers.set(emailLower, sanitizeTrialQuotas(m));
+          } else {
+            let finalBal = existing.trafficBalance;
+            if (m.trafficBalance !== void 0) {
+              finalBal = Number(m.trafficBalance);
+            }
+            const isPaid = m.isPaidUser !== void 0 ? Boolean(m.isPaidUser) : Boolean(existing.isPaidUser);
+            const assignedFromExisting = Number(existing.totalTrafficAssigned || 0);
+            const assignedFromCloud = Number(m.totalTrafficAssigned || 0);
+            const finalAssigned = Math.max(assignedFromExisting, assignedFromCloud, Number(finalBal || 0));
+            const isExhausted = finalBal !== void 0 && finalBal <= 0;
+            const merged = {
+              ...existing,
+              ...m,
+              trafficBalance: finalBal,
+              totalTrafficAssigned: finalAssigned,
+              isPaidUser: isPaid,
+              trafficStatus: isExhausted ? isPaid ? "paid_exhausted" : "trial_exhausted" : isPaid ? "paid_active" : "trial_active",
+              tier: m.tier || existing.tier
+            };
+            memoryMembers.set(emailLower, sanitizeTrialQuotas(merged));
           }
         }
       }
@@ -1563,13 +1776,38 @@ async function syncMembersFromCloud() {
 }
 syncMembersFromCloud().catch(() => {
 });
-async function findMember(query2) {
+async function findMember(query2, forceCloudCheck = false) {
   const clean = (query2 || "").trim().toLowerCase();
   if (!clean) return null;
+  if (forceCloudCheck) {
+    try {
+      const cloudRecord = await getMemberFromCloud(clean);
+      if (cloudRecord && cloudRecord.email) {
+        const parsed = cloudRecord;
+        const existing = memoryMembers.get(parsed.email.toLowerCase());
+        let finalBal = parsed.trafficBalance !== void 0 ? parsed.trafficBalance : existing?.trafficBalance || 0;
+        let finalAssigned = Math.max(existing?.totalTrafficAssigned || 0, parsed.totalTrafficAssigned || 0, finalBal);
+        const isPaid = parsed.isPaidUser !== void 0 ? Boolean(parsed.isPaidUser) : Boolean(existing?.isPaidUser);
+        const merged = {
+          ...existing || {},
+          ...parsed,
+          trafficBalance: finalBal,
+          totalTrafficAssigned: finalAssigned,
+          isPaidUser: isPaid
+        };
+        const sanitized = sanitizeTrialQuotas(merged);
+        memoryMembers.set(parsed.email.toLowerCase(), sanitized);
+        saveToFileCache();
+        return sanitized;
+      }
+    } catch (err) {
+      console.warn("[STORE] Fresh cloud check error, falling back to cache:", err);
+    }
+  }
   let member = memoryMembers.get(clean);
   if (!member) {
     for (const m of memoryMembers.values()) {
-      if (m.username && m.username.toLowerCase() === clean) {
+      if (m.username && m.username.toLowerCase() === clean || m.id && (m.id === query2.trim() || m.id.toLowerCase() === clean) || m.uid && (m.uid === query2.trim() || m.uid.toLowerCase() === clean) || m.email && m.email.toLowerCase() === clean || m.email && emailToDocId(m.email).toLowerCase() === clean) {
         member = m;
         break;
       }
@@ -1578,11 +1816,19 @@ async function findMember(query2) {
   if (member) return member;
   loadFromFileCache();
   member = memoryMembers.get(clean);
+  if (!member) {
+    for (const m of memoryMembers.values()) {
+      if (m.username && m.username.toLowerCase() === clean || m.id && (m.id === query2.trim() || m.id.toLowerCase() === clean) || m.uid && (m.uid === query2.trim() || m.uid.toLowerCase() === clean) || m.email && m.email.toLowerCase() === clean || m.email && emailToDocId(m.email).toLowerCase() === clean) {
+        member = m;
+        break;
+      }
+    }
+  }
   if (member) return member;
   try {
     const cloudRecord = await getMemberFromCloud(clean);
     if (cloudRecord && cloudRecord.email) {
-      const parsed = cloudRecord;
+      const parsed = sanitizeTrialQuotas(cloudRecord);
       memoryMembers.set(parsed.email.toLowerCase(), parsed);
       saveToFileCache();
       return parsed;
@@ -1592,12 +1838,12 @@ async function findMember(query2) {
   }
   return null;
 }
-async function listAllMembers() {
-  if (memoryMembers.size === 0) {
+async function listAllMembers(forceCloud = false) {
+  if (memoryMembers.size === 0 || forceCloud) {
     loadFromFileCache();
-    await syncMembersFromCloud();
+    await syncMembersFromCloud(forceCloud);
   }
-  return Array.from(memoryMembers.values());
+  return Array.from(memoryMembers.values()).map(sanitizeTrialQuotas);
 }
 async function persistMember(member) {
   if (!member || !member.email) return;
@@ -1657,6 +1903,86 @@ function listPendingVerifications() {
     }
   }
   return list.sort((a, b) => b.createdAt - a.createdAt);
+}
+async function bulkSetTrialCredits(targetCredits) {
+  const quota = Math.max(0, Math.floor(Number(targetCredits)));
+  updateServerConfig({ defaultTrialQuota: quota });
+  loadFromFileCache();
+  await syncMembersFromCloud(false);
+  const updatedList = [];
+  for (const [email, member] of memoryMembers.entries()) {
+    if (!member.isPaidUser && member.role !== "admin") {
+      member.trafficBalance = quota;
+      member.totalTrafficAssigned = quota;
+      member.trafficStatus = quota <= 0 ? "trial_exhausted" : "trial_active";
+      memoryMembers.set(email, member);
+      updatedList.push(member);
+      writeUserTrafficToFirestore(member.id, quota, {
+        totalTrafficAssigned: quota,
+        isPaidUser: false,
+        trafficStatus: member.trafficStatus,
+        tier: member.tier,
+        email: member.email,
+        name: member.name
+      }).catch((err) => console.warn("[STORE] Bulk update firestore error:", err));
+    }
+  }
+  saveToFileCache();
+  return {
+    count: updatedList.length,
+    members: Array.from(memoryMembers.values()).map(sanitizeTrialQuotas)
+  };
+}
+async function adminDirectSetTraffic(identifier, newBalance, totalAssigned, markAsPaid, tier, optionalEmail) {
+  const clean = (identifier || "").trim().toLowerCase();
+  const cleanEmail = (optionalEmail || "").trim().toLowerCase();
+  if (!clean && !cleanEmail) return { success: false, error: "User identifier or email is required." };
+  let target = (cleanEmail ? memoryMembers.get(cleanEmail) : null) || (clean ? memoryMembers.get(clean) : null) || null;
+  if (!target && cleanEmail) {
+    target = await findMember(cleanEmail, true);
+  }
+  if (!target && clean) {
+    target = await findMember(clean, true);
+  }
+  if (!target) {
+    for (const m of memoryMembers.values()) {
+      if (cleanEmail && m.email && m.email.toLowerCase() === cleanEmail || clean && m.id && m.id.toLowerCase() === clean || clean && m.uid && m.uid.toLowerCase() === clean || clean && m.username && m.username.toLowerCase() === clean || clean && m.email && m.email.toLowerCase() === clean || clean && m.email && emailToDocId(m.email).toLowerCase() === clean) {
+        target = m;
+        break;
+      }
+    }
+  }
+  if (!target) {
+    return { success: false, error: `Member "${identifier || optionalEmail}" not found.` };
+  }
+  const bal = Math.max(0, Math.floor(Number(newBalance)));
+  const assigned = totalAssigned !== void 0 ? Math.max(0, Math.floor(Number(totalAssigned))) : Math.max(bal, target.totalTrafficAssigned || bal);
+  target.trafficBalance = bal;
+  target.totalTrafficAssigned = assigned;
+  target.updatedAt = Date.now();
+  if (markAsPaid !== void 0) {
+    target.isPaidUser = Boolean(markAsPaid);
+  }
+  if (tier) {
+    target.tier = tier;
+  }
+  if (target.role === "admin") {
+    target.trafficStatus = "unlimited";
+  } else if (target.isPaidUser) {
+    target.trafficStatus = bal <= 0 ? "paid_exhausted" : "paid_active";
+  } else {
+    target.trafficStatus = bal <= 0 ? "trial_exhausted" : "trial_active";
+  }
+  await persistMember(target);
+  writeUserTrafficToFirestore(target.id, bal, {
+    totalTrafficAssigned: assigned,
+    isPaidUser: target.isPaidUser,
+    trafficStatus: target.trafficStatus,
+    tier: target.tier,
+    email: target.email,
+    name: target.name
+  }).catch((err) => console.warn("[STORE] Direct set firestore error:", err));
+  return { success: true, user: target };
 }
 
 // src/server/emailService.ts
@@ -1780,7 +2106,7 @@ function buildVerificationHtml(name, code) {
                       Hello ${name ? escapeHtml(name) : "there"},
                     </p>
                     <p style="margin: 0 0 24px; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-                      Thank you for registering. Please enter the 6-digit confirmation code below to verify your email address and immediately unlock your <strong>500 Free Trial Traffic Credits</strong>.
+                      Thank you for registering. Please enter the 6-digit confirmation code below to verify your email address and immediately unlock your <strong>100 Free Trial Traffic Credits</strong>.
                     </p>
 
                     <!-- OTP Code Box -->
@@ -1838,7 +2164,7 @@ async function sendVerificationOtpEmail(toEmail, code, name) {
 Your TrafficPulse verification code is: ${code}
 
 This code expires in 15 minutes.
-Use it to activate your account and claim 500 Free Trial Traffic Credits.`;
+Use it to activate your account and claim 100 Free Trial Traffic Credits.`;
   const html = buildVerificationHtml(name, code);
   const from = saved.emailFrom || process.env.EMAIL_FROM || '"TrafficPulse" <no-reply@trafficpulse.io>';
   const resendKey = saved.resendApiKey || process.env.RESEND_API_KEY;
@@ -2110,15 +2436,272 @@ router.get("/auth/client-ip", (req, res) => {
 });
 router.get("/auth/members", async (req, res) => {
   try {
-    const allMembers = await listAllMembers();
+    const isFresh = req.query.fresh === "true";
+    const allMembers = await listAllMembers(isFresh);
+    const config = getServerConfig();
     const safeList = allMembers.map(({ passwordHash: _, ...safe }) => safe);
     res.json({
       success: true,
       members: safeList,
-      totalCount: safeList.length
+      totalCount: safeList.length,
+      defaultTrialQuota: config.defaultTrialQuota
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err?.message || "Failed to list members" });
+  }
+});
+router.post("/auth/set-traffic", async (req, res) => {
+  const { userId, email, newBalance, totalAssigned, markAsPaid, tier } = req.body;
+  const identifier = userId || email;
+  if (!identifier || newBalance === void 0 || isNaN(Number(newBalance)) || Number(newBalance) < 0) {
+    return res.status(400).json({ success: false, error: "Valid user identifier and non-negative credit balance are required." });
+  }
+  try {
+    const result = await adminDirectSetTraffic(
+      String(identifier),
+      Number(newBalance),
+      totalAssigned !== void 0 ? Number(totalAssigned) : void 0,
+      markAsPaid,
+      tier
+    );
+    if (!result.success || !result.user) {
+      return res.status(404).json({ success: false, error: result.error || "Failed setting member credit balance." });
+    }
+    const { passwordHash: _, ...safeUser } = result.user;
+    return res.json({
+      success: true,
+      user: safeUser,
+      message: `Successfully set ${result.user.name}'s balance to ${result.user.trafficBalance.toLocaleString()} credits.`
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err?.message || "Failed setting traffic balance" });
+  }
+});
+router.post("/auth/assign-traffic", async (req, res) => {
+  const { userId, email, additionalTraffic, visitsToAdd, markAsPaid = true, newTier, tier } = req.body;
+  const trafficNum = Number(additionalTraffic ?? visitsToAdd ?? 0);
+  if (!userId && !email || isNaN(trafficNum) || trafficNum <= 0) {
+    return res.status(400).json({ success: false, error: "Valid user identifier and positive traffic amount are required." });
+  }
+  try {
+    const all = await listAllMembers(true);
+    const cleanTarget = String(userId || email).trim().toLowerCase();
+    const cleanEmail = email ? String(email).trim().toLowerCase() : "";
+    let target = all.find(
+      (m) => userId && m.id === userId || cleanEmail && m.email.toLowerCase() === cleanEmail || m.email.toLowerCase() === cleanTarget || m.uid && m.uid === userId
+    );
+    if (!target) {
+      target = (userId ? await findMember(userId, true) : null) || (cleanEmail ? await findMember(cleanEmail, true) : null) || await findMember(cleanTarget, true);
+    }
+    if (!target) {
+      return res.status(404).json({ success: false, error: `Member "${userId || email}" not found on server.` });
+    }
+    target.trafficBalance = (target.trafficBalance || 0) + trafficNum;
+    target.totalTrafficAssigned = (target.totalTrafficAssigned || 0) + trafficNum;
+    target.updatedAt = Date.now();
+    if (markAsPaid) {
+      target.isPaidUser = true;
+      target.trafficStatus = "paid_active";
+    } else if (!target.isPaidUser) {
+      target.trafficStatus = "trial_active";
+    }
+    const assignedTier = newTier || tier;
+    if (assignedTier) {
+      target.tier = assignedTier;
+    }
+    await persistMember(target);
+    writeUserTrafficToFirestore(target.id, target.trafficBalance, {
+      totalTrafficAssigned: target.totalTrafficAssigned,
+      isPaidUser: target.isPaidUser,
+      trafficStatus: target.trafficStatus,
+      tier: target.tier,
+      email: target.email,
+      name: target.name
+    }).catch((err) => console.warn("[SERVER] Async Firestore write error:", err));
+    const { passwordHash: _, ...safeUser } = target;
+    return res.json({
+      success: true,
+      user: safeUser,
+      message: `Successfully assigned +${trafficNum.toLocaleString()} traffic visits to ${target.name}. New Balance: ${target.trafficBalance.toLocaleString()} visits.`
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err?.message || "Failed assigning traffic" });
+  }
+});
+router.post("/auth/deduct-traffic", async (req, res) => {
+  const { userId, email, amount = 1, totalVisitsGenerated } = req.body;
+  if (!userId && !email) {
+    return res.status(400).json({ success: false, error: "User identifier or email is required." });
+  }
+  try {
+    const cleanEmail = email ? String(email).trim().toLowerCase() : "";
+    const cleanId = userId ? String(userId).trim() : "";
+    let member = (cleanEmail ? await findMember(cleanEmail, true) : null) || (cleanId ? await findMember(cleanId, true) : null);
+    if (!member) {
+      const all = await listAllMembers(true);
+      member = all.find(
+        (m) => cleanEmail && m.email.toLowerCase() === cleanEmail || cleanId && (m.id === cleanId || m.uid === cleanId)
+      ) || null;
+    }
+    if (!member) {
+      return res.status(404).json({ success: false, error: "Member account not found." });
+    }
+    if (member.role === "admin" || member.email && (member.email.toLowerCase() === "saroneedam@gmail.com" || member.email.toLowerCase() === "saroneedam@yahoo.com")) {
+      return res.json({
+        success: true,
+        trafficBalance: 1e7,
+        totalTrafficAssigned: 1e7,
+        trafficStatus: "unlimited",
+        exhausted: false
+      });
+    }
+    const deductAmount = Math.max(0, Number(amount || 0));
+    let currentBal = member.trafficBalance !== void 0 ? Number(member.trafficBalance) : 100;
+    if (deductAmount > 0) {
+      currentBal = Math.max(0, currentBal - deductAmount);
+    }
+    member.trafficBalance = currentBal;
+    member.totalVisitsGenerated = Math.max(
+      Number(member.totalVisitsGenerated || 0) + deductAmount,
+      Number(totalVisitsGenerated || 0)
+    );
+    if (member.trafficBalance <= 0) {
+      member.trafficBalance = 0;
+      member.trafficStatus = member.isPaidUser ? "paid_exhausted" : "trial_exhausted";
+    } else {
+      member.trafficStatus = member.isPaidUser ? "paid_active" : "trial_active";
+    }
+    member.updatedAt = Date.now();
+    await persistMember(member);
+    writeUserTrafficToFirestore(member.id, member.trafficBalance, {
+      totalTrafficAssigned: member.totalTrafficAssigned,
+      isPaidUser: member.isPaidUser,
+      trafficStatus: member.trafficStatus,
+      tier: member.tier,
+      email: member.email,
+      name: member.name
+    }).catch((err) => console.warn("[SERVER] Firestore deduct write note:", err));
+    return res.json({
+      success: true,
+      trafficBalance: member.trafficBalance,
+      totalVisitsGenerated: member.totalVisitsGenerated,
+      trafficStatus: member.trafficStatus,
+      isPaidUser: member.isPaidUser,
+      exhausted: member.trafficBalance <= 0
+    });
+  } catch (err) {
+    console.error("[SERVER] Deduct traffic error:", err);
+    return res.status(500).json({ success: false, error: err?.message || "Failed to deduct traffic visits" });
+  }
+});
+router.post("/auth/reset-traffic", async (req, res) => {
+  const { userId, email } = req.body;
+  if (!userId && !email) return res.status(400).json({ success: false, error: "userId or email is required" });
+  try {
+    const all = await listAllMembers(true);
+    const cleanTarget = String(userId || email).trim().toLowerCase();
+    const cleanEmail = email ? String(email).trim().toLowerCase() : "";
+    let target = all.find(
+      (m) => userId && m.id === userId || cleanEmail && m.email.toLowerCase() === cleanEmail || m.email.toLowerCase() === cleanTarget
+    ) || (userId ? await findMember(userId, true) : null) || (cleanEmail ? await findMember(cleanEmail, true) : null) || await findMember(cleanTarget, true);
+    if (!target) return res.status(404).json({ success: false, error: "Member not found" });
+    const quota = getServerConfig().defaultTrialQuota;
+    target.trafficBalance = quota;
+    target.totalTrafficAssigned = quota;
+    target.isPaidUser = false;
+    target.trafficStatus = quota <= 0 ? "trial_exhausted" : "trial_active";
+    target.updatedAt = Date.now();
+    await persistMember(target);
+    writeUserTrafficToFirestore(target.id, quota, {
+      totalTrafficAssigned: quota,
+      isPaidUser: false,
+      trafficStatus: target.trafficStatus,
+      tier: target.tier,
+      email: target.email,
+      name: target.name
+    }).catch((err) => console.warn("[SERVER] Reset Firestore write note:", err));
+    const { passwordHash: _, ...safeUser } = target;
+    res.json({ success: true, user: safeUser, message: `Reset ${target.name}'s balance to ${quota} visits.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err?.message || "Failed resetting member" });
+  }
+});
+router.post("/auth/toggle-paid", async (req, res) => {
+  const { userId, isPaid } = req.body;
+  if (!userId) return res.status(400).json({ success: false, error: "userId is required" });
+  try {
+    const all = await listAllMembers(true);
+    const cleanTarget = String(userId).trim().toLowerCase();
+    let target = all.find((m) => m.id === userId || m.email.toLowerCase() === cleanTarget) || await findMember(cleanTarget, true);
+    if (!target) return res.status(404).json({ success: false, error: "Member not found" });
+    target.isPaidUser = Boolean(isPaid);
+    target.trafficStatus = isPaid ? "paid_active" : "trial_active";
+    target.updatedAt = Date.now();
+    await persistMember(target);
+    writeUserTrafficToFirestore(target.id, target.trafficBalance || 0, {
+      totalTrafficAssigned: target.totalTrafficAssigned,
+      isPaidUser: target.isPaidUser,
+      trafficStatus: target.trafficStatus,
+      tier: target.tier,
+      email: target.email,
+      name: target.name
+    }).catch((err) => console.warn("[SERVER] Toggle paid Firestore write note:", err));
+    const { passwordHash: _, ...safeUser } = target;
+    res.json({ success: true, user: safeUser, isPaid: target.isPaidUser });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err?.message || "Failed to toggle paid status" });
+  }
+});
+router.post("/auth/bulk-set-trial-credits", async (req, res) => {
+  const { targetCredits } = req.body;
+  if (targetCredits === void 0 || isNaN(Number(targetCredits)) || Number(targetCredits) < 0) {
+    return res.status(400).json({ success: false, error: "A valid non-negative number is required for targetCredits" });
+  }
+  try {
+    const amount = Math.floor(Number(targetCredits));
+    const result = await bulkSetTrialCredits(amount);
+    const safeList = result.members.map(({ passwordHash: _, ...safe }) => safe);
+    return res.json({
+      success: true,
+      count: result.count,
+      defaultTrialQuota: amount,
+      members: safeList,
+      message: `Successfully updated ${result.count} trial members to ${amount.toLocaleString()} credits.`
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err?.message || "Failed bulk updating trial credits" });
+  }
+});
+router.get("/admin/trial-settings", async (_req, res) => {
+  try {
+    const config = getServerConfig();
+    res.json({ success: true, defaultTrialQuota: config.defaultTrialQuota });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err?.message || "Failed getting trial settings" });
+  }
+});
+router.get("/auth/trial-settings", async (_req, res) => {
+  try {
+    const config = getServerConfig();
+    res.json({ success: true, defaultTrialQuota: config.defaultTrialQuota });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err?.message || "Failed getting trial settings" });
+  }
+});
+router.post("/admin/trial-settings", async (req, res) => {
+  const { defaultTrialQuota } = req.body;
+  if (defaultTrialQuota === void 0 || isNaN(Number(defaultTrialQuota)) || Number(defaultTrialQuota) < 0) {
+    return res.status(400).json({ success: false, error: "A valid non-negative number is required for defaultTrialQuota" });
+  }
+  try {
+    const updated = updateServerConfig({ defaultTrialQuota: Math.floor(Number(defaultTrialQuota)) });
+    res.json({
+      success: true,
+      defaultTrialQuota: updated.defaultTrialQuota,
+      message: `Default trial quota set to ${updated.defaultTrialQuota.toLocaleString()} credits.`
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err?.message || "Failed updating trial settings" });
   }
 });
 router.post("/auth/sync-member", async (req, res) => {

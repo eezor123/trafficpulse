@@ -1415,7 +1415,11 @@ export default function App() {
     // Traffic Credit & Quota Enforcement (100 free trial or paid admin allowance)
     const currentUser = authState.user;
     const isExempt = currentUser.role === 'admin';
-    const currentBalance = currentUser.trafficBalance ?? 0;
+    const storedAuth = loadStoredAuth();
+    const currentBalance = Math.max(
+      currentUser.trafficBalance ?? 0,
+      storedAuth.user?.trafficBalance ?? 0
+    );
 
     if (!isExempt && currentBalance <= 0) {
       setSaveBannerMessage(
@@ -1642,7 +1646,11 @@ export default function App() {
     // Traffic Credit & Quota Enforcement
     const currentUser = authState.user;
     const isExempt = currentUser.role === 'admin';
-    const currentBalance = currentUser.trafficBalance ?? 0;
+    const storedAuth = loadStoredAuth();
+    const currentBalance = Math.max(
+      currentUser.trafficBalance ?? 0,
+      storedAuth.user?.trafficBalance ?? 0
+    );
 
     if (!isExempt && currentBalance <= 0) {
       setSaveBannerMessage(
