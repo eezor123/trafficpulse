@@ -54,19 +54,38 @@ export function getApexDomain(host: string): string {
 }
 
 /**
- * Checks if a candidate URL belongs to the same apex site domain
+ * Checks if a candidate URL belongs to the strictly permitted site domain.
+ * Strictly prevents rogue third-party app subdomains (e.g. application.forex.com, login.forex.com, cdn.forex.com)
+ * from polluting the page catalog of the primary crawled domain.
  */
 export function isSameApexDomain(candidateHost: string, baseHost: string): boolean {
   if (!candidateHost || !baseHost) return false;
   const cHost = candidateHost.toLowerCase().trim();
   const bHost = baseHost.toLowerCase().trim();
 
+  // Exact host match
   if (cHost === bHost) return true;
-  if (cHost.endsWith(`.${bHost}`) || bHost.endsWith(`.${cHost}`)) return true;
 
-  const cApex = getApexDomain(cHost);
-  const bApex = getApexDomain(bHost);
-  return !!cApex && cApex === bApex;
+  // www <-> naked domain alias (e.g. www.forex.com <-> forex.com)
+  const strippedC = cHost.replace(/^www\./, '');
+  const strippedB = bHost.replace(/^www\./, '');
+  if (strippedC === strippedB) return true;
+
+  // STRICT DOMAIN INTEGRITY:
+  // Reject external app subdomains, authentication services, portals, and media CDNs
+  const excludedSubdomainPrefixes = [
+    'application.', 'app.', 'apps.', 'auth.', 'login.', 'signin.', 'signup.',
+    'portal.', 'api.', 'admin.', 'status.', 'mail.', 'email.', 'cdn.', 'assets.',
+    'static.', 'media.', 'images.', 'img.', 'video.', 'download.', 'downloads.',
+    'tracking.', 'analytics.', 'pixel.', 'beacon.', 'dev.', 'staging.', 'test.',
+    'beta.', 'secure.', 'pay.', 'checkout.', 'billing.', 'accounts.', 'myaccount.'
+  ];
+  if (excludedSubdomainPrefixes.some(pref => cHost.startsWith(pref))) {
+    return false;
+  }
+
+  // Only permit candidate host if it's the exact same naked domain (no rogue third-party subdomains)
+  return strippedC === strippedB;
 }
 
 /**
@@ -94,35 +113,66 @@ export function normalizeCanonicalUrl(u: URL): string {
   return `${u.protocol}//${u.host.toLowerCase()}${cleanPath}`;
 }
 
+const GENERIC_LINK_TEXTS = new Set([
+  'open row', 'close row', 'open', 'close', 'click here', 'read more', 'learn more',
+  'learn more about', 'view all', 'view more', 'view', 'details', 'see more',
+  'see details', 'more', 'link', 'button', 'arrow', 'next', 'previous', 'prev',
+  'back', 'submit', 'menu', 'toggle', 'dropdown', 'open menu', 'close menu',
+  'search', 'find out more', 'get started', 'sign in', 'log in', 'login', 'register',
+  'here', 'continue', 'apply now', 'try now', 'try a demo', 'download', 'go',
+  'trade now', 'start trading', 'open an account', 'open account', 'row'
+]);
+
 /**
- * Converts a URL slug or path into a clean, human-readable title
+ * Converts a URL slug or path into a clean, human-readable, high-fidelity title
+ * Automatically detects currency pairs, market indices, section contexts, and rejects UI noise.
  */
 export function slugToTitle(slugPath: string, fallbackText?: string): string {
-  if (
-    fallbackText &&
-    fallbackText.trim().length > 2 &&
-    !fallbackText.includes('<') &&
-    !fallbackText.includes('{') &&
-    !fallbackText.startsWith('/') &&
-    !fallbackText.startsWith('http') &&
-    !fallbackText.includes('.com') &&
-    !fallbackText.includes('.org') &&
-    !fallbackText.includes('.net') &&
-    !fallbackText.includes('.ng') &&
-    !fallbackText.includes('.io')
-  ) {
-    return fallbackText.trim();
+  // If fallbackText is provided, clean and validate it
+  if (fallbackText) {
+    let cleanFallback = fallbackText
+      .replace(/!\[[^\]]*\](?:\([^\)]*\))?/g, '') // remove markdown images ![alt](url)
+      .replace(/<[^>]*>/g, '') // remove html tags
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const lowerFallback = cleanFallback.toLowerCase();
+    const isGeneric = GENERIC_LINK_TEXTS.has(lowerFallback) ||
+      lowerFallback.startsWith('image ') ||
+      lowerFallback.startsWith('icon ') ||
+      lowerFallback.startsWith('arrow ') ||
+      lowerFallback.startsWith('button ') ||
+      lowerFallback.length <= 1;
+
+    if (!isGeneric &&
+        cleanFallback.length >= 2 &&
+        !cleanFallback.includes('{') &&
+        !cleanFallback.startsWith('/') &&
+        !cleanFallback.startsWith('http') &&
+        !cleanFallback.includes('.com') &&
+        !cleanFallback.includes('.org') &&
+        !cleanFallback.includes('.net') &&
+        !cleanFallback.includes('.io')
+    ) {
+      cleanFallback = cleanFallback.replace(/\s*[|\-–—]\s*(?:FOREX\.com|Forex|Home|Login|Sign Up).*$/i, '').trim();
+      if (cleanFallback.length >= 2) {
+        return cleanFallback;
+      }
+    }
   }
 
-  // Extract relevant segment from path or query
-  let segment = slugPath;
-  if (segment.includes('=')) {
-    segment = segment.split('=').pop() || segment;
-  } else {
-    segment = segment.split('/').filter(Boolean).pop() || segment;
+  // Derive meaningful title from path
+  const segments = slugPath.split('/').filter(Boolean);
+  if (segments.length === 0) return 'Home';
+
+  // Last segment is primary slug
+  let lastSeg = segments[segments.length - 1];
+  if (lastSeg.includes('=')) {
+    lastSeg = lastSeg.split('=').pop() || lastSeg;
   }
 
-  const clean = segment
+  // Clean the segment
+  const cleanSeg = lastSeg
     .replace(/\.html?$/i, '')
     .replace(/\.php$/i, '')
     .replace(/[?#].*$/, '')
@@ -130,8 +180,49 @@ export function slugToTitle(slugPath: string, fallbackText?: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 
-  if (!clean || clean === '/') return 'Home';
-  return clean.replace(/\b\w/g, c => c.toUpperCase());
+  // Special formatting for currency pairs (e.g. "eur usd" -> "EUR/USD")
+  const currencyMatch = cleanSeg.match(/^([a-z]{3})\s+([a-z]{3})$/i);
+  if (currencyMatch) {
+    const base = currencyMatch[1].toUpperCase();
+    const quote = currencyMatch[2].toUpperCase();
+    if (base === 'XAU') return `Gold (XAU/${quote})`;
+    if (base === 'XAG') return `Silver (XAG/${quote})`;
+    return `${base}/${quote}`;
+  }
+
+  // Special formatting for popular market indices
+  const lowerSeg = cleanSeg.toLowerCase();
+  if (lowerSeg === 'us sp 500' || lowerSeg === 'sandp 500' || lowerSeg === 'spx') return 'S&P 500 Index';
+  if (lowerSeg === 'us tech 100' || lowerSeg === 'nasdaq 100') return 'NASDAQ 100';
+  if (lowerSeg === 'wall street' || lowerSeg === 'dow 30') return 'Wall Street Dow 30';
+
+  // Format title case
+  const formattedSlug = cleanSeg
+    .split(' ')
+    .map(w => {
+      const lw = w.toLowerCase();
+      if (['usd', 'eur', 'gbp', 'jpy', 'aud', 'cad', 'chf', 'nzd', 'cnh', 'nok', 'sek', 'cfd', 'cfds', 'mt4', 'mt5', 'vix', 'etf', 'etfs', 'fomc', 'fed', 'ecb', 'q4', 'q3', 'q2', 'q1', 'spx', 'dax', 'ftse', 'cac', 'xau', 'xag'].includes(lw)) {
+        return lw.toUpperCase();
+      }
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    })
+    .join(' ');
+
+  // If path has a parent section (e.g. /news-and-analysis/ or /help-and-support/), add contextual category suffix
+  if (segments.length >= 2) {
+    const parentSeg = segments[segments.length - 2].toLowerCase();
+    if (parentSeg === 'news-and-analysis' && !formattedSlug.toLowerCase().includes('analysis') && !formattedSlug.toLowerCase().includes('news')) {
+      return `${formattedSlug} | News & Analysis`;
+    }
+    if (parentSeg === 'help-and-support' && !formattedSlug.toLowerCase().includes('help') && !formattedSlug.toLowerCase().includes('support')) {
+      return `${formattedSlug} | Help & Support`;
+    }
+    if (parentSeg === 'trading-guides' && !formattedSlug.toLowerCase().includes('guide')) {
+      return `${formattedSlug} | Trading Guide`;
+    }
+  }
+
+  return formattedSlug || 'Page';
 }
 
 /**
@@ -291,10 +382,15 @@ export function isCleanPublicPage(testPath: string, testTitle: string = ''): boo
     '/telescope/', '/horizon/', '/oauth/', '/auth/callback', '/auth/login',
     '/auth/signup', '/health', '/healthz', '/metrics', '/cgi-bin/', '/track',
     '/telemetry', '/beacon', '/pixel', '/ping', '/cart/add', '/checkout',
-    '/wp-json/'
+    '/wp-json/', '/step/', '/flow/', '/session/', '/saml', '/logout', '/onboarding/'
   ];
 
   if (bannedPrefixes.some(prefix => lowerPath.startsWith(prefix) || lowerPath.includes(`/${prefix.replace(/^\//, '')}`))) {
+    return false;
+  }
+
+  // Drop raw numeric step paths or wizard funnels (e.g. /step/1, /flow/2)
+  if (/\/(?:step|flow|wizard|onboarding)\/\d+/i.test(lowerPath)) {
     return false;
   }
 
@@ -855,9 +951,7 @@ export async function executeUniversalCrawl(
           if (!discoveredPaths.has(pagePath) && discoveredPages.length < maxLinks) {
             discoveredPaths.add(pagePath);
             const cat = classifyPageCategory(pagePath, rawTitle);
-            const cleanTitle = (rawTitle && rawTitle.length > 2 && !rawTitle.startsWith('!') && !rawTitle.startsWith('['))
-              ? rawTitle
-              : slugToTitle(pagePath);
+            const cleanTitle = slugToTitle(pagePath, rawTitle);
 
             discoveredPages.push({
               id: `md_${discoveredPages.length + 1}`,
@@ -1432,23 +1526,31 @@ export async function executeUniversalCrawl(
   }
 
   // ----------------------------------------------------
-  // STEP 5: MULTI-LEVEL RECURSIVE HTML CRAWL (Depth 2 & 3)
+  // STEP 5: MULTI-LEVEL RECURSIVE HTML CRAWL (Content Hub & Section Deep Dive)
   // ----------------------------------------------------
   const targetMaxDepth = Math.min(3, Math.max(1, maxDepth));
   let currentDepth = 1;
 
+  const isContentHub = (p: CrawledPage) => {
+    const lPath = p.path.toLowerCase();
+    return (
+      p.category === 'category' ||
+      /\/(?:news-and-analysis|help-and-support|trading-guides|markets-to-trade|trading-academy|trading-tools|forex-trading|stock-trading|cfd-trading|cryptocurrency-trading|metals-trading|commodity-trading|education|academy|blog|posts|articles|news|guides|markets)\b/i.test(lPath)
+    );
+  };
+
+  // Run recursive passes if maxDepth >= 2, or if depth is 1 but we discovered content hubs that should be explored
   while (currentDepth < targetMaxDepth && discoveredPages.length < maxLinks) {
-    const batchLimit = discoveredPages.length >= 50 ? 4 : 8;
     const unvisitedPages = discoveredPages.filter(p => {
       const canon = normalizeCanonicalUrl(new URL(p.url, origin));
       return !visitedUrls.has(canon);
     }).sort((a, b) => {
-      const aIsHub = a.category === 'category' || /news|help|guide|market|post|article|academy|trade/i.test(a.path);
-      const bIsHub = b.category === 'category' || /news|help|guide|market|post|article|academy|trade/i.test(b.path);
+      const aIsHub = isContentHub(a);
+      const bIsHub = isContentHub(b);
       if (aIsHub && !bIsHub) return -1;
       if (!aIsHub && bIsHub) return 1;
-      return 0;
-    }).slice(0, batchLimit);
+      return a.path.split('/').filter(Boolean).length - b.path.split('/').filter(Boolean).length;
+    }).slice(0, 6);
 
     if (unvisitedPages.length === 0) break;
 
@@ -1515,9 +1617,7 @@ export async function executeUniversalCrawl(
               if (!discoveredPaths.has(subCleanPath)) {
                 discoveredPaths.add(subCleanPath);
                 const subCat = classifyPageCategory(subCleanPath, rawT);
-                const sTitle = (rawT && rawT.length > 2 && !rawT.startsWith('!') && !rawT.startsWith('['))
-                  ? rawT
-                  : slugToTitle(subCleanPath);
+                const sTitle = slugToTitle(subCleanPath, rawT);
 
                 discoveredPages.push({
                   id: `rec_md_${discoveredPages.length + 1}`,
