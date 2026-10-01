@@ -549,7 +549,7 @@ export async function executeUniversalCrawl(
   // ----------------------------------------------------
   // STEP 1: FETCH PRIMARY HTML OR DIRECT SITEMAP
   // ----------------------------------------------------
-  const primaryRes = await fetchFn(targetUrl, 10000);
+  const primaryRes = await fetchFn(targetUrl, 3500);
   if (primaryRes.ok) {
     statusCode = primaryRes.status;
     primaryHtml = primaryRes.text;
@@ -558,7 +558,7 @@ export async function executeUniversalCrawl(
     const altUrl = targetUrl.startsWith('https://')
       ? targetUrl.replace('https://', 'http://')
       : targetUrl.replace('http://', 'https://');
-    const altRes = await fetchFn(altUrl, 8000);
+    const altRes = await fetchFn(altUrl, 2000);
     if (altRes.ok) {
       statusCode = altRes.status;
       primaryHtml = altRes.text;
@@ -699,35 +699,35 @@ export async function executeUniversalCrawl(
     sitemapQueue.push(targetUrl);
   }
 
-  // 2A. Probe robots.txt for declared sitemaps
-  try {
-    const robotsRes = await fetchFn(`${origin}/robots.txt`, 2000);
-    if (robotsRes.ok && robotsRes.text) {
-      const sitemapRegex = /Sitemap:\s*(https?:\/\/[^\s]+)/gi;
-      let rMatch: RegExpExecArray | null;
-      while ((rMatch = sitemapRegex.exec(robotsRes.text)) !== null) {
-        const sUrl = rMatch[1].trim();
-        if (!sitemapQueue.includes(sUrl)) {
-          sitemapQueue.push(sUrl);
+  // 2A. Probe robots.txt & standard sitemaps only if direct sitemap input or initial HTML was empty
+  if (isDirectSitemapInput || !primaryHtml || primaryHtml.length < 200) {
+    try {
+      const robotsRes = await fetchFn(`${origin}/robots.txt`, 1500);
+      if (robotsRes.ok && robotsRes.text) {
+        const sitemapRegex = /Sitemap:\s*(https?:\/\/[^\s]+)/gi;
+        let rMatch: RegExpExecArray | null;
+        while ((rMatch = sitemapRegex.exec(robotsRes.text)) !== null) {
+          const sUrl = rMatch[1].trim();
+          if (!sitemapQueue.includes(sUrl)) {
+            sitemapQueue.push(sUrl);
+          }
         }
       }
-    }
-  } catch {}
+    } catch {}
 
-  // 2B. Add top standard sitemap paths
-  const standardSitemapPaths = [
-    '/sitemap.xml',
-    '/sitemap_index.xml',
-    '/wp-sitemap.xml',
-    '/post-sitemap.xml',
-  ];
+    // Add top standard sitemap paths
+    const standardSitemapPaths = [
+      '/sitemap.xml',
+      '/sitemap_index.xml',
+    ];
 
-  standardSitemapPaths.forEach(smPath => {
-    const smUrl = `${origin}${smPath}`;
-    if (!sitemapQueue.includes(smUrl)) {
-      sitemapQueue.push(smUrl);
-    }
-  });
+    standardSitemapPaths.forEach(smPath => {
+      const smUrl = `${origin}${smPath}`;
+      if (!sitemapQueue.includes(smUrl)) {
+        sitemapQueue.push(smUrl);
+      }
+    });
+  }
 
   // 2C. Fetch queued sitemaps in fast concurrent batches (max 2 quick batches)
   let sitemapBatchCount = 0;
@@ -1112,11 +1112,11 @@ export async function executeUniversalCrawl(
         }
       }
 
-      // Concurrently inspect top script bundles
-      if (scriptUrls.length > 0) {
-        const scriptTasks = scriptUrls.map(async (sUrl) => {
+      // Inspect external script bundles ONLY if discoveredPages count is low (empty SPA shell)
+      if (discoveredPages.length < 5 && scriptUrls.length > 0) {
+        const scriptTasks = scriptUrls.slice(0, 2).map(async (sUrl) => {
           try {
-            const sRes = await fetchFn(sUrl, 8000);
+            const sRes = await fetchFn(sUrl, 2000);
             if (!sRes.ok || !sRes.text) return;
             const jsCode = sRes.text;
 
@@ -1259,12 +1259,12 @@ export async function executeUniversalCrawl(
       }
     }
 
-    // 3D. RSS, Atom & Syndication Feeds
-    if (discoveredPages.length < maxLinks) {
-      const feedPaths = ['/feed/', '/feed', '/rss', '/rss.xml', '/feed.xml', '/atom.xml', '/index.xml', '/?feed=rss2'];
+    // 3D. RSS, Atom & Syndication Feeds (only when discovered pages count is low)
+    if (discoveredPages.length < 10) {
+      const feedPaths = ['/feed', '/rss.xml', '/feed.xml', '/atom.xml'];
       const feedTasks = feedPaths.map(async (fPath) => {
         try {
-          const fRes = await fetchFn(`${origin}${fPath}`, 4000);
+          const fRes = await fetchFn(`${origin}${fPath}`, 2000);
           if (!fRes.ok || !fRes.text) return;
           const fXml = fRes.text;
           if (!fXml.includes('<rss') && !fXml.includes('<feed') && !fXml.includes('<channel') && !fXml.includes('<atom')) return;
@@ -1338,17 +1338,14 @@ export async function executeUniversalCrawl(
       await Promise.allSettled(feedTasks);
     }
 
-    // 3E. Active Navigational Route Probing (when discovered pages count is low)
+    // 3E. Active Navigational Route Probing (when discovered pages count is very low)
     if (discoveredPages.length < 5) {
       const probePaths = [
-        '/about', '/about-us', '/contact', '/contact-us',
-        '/jobs', '/careers', '/blog', '/news', '/articles',
-        '/services', '/products', '/pricing', '/faq',
-        '/categories', '/terms', '/privacy', '/explore'
+        '/about', '/contact', '/blog', '/pricing', '/faq', '/privacy'
       ];
       const probeTasks = probePaths.map(async (pPath) => {
         try {
-          const pRes = await fetchFn(`${origin}${pPath}`, 2500);
+          const pRes = await fetchFn(`${origin}${pPath}`, 1800);
           if (pRes.ok && pRes.status === 200 && pRes.text && pRes.text.length > 120) {
             const lower = pRes.text.toLowerCase();
             if (lower.includes('page not found') || lower.includes('404 not found') || lower.includes('error 404')) {
@@ -1384,33 +1381,24 @@ export async function executeUniversalCrawl(
   // ----------------------------------------------------
   // STEP 4: WORDPRESS, SHOPIFY & GENERIC REST API PROBING (Smart Adaptive Probing)
   // ----------------------------------------------------
-  if (discoveredPages.length < maxLinks) {
+  if (discoveredPages.length < 10) {
     const isWpLikely = primaryHtml.includes('wp-content') || primaryHtml.includes('wp-includes') || primaryHtml.includes('wordpress');
     const isShopifyLikely = primaryHtml.includes('cdn.shopify.com') || primaryHtml.includes('shopify');
 
-    const wpEndpoints = (isWpLikely || isShopifyLikely || discoveredPages.length < 5) ? [
-      `${origin}/wp-json/wp/v2/posts?per_page=100&_fields=id,link,title,slug,date`,
-      `${origin}/wp-json/wp/v2/pages?per_page=100&_fields=id,link,title,slug,date`,
-      `${origin}/wp-json/wp/v2/categories?per_page=50&_fields=id,link,name,slug`,
-      `${origin}/wp-json/wp/v2/tags?per_page=50&_fields=id,link,name,slug`,
-      `${origin}/products.json?limit=250`,
-      `${origin}/collections.json?limit=50`,
+    const wpEndpoints = (isWpLikely || isShopifyLikely || discoveredPages.length < 4) ? [
+      `${origin}/wp-json/wp/v2/posts?per_page=50&_fields=id,link,title,slug,date`,
+      `${origin}/wp-json/wp/v2/pages?per_page=50&_fields=id,link,title,slug,date`,
+      `${origin}/products.json?limit=50`,
     ] : [];
 
-    const genericApiEndpoints = (discoveredPages.length < 15) ? [
+    const genericApiEndpoints = (discoveredPages.length < 5) ? [
       `${origin}/api/posts`,
       `${origin}/api/articles`,
-      `${origin}/api/news`,
-      `${origin}/api/v1/posts`,
-      `${origin}/api/products`,
-      `${origin}/api/items`,
-      `${origin}/api/jobs`,
-      `${origin}/api/listings`,
     ] : [];
 
     const wpTasks = wpEndpoints.map(async (wpUrl) => {
       try {
-        const wpRes = await fetchFn(wpUrl, 4000);
+        const wpRes = await fetchFn(wpUrl, 2000);
         if (wpRes.ok && wpRes.text && (wpRes.text.startsWith('[') || wpRes.text.startsWith('{'))) {
           let parsedData: any;
           try {
@@ -1539,8 +1527,8 @@ export async function executeUniversalCrawl(
     );
   };
 
-  // Run recursive passes if maxDepth >= 2, or if depth is 1 but we discovered content hubs that should be explored
-  while (currentDepth < targetMaxDepth && discoveredPages.length < maxLinks) {
+  // Run recursive passes only if maxDepth >= 2 and discoveredPages count is low
+  while (currentDepth < targetMaxDepth && discoveredPages.length < maxLinks && discoveredPages.length < 40) {
     const unvisitedPages = discoveredPages.filter(p => {
       const canon = normalizeCanonicalUrl(new URL(p.url, origin));
       return !visitedUrls.has(canon);
@@ -1550,7 +1538,7 @@ export async function executeUniversalCrawl(
       if (aIsHub && !bIsHub) return -1;
       if (!aIsHub && bIsHub) return 1;
       return a.path.split('/').filter(Boolean).length - b.path.split('/').filter(Boolean).length;
-    }).slice(0, 6);
+    }).slice(0, 3);
 
     if (unvisitedPages.length === 0) break;
 
@@ -1559,7 +1547,7 @@ export async function executeUniversalCrawl(
       visitedUrls.add(canon);
 
       try {
-        const subRes = await fetchFn(pageObj.url, 4000);
+        const subRes = await fetchFn(pageObj.url, 2500);
         if (!subRes.ok || !subRes.text) return;
         const subHtml = subRes.text;
 

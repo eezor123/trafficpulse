@@ -1670,8 +1670,8 @@ router.get('/browser/live-page', async (req: Request, res: Response) => {
 router.post('/crawler/scrape', async (req: Request, res: Response) => {
   try {
     const rawInput = req.body.url || req.body.targetUrl || req.body.target;
-    const maxLinks = Math.min(2500, Math.max(10, req.body.maxLinks || 1500));
-    const maxDepth = Math.min(3, Math.max(1, req.body.maxDepth || 2));
+    const maxLinks = Math.min(500, Math.max(10, req.body.maxLinks || 60));
+    const maxDepth = Math.min(2, Math.max(1, req.body.maxDepth || 1));
     if (!rawInput) {
       return res.status(400).json({ error: 'Target URL is required' });
     }
@@ -1699,7 +1699,8 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
     const resilientFetch: FetchFunction = async (url: string, timeoutMs = 8000) => {
       try {
         const ctrl = new AbortController();
-        const tm = setTimeout(() => ctrl.abort(), timeoutMs);
+        const effectiveTimeout = Math.min(timeoutMs, 3500);
+        const tm = setTimeout(() => ctrl.abort(), effectiveTimeout);
         const res = await fetch(url, { headers: browserHeaders, signal: ctrl.signal, redirect: 'follow' });
         clearTimeout(tm);
         const txt = await res.text();
@@ -1714,32 +1715,17 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
           return { ok: true, status: res.status, text: txt };
         }
 
-        // If standard 404/410/400 (Not Found / Gone), do NOT retry through Googlebot, Jina, and CORS proxies
+        // If standard 404/410/400 (Not Found / Gone), return immediately
         if (res.status === 404 || res.status === 410 || res.status === 400) {
           return { ok: false, status: res.status, text: '' };
         }
 
-        // 1. Try Googlebot headers fallback (for bot-discriminating firewalls)
-        try {
-          const bCtrl = new AbortController();
-          const bTm = setTimeout(() => bCtrl.abort(), Math.min(2500, timeoutMs));
-          const bRes = await fetch(url, { headers: botHeaders, signal: bCtrl.signal, redirect: 'follow' });
-          clearTimeout(bTm);
-          const bTxt = await bRes.text();
-          const isBotBlocked = [401, 403, 429, 503].includes(bRes.status) ||
-            bTxt.includes('Just a moment...') ||
-            bTxt.includes('challenges.cloudflare.com');
-          if (bRes.ok && !isBotBlocked) {
-            return { ok: true, status: bRes.status, text: bTxt };
-          }
-        } catch {}
-
-        // 2. High-speed Cloudflare WAF Bypass Relay (Jina reader engine for HTML/web pages)
+        // High-speed Cloudflare WAF Bypass Relay (Jina reader engine for HTML/web pages)
         const isBinaryOrData = /\.(svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|wasm|zip|pdf)($|\?)/i.test(url);
         if (!isBinaryOrData) {
           try {
             const jCtrl = new AbortController();
-            const jTm = setTimeout(() => jCtrl.abort(), 4500);
+            const jTm = setTimeout(() => jCtrl.abort(), 3500);
             const jRes = await fetch(`https://r.jina.ai/${url}`, {
               headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' },
               signal: jCtrl.signal,
@@ -1749,26 +1735,6 @@ router.post('/crawler/scrape', async (req: Request, res: Response) => {
               const jTxt = await jRes.text();
               if (jTxt && jTxt.length > 150) {
                 return { ok: true, status: 200, text: jTxt };
-              }
-            }
-          } catch {}
-        }
-
-        // 3. Public CORS / scraping proxy fallbacks
-        const corsProxies = [
-          `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-          `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-        ];
-        for (const cProxy of corsProxies) {
-          try {
-            const cCtrl = new AbortController();
-            const cTm = setTimeout(() => cCtrl.abort(), 3000);
-            const cRes = await fetch(cProxy, { signal: cCtrl.signal });
-            clearTimeout(cTm);
-            if (cRes.ok) {
-              const cTxt = await cRes.text();
-              if (cTxt && cTxt.length > 200 && !cTxt.includes('Just a moment...')) {
-                return { ok: true, status: 200, text: cTxt };
               }
             }
           } catch {}

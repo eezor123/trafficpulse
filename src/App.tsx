@@ -918,8 +918,8 @@ export default function App() {
         body: JSON.stringify({
           url: urlToCrawl,
           targetUrl: urlToCrawl,
-          maxDepth: organicConfig.crawlSettings.maxDepth || 2,
-          maxLinks: Math.max(300, organicConfig.crawlSettings.maxLinks || 300),
+          maxDepth: organicConfig.crawlSettings.maxDepth || 1,
+          maxLinks: Math.min(100, organicConfig.crawlSettings.maxLinks || 60),
         }),
         signal: controller.signal,
       });

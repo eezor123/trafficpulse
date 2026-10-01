@@ -159,25 +159,22 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
   gaMeasurementId?: string;
   gtmId?: string;
 }> {
-  const browserResilientFetch: FetchFunction = async (url: string, timeoutMs = 6000) => {
-    // 1. High-speed local server proxy (direct backend relay) + Jina Cloudflare bypass + CORS proxy fallbacks
+  const browserResilientFetch: FetchFunction = async (url: string, timeoutMs = 2500) => {
+    // High-speed local server proxy (direct backend relay) + Jina Cloudflare bypass
     const proxies = [
       `/api/proxy?url=${encodeURIComponent(url)}`,
       `https://r.jina.ai/${url}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
     ];
 
     for (const proxyUrl of proxies) {
       try {
         const ctrl = new AbortController();
-        const tm = setTimeout(() => ctrl.abort(), timeoutMs);
+        const tm = setTimeout(() => ctrl.abort(), Math.min(timeoutMs, 3000));
         const res = await fetch(proxyUrl, { signal: ctrl.signal });
         clearTimeout(tm);
         if (res.ok) {
           const text = await res.text();
-          if (text && text.length > 50 && (text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('<body') || text.includes('<div') || text.includes('<url') || text.includes('<sitemap') || text.includes('{"') || text.includes('[{'))) {
+          if (text && text.length > 50 && (text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('<body') || text.includes('<div') || text.includes('<url') || text.includes('<sitemap') || text.includes('{"') || text.includes('[{') || text.includes('# ') || text.includes('## '))) {
             return { ok: true, status: 200, text };
           }
         }
