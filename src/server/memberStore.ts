@@ -10,6 +10,7 @@ import {
   deleteMemberFromCloud,
   writeUserTrafficToFirestore,
   emailToDocId,
+  isFirestoreCircuitOpen,
 } from '../lib/firebase.ts';
 
 export interface ServerMember {
@@ -262,13 +263,60 @@ export async function findMember(query: string, forceCloudCheck = false): Promis
   const clean = (query || '').trim().toLowerCase();
   if (!clean) return null;
 
-  // 1. If fresh cloud check is requested, query Firestore first
-  if (forceCloudCheck) {
+  // 1. Fast memory cache check first (0ms instantaneous lookup)
+  let member = memoryMembers.get(clean);
+  if (!member) {
+    for (const m of memoryMembers.values()) {
+      if (
+        (m.username && m.username.toLowerCase() === clean) ||
+        (m.id && (m.id === query.trim() || m.id.toLowerCase() === clean)) ||
+        ((m as any).uid && ((m as any).uid === query.trim() || (m as any).uid.toLowerCase() === clean)) ||
+        (m.email && m.email.toLowerCase() === clean) ||
+        (m.email && emailToDocId(m.email).toLowerCase() === clean)
+      ) {
+        member = m;
+        break;
+      }
+    }
+  }
+
+  // If already found in memory cache, return immediately (fast path)
+  if (member && !forceCloudCheck) {
+    return member;
+  }
+
+  // 2. Try reloading from file cache if not in memory
+  if (!member) {
+    loadFromFileCache();
+    member = memoryMembers.get(clean);
+    if (!member) {
+      for (const m of memoryMembers.values()) {
+        if (
+          (m.username && m.username.toLowerCase() === clean) ||
+          (m.id && (m.id === query.trim() || m.id.toLowerCase() === clean)) ||
+          ((m as any).uid && ((m as any).uid === query.trim() || (m as any).uid.toLowerCase() === clean)) ||
+          (m.email && m.email.toLowerCase() === clean) ||
+          (m.email && emailToDocId(m.email).toLowerCase() === clean)
+        ) {
+          member = m;
+          break;
+        }
+      }
+    }
+  }
+
+  // If found in local cache and circuit is open or cloud not forced, return immediately
+  if (member && (isFirestoreCircuitOpen() || !forceCloudCheck)) {
+    return member;
+  }
+
+  // 3. Fall back to Firestore if not found locally or forced (and circuit is not open)
+  if (!isFirestoreCircuitOpen()) {
     try {
       const cloudRecord = await getMemberFromCloud(clean);
       if (cloudRecord && cloudRecord.email) {
         const parsed = cloudRecord as ServerMember;
-        const existing = memoryMembers.get(parsed.email.toLowerCase());
+        const existing = member || memoryMembers.get(parsed.email.toLowerCase());
         let finalBal = parsed.trafficBalance !== undefined ? parsed.trafficBalance : (existing?.trafficBalance || 0);
         let finalAssigned = Math.max(existing?.totalTrafficAssigned || 0, parsed.totalTrafficAssigned || 0, finalBal);
         const isPaid = (parsed.isPaidUser !== undefined ? Boolean(parsed.isPaidUser) : Boolean(existing?.isPaidUser));
@@ -286,61 +334,11 @@ export async function findMember(query: string, forceCloudCheck = false): Promis
         return sanitized;
       }
     } catch (err) {
-      console.warn('[STORE] Fresh cloud check error, falling back to cache:', err);
+      console.warn('[STORE] Firestore cloud lookup note:', err);
     }
   }
 
-  // 2. Check memory cache
-  let member = memoryMembers.get(clean);
-  if (!member) {
-    for (const m of memoryMembers.values()) {
-      if (
-        (m.username && m.username.toLowerCase() === clean) ||
-        (m.id && (m.id === query.trim() || m.id.toLowerCase() === clean)) ||
-        ((m as any).uid && ((m as any).uid === query.trim() || (m as any).uid.toLowerCase() === clean)) ||
-        (m.email && m.email.toLowerCase() === clean) ||
-        (m.email && emailToDocId(m.email).toLowerCase() === clean)
-      ) {
-        member = m;
-        break;
-      }
-    }
-  }
-  if (member) return member;
-
-  // 3. Try reloading from file cache in case another worker updated it
-  loadFromFileCache();
-  member = memoryMembers.get(clean);
-  if (!member) {
-    for (const m of memoryMembers.values()) {
-      if (
-        (m.username && m.username.toLowerCase() === clean) ||
-        (m.id && (m.id === query.trim() || m.id.toLowerCase() === clean)) ||
-        ((m as any).uid && ((m as any).uid === query.trim() || (m as any).uid.toLowerCase() === clean)) ||
-        (m.email && m.email.toLowerCase() === clean) ||
-        (m.email && emailToDocId(m.email).toLowerCase() === clean)
-      ) {
-        member = m;
-        break;
-      }
-    }
-  }
-  if (member) return member;
-
-  // 4. Fall back to querying Firestore directly (essential for cold-started serverless functions)
-  try {
-    const cloudRecord = await getMemberFromCloud(clean);
-    if (cloudRecord && cloudRecord.email) {
-      const parsed = sanitizeTrialQuotas(cloudRecord as ServerMember);
-      memoryMembers.set(parsed.email.toLowerCase(), parsed);
-      saveToFileCache();
-      return parsed;
-    }
-  } catch (err) {
-    console.warn('[STORE] Error querying member from cloud:', err);
-  }
-
-  return null;
+  return member || null;
 }
 
 /**
@@ -349,34 +347,37 @@ export async function findMember(query: string, forceCloudCheck = false): Promis
 export async function listAllMembers(forceCloud = false): Promise<ServerMember[]> {
   if (memoryMembers.size === 0 || forceCloud) {
     loadFromFileCache();
-    await syncMembersFromCloud(forceCloud);
+    if (!isFirestoreCircuitOpen()) {
+      await syncMembersFromCloud(forceCloud);
+    }
   }
   return Array.from(memoryMembers.values()).map(sanitizeTrialQuotas);
 }
 
 /**
- * Saves or updates a member in memory, file cache, and Firestore cloud database
+ * Saves or updates a member in memory and local file cache immediately,
+ * and asynchronously syncs to Firestore cloud database in the background without blocking the caller.
  */
 export async function persistMember(member: ServerMember): Promise<void> {
   if (!member || !member.email) return;
   const emailLower = member.email.toLowerCase();
 
-  // Update memory
+  // Update memory immediately
   memoryMembers.set(emailLower, member);
 
-  // Write to local file cache
+  // Write to local file cache immediately
   saveToFileCache();
 
-  // Persist to Cloud Firestore
-  try {
-    await saveMemberToCloud(member);
-  } catch (err) {
-    console.warn('[STORE] Could not save member to cloud database:', err);
+  // Asynchronously mirror to Cloud Firestore in the background — NEVER block user login!
+  if (!isFirestoreCircuitOpen()) {
+    saveMemberToCloud(member).catch((err) => {
+      console.warn('[STORE] Background cloud save note:', err);
+    });
   }
 }
 
 /**
- * Saves a pending verification state to memory and Firestore
+ * Saves a pending verification state to memory immediately and mirrors to cloud in background
  */
 export async function persistPending(pending: PendingVerification): Promise<void> {
   if (!pending || !pending.email) return;
@@ -384,11 +385,11 @@ export async function persistPending(pending: PendingVerification): Promise<void
 
   memoryPending.set(emailLower, pending);
 
-  // Persist to Cloud Firestore so other serverless instances can verify the code
-  try {
-    await savePendingToCloud(emailLower, pending);
-  } catch (err) {
-    console.warn('[STORE] Could not save pending verification to cloud:', err);
+  // Background cloud persistence
+  if (!isFirestoreCircuitOpen()) {
+    savePendingToCloud(emailLower, pending).catch((err) => {
+      console.warn('[STORE] Could not save pending verification to cloud:', err);
+    });
   }
 }
 
@@ -399,20 +400,22 @@ export async function findPending(email: string): Promise<PendingVerification | 
   const clean = (email || '').trim().toLowerCase();
   if (!clean) return null;
 
-  // 1. Check memory
+  // 1. Check memory first (0ms fast path)
   const mem = memoryPending.get(clean);
   if (mem) return mem;
 
-  // 2. Check Firestore
-  try {
-    const cloudPending = await getPendingFromCloud(clean);
-    if (cloudPending && cloudPending.code) {
-      const parsed = cloudPending as PendingVerification;
-      memoryPending.set(clean, parsed);
-      return parsed;
+  // 2. Check Firestore only if circuit not open
+  if (!isFirestoreCircuitOpen()) {
+    try {
+      const cloudPending = await getPendingFromCloud(clean);
+      if (cloudPending && cloudPending.code) {
+        const parsed = cloudPending as PendingVerification;
+        memoryPending.set(clean, parsed);
+        return parsed;
+      }
+    } catch (err) {
+      console.warn('[STORE] Could not get pending verification from cloud:', err);
     }
-  } catch (err) {
-    console.warn('[STORE] Could not get pending verification from cloud:', err);
   }
 
   return null;
@@ -427,10 +430,8 @@ export async function removePending(email: string): Promise<void> {
 
   memoryPending.delete(clean);
 
-  try {
-    await deletePendingFromCloud(clean);
-  } catch (err) {
-    console.warn('[STORE] Could not remove pending verification from cloud:', err);
+  if (!isFirestoreCircuitOpen()) {
+    deletePendingFromCloud(clean).catch(() => {});
   }
 }
 

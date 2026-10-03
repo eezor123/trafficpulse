@@ -35,7 +35,7 @@ import {
   flushTrafficDeductionsToServerAndCloud,
   updateMemberProfile,
 } from './utils/authManager';
-import { getFirestoreDb, emailToDocId } from './lib/firebase';
+import { getFirestoreDb, emailToDocId, isFirestoreCircuitOpen, tripFirestoreCircuit } from './lib/firebase';
 import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import { TRAFFIC_PRESETS } from './data/presets';
 import { 
@@ -600,6 +600,8 @@ export default function App() {
   // Real-time Firestore sync for active member quota updates
   useEffect(() => {
     if (!authState.isAuthenticated || !authState.user) return;
+    if (isFirestoreCircuitOpen()) return;
+
     const currentUserId = (authState.user as any).uid || authState.user.id;
     const currentEmail = authState.user.email;
 
@@ -657,7 +659,10 @@ export default function App() {
           if (snap.exists()) {
             applyCloudQuotaUpdate(snap.data());
           }
-        }, () => {});
+        }, (err: any) => {
+          tripFirestoreCircuit(err?.message);
+          if (unsub1) { unsub1(); unsub1 = null; }
+        });
       }
 
       if (currentEmail) {
@@ -666,7 +671,10 @@ export default function App() {
           if (snap.exists()) {
             applyCloudQuotaUpdate(snap.data());
           }
-        }, () => {});
+        }, (err: any) => {
+          tripFirestoreCircuit(err?.message);
+          if (unsub2) { unsub2(); unsub2 = null; }
+        });
 
         // Also listen to users collection queries matching this email
         try {
@@ -677,7 +685,10 @@ export default function App() {
                 applyCloudQuotaUpdate(d.data());
               }
             });
-          }, () => {});
+          }, (err: any) => {
+            tripFirestoreCircuit(err?.message);
+            if (unsub3) { unsub3(); unsub3 = null; }
+          });
         } catch {}
       }
     } catch (err) {

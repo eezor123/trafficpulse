@@ -8,6 +8,7 @@ import {
   fetchTargetMemberUid,
   writeUserTrafficToFirestore,
   deleteMemberFromCloud,
+  isFirestoreCircuitOpen,
 } from '../lib/firebase.ts';
 
 const AUTH_STORAGE_KEY = 'trafficpulse_auth_session_v1';
@@ -583,7 +584,7 @@ export async function fetchFreshUserProfile(userHint?: {
     if (targetId) params.append('userId', targetId);
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
+    const timer = setTimeout(() => controller.abort(), 2000);
     const resp = await fetch(`/api/auth/profile?${params.toString()}`, {
       headers: {
         ...(currentAuth.token ? { Authorization: `Bearer ${currentAuth.token}` } : {}),
@@ -595,62 +596,37 @@ export async function fetchFreshUserProfile(userHint?: {
       const data = await resp.json();
       if (data.success && data.user) {
         freshUser = data.user;
+        if (currentAuth.isAuthenticated && currentAuth.user && 
+            (currentAuth.user.email?.toLowerCase() === freshUser.email?.toLowerCase() || currentAuth.user.id === freshUser.id)) {
+          const mergedUser: MemberUser = {
+            ...currentAuth.user,
+            ...freshUser,
+          };
+          saveAuthSession(mergedUser, currentAuth.token || 'tok_valid');
+          broadcastSessionRefresh(mergedUser);
+          return mergedUser;
+        }
+        return freshUser;
       }
     }
   } catch (err) {
     console.info('[AUTH] Server profile sync deferred, checking cloud database.');
   }
 
-  // 2. Check Firestore directly (authoritative cloud truth)
-  try {
-    const queryTarget = targetUid || targetEmail || targetId;
-    if (queryTarget) {
-      const cloudUser = await getMemberFromCloud(queryTarget);
-      if (cloudUser && cloudUser.email) {
-        const { passwordHash: _, ...safeCloudUser } = cloudUser;
-        if (!freshUser) {
+  // 2. Check Firestore directly only if server was unreachable and circuit is not open
+  if (!isFirestoreCircuitOpen()) {
+    try {
+      const queryTarget = targetUid || targetEmail || targetId;
+      if (queryTarget) {
+        const cloudUser = await getMemberFromCloud(queryTarget);
+        if (cloudUser && cloudUser.email) {
+          const { passwordHash: _, ...safeCloudUser } = cloudUser;
           freshUser = safeCloudUser as MemberUser;
-        } else {
-          let effectiveBal = freshUser.trafficBalance ?? 0;
-          const serverUpdated = Number(freshUser.updatedAt || 0);
-          const cloudUpdated = Number(safeCloudUser.updatedAt || 0);
-          const cloudBal = safeCloudUser.trafficBalance !== undefined ? Number(safeCloudUser.trafficBalance) : undefined;
-
-          if (cloudBal !== undefined) {
-            if (cloudUpdated > serverUpdated) {
-              effectiveBal = cloudBal;
-            } else if (serverUpdated > cloudUpdated) {
-              effectiveBal = freshUser.trafficBalance ?? cloudBal;
-            } else {
-              // Timestamps equal or missing: keep the higher balance so credits are never lost
-              effectiveBal = Math.max(effectiveBal, cloudBal);
-            }
-          }
-
-          const isPaid = (safeCloudUser.isPaidUser !== undefined ? Boolean(safeCloudUser.isPaidUser) : Boolean(freshUser.isPaidUser));
-          const finalAssigned = Math.max(
-            Number(freshUser.totalTrafficAssigned || 0),
-            Number(safeCloudUser.totalTrafficAssigned || 0),
-            effectiveBal
-          );
-          const isExhausted = effectiveBal <= 0;
-
-          freshUser = {
-            ...safeCloudUser,
-            ...freshUser,
-            trafficBalance: effectiveBal,
-            totalTrafficAssigned: finalAssigned,
-            isPaidUser: isPaid,
-            trafficStatus: isExhausted
-              ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
-              : (isPaid ? 'paid_active' : 'trial_active'),
-            tier: freshUser.tier || safeCloudUser.tier,
-          };
         }
       }
+    } catch (cloudErr) {
+      console.warn('[AUTH] Direct Firestore profile query deferred:', cloudErr);
     }
-  } catch (cloudErr) {
-    console.warn('[AUTH] Direct Firestore profile query deferred:', cloudErr);
   }
 
   if (freshUser) {
@@ -690,7 +666,7 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
     return { success: false, error: 'Please enter your password.' };
   }
 
-  // 1. Attempt backend API login
+  // 1. Fast backend API login
   try {
     const resp = await fetch('/api/auth/login', {
       method: 'POST',
@@ -699,36 +675,7 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
     });
     const data = await resp.json();
     if (resp.ok && data.success && data.user && data.token) {
-      let finalUser: MemberUser = data.user;
-      // Cross-verify with Firestore for any immediately assigned balance
-      try {
-        const cloudUser = await getMemberFromCloud(finalUser.email);
-        if (cloudUser && cloudUser.email) {
-          let effectiveBal = finalUser.trafficBalance ?? 0;
-          if (cloudUser.trafficBalance !== undefined) {
-            effectiveBal = Number(cloudUser.trafficBalance);
-          }
-
-          const isPaid = (cloudUser.isPaidUser !== undefined ? Boolean(cloudUser.isPaidUser) : Boolean(finalUser.isPaidUser));
-          const finalAssigned = Math.max(
-            Number(finalUser.totalTrafficAssigned || 0),
-            Number(cloudUser.totalTrafficAssigned || 0),
-            effectiveBal
-          );
-          const isExhausted = effectiveBal <= 0;
-
-          finalUser = {
-            ...finalUser,
-            trafficBalance: effectiveBal,
-            totalTrafficAssigned: finalAssigned,
-            isPaidUser: isPaid,
-            trafficStatus: isExhausted
-              ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
-              : (isPaid ? 'paid_active' : 'trial_active'),
-            tier: cloudUser.tier || finalUser.tier,
-          };
-        }
-      } catch {}
+      const finalUser: MemberUser = data.user;
 
       saveAuthSession(finalUser, data.token);
       const members = getStoredMembers();
@@ -739,9 +686,13 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
         members.push({ ...finalUser, passwordHash: password });
       }
       saveMembers(members);
-      // Persist to Cloud Firestore database
-      saveMemberToCloud({ ...finalUser, passwordHash: password }).catch(() => {});
       broadcastSessionRefresh(finalUser);
+
+      // Async cloud sync in background, NEVER block user login!
+      if (!isFirestoreCircuitOpen()) {
+        saveMemberToCloud({ ...finalUser, passwordHash: password }).catch(() => {});
+      }
+
       return { success: true, user: finalUser, token: data.token };
     }
     if (!resp.ok && data.requiresVerification) {
@@ -759,110 +710,112 @@ export async function loginMember(emailOrUsername: string, password: string): Pr
     if (resp.status === 401) {
       return { success: false, error: data.error || 'Incorrect password. Please verify and try again.' };
     }
-    // If status is 404, continue to Firestore and local registry checks below
   } catch (err) {
-    console.info('Server auth endpoint unavailable, checking cloud & local registries.');
+    console.info('Server auth endpoint unavailable, checking local & cloud registries.');
   }
 
-  // 2. Direct Cloud Firestore database check (restores accounts across server restarts & cloud instances)
-  try {
-    const cloudUser = await getMemberFromCloud(query);
-    if (cloudUser && cloudUser.email) {
-      if (cloudUser.authProvider === 'google' && (!cloudUser.passwordHash || cloudUser.passwordHash.trim().length === 0)) {
-        return {
-          success: false,
-          error: 'This account was registered with Google Sign-In. Please click the "Sign In with Google" button.',
-        };
-      }
-
-      if (!cloudUser.passwordHash || cloudUser.passwordHash.trim().length === 0) {
-        return {
-          success: false,
-          error: 'No password set for this account. Please sign in with Google or reset your password.',
-        };
-      }
-
-      const isMatchingPass = cloudUser.passwordHash === password || cloudUser.passwordHash === password.trim();
-
-      if (isMatchingPass) {
-        const { passwordHash: _, ...safeUser } = cloudUser;
-        const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-        saveAuthSession(safeUser, token);
-
-        const members = getStoredMembers();
-        const idx = members.findIndex(m => m.email.toLowerCase() === safeUser.email.toLowerCase());
-        if (idx !== -1) {
-          members[idx] = { ...members[idx], ...safeUser, passwordHash: password };
-        } else {
-          members.push({ ...safeUser, passwordHash: password });
-        }
-        saveMembers(members);
-
-        // Update last login in Firestore
-        saveMemberToCloud({ ...safeUser, passwordHash: password, lastLoginAt: Date.now() }).catch(() => {});
-
-        // Synchronize with server cache
-        fetch('/api/auth/sync-member', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ member: { ...safeUser, passwordHash: password } }),
-        }).catch(() => {});
-
-        return { success: true, user: safeUser, token };
-      } else {
-        return { success: false, error: 'Incorrect password. Please verify and try again.' };
-      }
-    }
-  } catch (cloudErr) {
-    console.warn('Direct Firestore login check warning:', cloudErr);
-  }
-
-  // 3. Local storage registry check
+  // 2. Instant Local Storage Registry check (0ms fast path)
   const members = getStoredMembers();
   const match = members.find(
     m => m.email.toLowerCase() === query || (m.username && m.username.toLowerCase() === query)
   );
 
-  if (!match) {
-    return { success: false, error: 'No member account found with this email or username. Please register first.' };
+  if (match) {
+    if (match.authProvider === 'google' && (!match.passwordHash || match.passwordHash.trim().length === 0)) {
+      return {
+        success: false,
+        error: 'This account was registered with Google Sign-In. Please click the "Sign In with Google" button.',
+      };
+    }
+
+    if (!match.passwordHash || match.passwordHash.trim().length === 0) {
+      return {
+        success: false,
+        error: 'No password configured for this account. Please sign in with Google.',
+      };
+    }
+
+    if (match.passwordHash !== password && match.passwordHash !== password.trim()) {
+      return { success: false, error: 'Incorrect password. Please verify and try again.' };
+    }
+
+    match.passwordHash = password;
+    match.lastLoginAt = Date.now();
+    saveMembers(members);
+    if (!isFirestoreCircuitOpen()) {
+      saveMemberToCloud(match).catch(() => {});
+    }
+
+    // Sync to server in background
+    fetch('/api/auth/sync-member', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ member: match }),
+    }).catch(() => {});
+
+    const { passwordHash: _, ...safeUser } = match;
+    const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    saveAuthSession(safeUser, token);
+    broadcastSessionRefresh(safeUser);
+
+    return { success: true, user: safeUser, token };
   }
 
-  if (match.authProvider === 'google' && (!match.passwordHash || match.passwordHash.trim().length === 0)) {
-    return {
-      success: false,
-      error: 'This account was registered with Google Sign-In. Please click the "Sign In with Google" button.',
-    };
+  // 3. Cloud Firestore fallback if account exists in cloud but not locally
+  if (!isFirestoreCircuitOpen()) {
+    try {
+      const cloudUser = await getMemberFromCloud(query);
+      if (cloudUser && cloudUser.email) {
+        if (cloudUser.authProvider === 'google' && (!cloudUser.passwordHash || cloudUser.passwordHash.trim().length === 0)) {
+          return {
+            success: false,
+            error: 'This account was registered with Google Sign-In. Please click the "Sign In with Google" button.',
+          };
+        }
+
+        if (!cloudUser.passwordHash || cloudUser.passwordHash.trim().length === 0) {
+          return {
+            success: false,
+            error: 'No password set for this account. Please sign in with Google or reset your password.',
+          };
+        }
+
+        const isMatchingPass = cloudUser.passwordHash === password || cloudUser.passwordHash === password.trim();
+
+        if (isMatchingPass) {
+          const { passwordHash: _, ...safeUser } = cloudUser;
+          const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+          saveAuthSession(safeUser, token);
+
+          const membersList = getStoredMembers();
+          const idx = membersList.findIndex(m => m.email.toLowerCase() === safeUser.email.toLowerCase());
+          if (idx !== -1) {
+            membersList[idx] = { ...membersList[idx], ...safeUser, passwordHash: password };
+          } else {
+            membersList.push({ ...safeUser, passwordHash: password });
+          }
+          saveMembers(membersList);
+
+          // Update last login in Firestore and sync with server
+          saveMemberToCloud({ ...safeUser, passwordHash: password, lastLoginAt: Date.now() }).catch(() => {});
+          fetch('/api/auth/sync-member', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ member: { ...safeUser, passwordHash: password } }),
+          }).catch(() => {});
+
+          broadcastSessionRefresh(safeUser);
+          return { success: true, user: safeUser, token };
+        } else {
+          return { success: false, error: 'Incorrect password. Please verify and try again.' };
+        }
+      }
+    } catch (cloudErr) {
+      console.warn('Direct Firestore login check warning:', cloudErr);
+    }
   }
 
-  if (!match.passwordHash || match.passwordHash.trim().length === 0) {
-    return {
-      success: false,
-      error: 'No password configured for this account. Please sign in with Google.',
-    };
-  }
-
-  if (match.passwordHash !== password && match.passwordHash !== password.trim()) {
-    return { success: false, error: 'Incorrect password. Please verify and try again.' };
-  }
-
-  // Update password if it was missing or needs saving
-  match.passwordHash = password;
-  match.lastLoginAt = Date.now();
-  saveMembers(members);
-  saveMemberToCloud(match).catch(() => {});
-
-  // Sync to server
-  fetch('/api/auth/sync-member', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ member: match }),
-  }).catch(() => {});
-
-  const { passwordHash: _, ...safeUser } = match;
-  const token = `tp_token_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  saveAuthSession(safeUser, token);
-
-  return { success: true, user: safeUser, token };
+  return { success: false, error: 'No member account found with this email or username. Please register first.' };
 }
 
 export async function loginWithGoogle(customProfile?: {
@@ -923,36 +876,7 @@ export async function loginWithGoogle(customProfile?: {
       return { success: false, error: data.error || 'Google authentication error.' };
     }
     if (data.success && data.user && data.token) {
-      let finalUser: MemberUser = data.user;
-      // Cross-verify with Firestore for any immediately assigned balance
-      try {
-        const cloudUser = await getMemberFromCloud(finalUser.email);
-        if (cloudUser && cloudUser.email) {
-          let effectiveBal = finalUser.trafficBalance ?? 0;
-          if (cloudUser.trafficBalance !== undefined) {
-            effectiveBal = Number(cloudUser.trafficBalance);
-          }
-
-          const isPaid = (cloudUser.isPaidUser !== undefined ? Boolean(cloudUser.isPaidUser) : Boolean(finalUser.isPaidUser));
-          const finalAssigned = Math.max(
-            Number(finalUser.totalTrafficAssigned || 0),
-            Number(cloudUser.totalTrafficAssigned || 0),
-            effectiveBal
-          );
-          const isExhausted = effectiveBal <= 0;
-
-          finalUser = {
-            ...finalUser,
-            trafficBalance: effectiveBal,
-            totalTrafficAssigned: finalAssigned,
-            isPaidUser: isPaid,
-            trafficStatus: isExhausted
-              ? (isPaid ? 'paid_exhausted' : 'trial_exhausted')
-              : (isPaid ? 'paid_active' : 'trial_active'),
-            tier: cloudUser.tier || finalUser.tier,
-          };
-        }
-      } catch {}
+      const finalUser: MemberUser = data.user;
 
       saveAuthSession(finalUser, data.token);
       // Sync local members
@@ -964,6 +888,9 @@ export async function loginWithGoogle(customProfile?: {
         members.push({ ...finalUser, passwordHash: '' });
       }
       saveMembers(members);
+      if (!isFirestoreCircuitOpen()) {
+        saveMemberToCloud(finalUser).catch(() => {});
+      }
       broadcastSessionRefresh(finalUser);
       return { success: true, user: finalUser, token: data.token };
     }

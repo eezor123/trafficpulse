@@ -280,7 +280,7 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'User identifier or active session token required.' });
       }
 
-      const rawMember = await findMember(targetIdentifier, true);
+      const rawMember = await findMember(targetIdentifier, false);
       if (!rawMember) {
         return res.status(404).json({ success: false, error: 'Member not found.' });
       }
@@ -301,7 +301,7 @@ async function startServer() {
     }
     try {
       const cleanEmail = String(member.email).trim().toLowerCase();
-      const existing = await findMember(cleanEmail, true);
+      const existing = await findMember(cleanEmail, false);
 
       // Determine authoritative traffic balance:
       let authoritativeBalance = existing?.trafficBalance;
@@ -968,7 +968,7 @@ async function startServer() {
     }
 
     const query = String(emailOrUsername).trim().toLowerCase();
-    let member = await findMember(query, true);
+    let member = await findMember(query, false);
 
     // Auto-create saroneedam super admin if logging in for the first time
     if (!member && isSaroneedamAdminEmail(query)) {

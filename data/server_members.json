@@ -12,7 +12,7 @@
     "verificationTier": "top_rated_employer",
     "name": "Saron Needam",
     "id": "user_admin_1",
-    "lastLoginIp": "102.89.82.192",
+    "lastLoginIp": "127.0.0.1",
     "company": "TrafficPulse HQ (Super Admin)",
     "bankDetails": {
       "accountName": "Super Admin",
@@ -22,7 +22,7 @@
     "rating": 5,
     "completedJobs": 25,
     "passwordHash": "Vivian123@",
-    "lastLoginAt": 1790525402840,
+    "lastLoginAt": 1791047604812,
     "bio": "Super Admin & Platform Compliance Officer.",
     "phoneNumber": "+2348030586729",
     "walletBalanceNgn": 5000000,
