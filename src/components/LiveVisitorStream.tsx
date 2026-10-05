@@ -265,6 +265,18 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
             );
             if (matchIndex >= 0 && matchIndex !== selectedVisitor.currentPageIndex) {
               selectedVisitor.currentPageIndex = matchIndex;
+            } else if (matchIndex === -1) {
+              selectedVisitor.visitedPages.push({
+                url: clickedHref,
+                path: clickedHref,
+                title: event.data.text || 'Simulated Video Route',
+                dwellPlannedSeconds: Math.floor(Math.random() * 25) + 15,
+                dwellSecondsSpent: 0,
+                status: 'active',
+                linksClicked: 1,
+                scrollDepthReachedPct: 25,
+              });
+              selectedVisitor.currentPageIndex = selectedVisitor.visitedPages.length - 1;
             }
           }
         }
@@ -1209,13 +1221,13 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                             )}
                           </div>
                           <div className="pointer-events-auto bg-slate-950/90 border border-slate-800 px-2.5 py-1 rounded-lg text-[11px] text-slate-400 flex items-center gap-1.5 backdrop-blur-sm shadow-lg">
-                            <span>Target blocking frame?</span>
+                            <span>{currentSocialInfo.isSocial ? `${currentSocialInfo.platformName} blocking embed?` : 'Target blocking frame?'}</span>
                             <button
                               type="button"
                               onClick={() => setViewportMode('live_webview')}
                               className="text-cyan-400 hover:text-cyan-300 font-semibold underline cursor-pointer"
                             >
-                              Switch to Live Webview (with ads)
+                              {currentSocialInfo.isSocial ? 'Switch to Media Proxy Stream' : 'Switch to Live Webview'}
                             </button>
                           </div>
                         </div>
@@ -1236,6 +1248,18 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                               );
                               if (matchIdx >= 0) {
                                 selectedVisitor.currentPageIndex = matchIdx;
+                              } else {
+                                selectedVisitor.visitedPages.push({
+                                  url: navUrl,
+                                  path: navUrl,
+                                  title: 'Social Video Navigation',
+                                  dwellPlannedSeconds: 30,
+                                  dwellSecondsSpent: 0,
+                                  status: 'active',
+                                  linksClicked: 1,
+                                  scrollDepthReachedPct: 25,
+                                });
+                                selectedVisitor.currentPageIndex = selectedVisitor.visitedPages.length - 1;
                               }
                             }
                           }}

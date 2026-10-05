@@ -1,8 +1,8 @@
 /**
  * Social Media & Video URL Embedding & Simulation Utility
- * Handles Facebook Video, Reels, Posts, YouTube, Instagram, TikTok, Twitter/X, and Vimeo.
+ * Handles Facebook Video, Live, Reels, Posts, YouTube, Instagram, TikTok, Twitter/X, and Vimeo.
  * Converts direct post/video URLs to embed-compatible URLs that bypass X-Frame-Options restrictions,
- * and provides realistic navigable routes for the traffic simulator.
+ * provides verified direct video stream fallbacks, and creates realistic navigable routes for the simulator.
  */
 
 export interface SocialMediaInfo {
@@ -16,7 +16,16 @@ export interface SocialMediaInfo {
   authorOrChannel?: string;
   titleSuggestion: string;
   isEmbedAllowedDirectly: boolean;
+  isLive?: boolean;
+  directVideoSources: string[];
 }
+
+// Highly reliable, public high-definition video streams with open CORS and zero expiration
+export const VERIFIED_DIRECT_VIDEO_STREAMS = [
+  'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+  'https://www.w3schools.com/html/mov_bbb.mp4',
+  'https://www.w3schools.com/tags/movie.mp4',
+];
 
 /**
  * Determines whether a given URL is a social media or video link and extracts metadata & embed targets.
@@ -32,6 +41,7 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       canonicalUrl: rawUrl || '',
       titleSuggestion: 'Web Page',
       isEmbedAllowedDirectly: false,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
   }
 
@@ -53,6 +63,7 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       canonicalUrl: rawUrl,
       titleSuggestion: 'Web Page',
       isEmbedAllowedDirectly: false,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
   }
 
@@ -61,9 +72,10 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
   const search = parsed.searchParams;
 
   // --------------------------------------------------------------------------
-  // 1. FACEBOOK (Videos, Reels, Watch, Posts, Stories, Shares)
+  // 1. FACEBOOK (Videos, Live Broadcasts, Reels, Watch, Shares, Posts)
   // --------------------------------------------------------------------------
   if (host === 'facebook.com' || host === 'fb.watch' || host === 'fb.com') {
+    const isLive = pathname.includes('/live') || search.has('live') || pathname.includes('watch/live') || pathname.includes('/watch/live/');
     const isFbWatch = host === 'fb.watch';
     const isWatchPath = pathname.startsWith('/watch') || search.has('v');
     const isReel = pathname.includes('/reel/') || pathname.includes('/reels/');
@@ -72,19 +84,42 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
     const isPost = pathname.includes('/posts/') || pathname.includes('/story.php') || pathname.includes('/permalink.php') || pathname.includes('/share/p/');
     const isPhoto = pathname.includes('/photos/') || pathname.includes('/photo.php') || pathname.includes('/photo');
 
-    const isVideo = isFbWatch || isWatchPath || isReel || isVideoPath || isShareVideo;
+    const isVideo = isLive || isFbWatch || isWatchPath || isReel || isVideoPath || isShareVideo;
     const mediaType: SocialMediaInfo['mediaType'] = isReel ? 'reel' : isVideo ? 'video' : isPost ? 'post' : isPhoto ? 'photo' : 'page';
 
     let videoId: string | undefined = search.get('v') || undefined;
     if (!videoId) {
-      const match = pathname.match(/(?:videos|reel|reels|share\/v|share\/r)\/([0-9a-zA-Z_-]+)/);
-      if (match) videoId = match[1];
+      if (isFbWatch) {
+        const seg = pathname.replace(/^\//, '').split('/')[0];
+        if (seg) videoId = seg;
+      } else {
+        const match = pathname.match(/(?:videos|reel|reels|share\/v|share\/r|live)\/([0-9a-zA-Z_-]+)/);
+        if (match) videoId = match[1];
+      }
     }
 
-    // Direct embed URL using Facebook's official plugins that allow iframe embedding
+    // Clean tracking parameters (mibextid, sfnsn, fbclid, rdid, ref, __cft__, __tn__, s, fs, etc.)
+    let cleanCanonical = withProtocol;
+    if (videoId && /^\d+$/.test(videoId)) {
+      cleanCanonical = isReel
+        ? `https://www.facebook.com/reel/${videoId}`
+        : isLive
+        ? `https://www.facebook.com/watch/live/?v=${videoId}`
+        : `https://www.facebook.com/watch/?v=${videoId}`;
+    } else {
+      const cleanParams = new URLSearchParams(search);
+      const trackingKeys = ['mibextid', 'sfnsn', 'fbclid', 'rdid', 'ref', '__cft__', '__tn__', 's', 'fs', 'wtsid', 'extid', 'context'];
+      trackingKeys.forEach(k => cleanParams.delete(k));
+      const q = cleanParams.toString();
+      cleanCanonical = `${parsed.origin}${parsed.pathname}${q ? `?${q}` : ''}`;
+    }
+
+    // Direct embed URL using Facebook's official plugins:
+    // IMPORTANT: Facebook plugins REQUIRE width to be an integer (e.g. 560 or 500) and NEVER 'auto'!
+    // show_text=0 removes header clutter, autoplay=1 enables direct broadcast
     const directEmbedUrl = isVideo
-      ? `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(withProtocol)}&show_text=0&width=auto&autoplay=1`
-      : `https://www.facebook.com/plugins/post.php?href=${encodeURIComponent(withProtocol)}&show_text=true&width=auto`;
+      ? `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(cleanCanonical)}&show_text=0&width=560&autoplay=1`
+      : `https://www.facebook.com/plugins/post.php?href=${encodeURIComponent(cleanCanonical)}&show_text=true&width=560`;
 
     return {
       isSocial: true,
@@ -92,10 +127,18 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       platformName: 'Facebook',
       mediaType,
       directEmbedUrl,
-      canonicalUrl: withProtocol,
+      canonicalUrl: cleanCanonical,
       videoId,
-      titleSuggestion: isReel ? 'Facebook Reel Video' : isVideo ? 'Facebook Watch Video' : 'Facebook Post Discussion',
+      titleSuggestion: isLive 
+        ? 'Facebook Live Broadcast • Streaming Now' 
+        : isReel 
+        ? 'Facebook Reel Video' 
+        : isVideo 
+        ? 'Facebook Watch Video' 
+        : 'Facebook Post Discussion',
       isEmbedAllowedDirectly: true,
+      isLive,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
   }
 
@@ -134,6 +177,7 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       videoId: cleanVideoId,
       titleSuggestion: isShort ? 'YouTube Short Clip' : 'YouTube Video Stream',
       isEmbedAllowedDirectly: !!cleanVideoId,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
   }
 
@@ -161,6 +205,7 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       videoId: postId,
       titleSuggestion: isReel ? 'Instagram Reel Clip' : 'Instagram Post & Video',
       isEmbedAllowedDirectly: !!postId,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
   }
 
@@ -186,6 +231,7 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       videoId,
       titleSuggestion: 'TikTok Viral Video',
       isEmbedAllowedDirectly: !!videoId,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
   }
 
@@ -211,6 +257,7 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       videoId: tweetId,
       titleSuggestion: 'X (Twitter) Post & Media',
       isEmbedAllowedDirectly: !!tweetId,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
   }
 
@@ -234,6 +281,7 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       videoId: vimeoId,
       titleSuggestion: 'Vimeo High-Definition Video',
       isEmbedAllowedDirectly: !!vimeoId,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
   }
 
@@ -247,6 +295,7 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
     canonicalUrl: withProtocol,
     titleSuggestion: parsed.hostname,
     isEmbedAllowedDirectly: false,
+    directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
   };
 }
 
@@ -265,11 +314,10 @@ export function generateSocialMediaRoutes(
   visitWeight: number;
   description: string;
 }> {
-  const canonical = info.canonicalUrl;
+  const canonical = info.canonicalUrl || targetUrl;
   const platformName = info.platformName;
   const mediaLabel = info.mediaType === 'reel' ? 'Reel' : info.mediaType === 'post' ? 'Post' : 'Video';
 
-  // Extract a readable path prefix or identifier
   let baseIdentifier = '';
   try {
     const p = new URL(canonical);
@@ -304,12 +352,20 @@ export function generateSocialMediaRoutes(
       description: `Browsing creator profile, follower metrics, and upload playlist.`,
     },
     {
-      url: `${canonical}#up-next-recommended`,
-      path: `${baseIdentifier}#up-next-recommended`,
-      title: `Up Next: Recommended Trending Videos`,
+      url: `${canonical}#up-next-1`,
+      path: `${baseIdentifier}#up-next-1`,
+      title: `Up Next: Trending Highlight Stream 01`,
       category: 'post',
       visitWeight: 75,
       description: `Simulator auto-navigating to the next recommended video in the playlist stream.`,
+    },
+    {
+      url: `${canonical}#up-next-2`,
+      path: `${baseIdentifier}#up-next-2`,
+      title: `Up Next: Related Live Discussion 02`,
+      category: 'post',
+      visitWeight: 70,
+      description: `Simulator browsing companion live broadcast session with viewer interactions.`,
     },
     {
       url: `${canonical}#theater-fullscreen`,

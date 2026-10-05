@@ -11,6 +11,7 @@ import { SocksProxyAgent } from 'socks-proxy-agent';
 import { executeUniversalCrawl, type FetchFunction } from './src/utils/universalCrawler.ts';
 import { parseSocialMediaUrl, generateSocialMediaRoutes } from './src/utils/socialMediaEmbed.ts';
 import { renderSocialMediaLivePage } from './src/server/socialPageRenderer.ts';
+import { resolveSocialVideoMetadata, streamProxiedVideo } from './src/server/mediaProxy.ts';
 import {
   findMember,
   persistMember,
@@ -1530,6 +1531,28 @@ async function startServer() {
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Ping failed' });
     }
+  });
+
+  // ----------------------------------------------------
+  // 3.5. MEDIA PROXY & METADATA RESOLVER FOR SOCIAL/VIDEO LINKS
+  // ----------------------------------------------------
+  app.get('/api/browser/media-proxy', async (req: Request, res: Response) => {
+    try {
+      const rawUrl = (req.query.url as string) || '';
+      if (!rawUrl) {
+        return res.status(400).json({ error: 'Missing url parameter' });
+      }
+      const meta = await resolveSocialVideoMetadata(rawUrl);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.json({ success: true, ...meta });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Media proxy error' });
+    }
+  });
+
+  app.get('/api/browser/media-proxy/stream', (req: Request, res: Response) => {
+    const videoUrl = (req.query.url as string) || '';
+    streamProxiedVideo(videoUrl, req.headers, res);
   });
 
   // ----------------------------------------------------
