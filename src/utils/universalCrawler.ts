@@ -1,4 +1,5 @@
 import type { CrawledPage } from '../types.ts';
+import { parseSocialMediaUrl, generateSocialMediaRoutes } from './socialMediaEmbed.ts';
 
 export interface CrawlEngineResult {
   targetUrl: string;
@@ -526,6 +527,50 @@ export async function executeUniversalCrawl(
   const targetUrl = parsedBase.toString();
   const origin = parsedBase.origin;
   const hostname = parsedBase.hostname;
+
+  // ----------------------------------------------------
+  // SOCIAL MEDIA & VIDEO LINK CRAWL BYPASS
+  // (Facebook Videos, Reels, YouTube, Instagram, TikTok, etc.)
+  // Instantly generates rich navigable routes for virtual visitors
+  // ----------------------------------------------------
+  const socialInfo = parseSocialMediaUrl(targetUrl);
+  if (socialInfo.isSocial) {
+    const socialRoutes = generateSocialMediaRoutes(targetUrl, socialInfo);
+    const pages: CrawledPage[] = socialRoutes.map((r, idx) => ({
+      id: `page_social_${idx}_${Date.now()}`,
+      url: r.url,
+      path: r.path,
+      title: r.title,
+      category: r.category,
+      visitWeight: r.visitWeight,
+      description: r.description,
+      status: 200,
+      depth: idx === 0 ? 0 : 1,
+      includedInVisits: true,
+      gaDetected: false,
+      isExternal: false,
+      isIndexable: true,
+      crawlTimestamp: Date.now(),
+    }));
+
+    return {
+      targetUrl,
+      hostname: parsedBase.hostname,
+      origin: parsedBase.origin,
+      title: `${socialInfo.platformName} ${socialInfo.mediaType === 'reel' ? 'Reel' : 'Video'} - Live Stream`,
+      description: `Active ${socialInfo.platformName} video stream with live playback and multi-route navigation.`,
+      statusCode: 200,
+      latencyMs: Math.round(performance.now() - startTime) || 45,
+      pages,
+      realLinksCount: pages.length,
+      visitedUrlsCount: pages.length,
+      recursivePassDepth: 1,
+      listingPatternsMatched: 1,
+      sitemapFound: false,
+      crawlPhase: 'Crawl Completed • Social Video Routes Active',
+    };
+  }
+
   const isDirectSitemapInput =
     parsedBase.pathname.endsWith('.xml') ||
     parsedBase.pathname.includes('sitemap') ||

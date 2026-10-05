@@ -13,9 +13,11 @@ import {
   Layers,
   ArrowRight,
   ShieldCheck,
-  X
+  X,
+  Video,
 } from 'lucide-react';
 import { SiteCrawlState, TestStatus } from '../types';
+import { parseSocialMediaUrl } from '../utils/socialMediaEmbed';
 
 interface TargetUrlCommandBarProps {
   targetUrl: string;
@@ -31,11 +33,12 @@ interface TargetUrlCommandBarProps {
 }
 
 const PRESET_URLS = [
+  { name: 'Facebook Video (Watch)', url: 'https://www.facebook.com/watch/?v=10153231379946729' },
+  { name: 'YouTube Video (Stream)', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
   { name: 'Example Domain', url: 'https://example.com' },
   { name: 'Wikipedia', url: 'https://www.wikipedia.org' },
   { name: 'Hacker News', url: 'https://news.ycombinator.com' },
   { name: 'Techpoint Africa', url: 'https://techpoint.africa' },
-  { name: 'GitHub', url: 'https://github.com' },
 ];
 
 export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
@@ -58,6 +61,7 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
   const [customGaInput, setCustomGaInput] = useState('');
 
   const activeGaId = (gaMeasurementId || crawlState.gaMeasurementId || '').trim();
+  const socialInfo = React.useMemo(() => parseSocialMediaUrl(inputUrl || targetUrl), [inputUrl, targetUrl]);
 
   // Sync inputUrl when targetUrl changes from external sources
   React.useEffect(() => {
@@ -258,6 +262,25 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
           )}
         </div>
       </div>
+
+      {/* Social Media & Video Link Detected Banner */}
+      {socialInfo.isSocial && (
+        <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-950/80 via-indigo-950/80 to-slate-900 border border-cyan-500/40 text-cyan-300 text-xs shadow-md">
+          <div className="flex items-center gap-2.5">
+            <Video className="w-4 h-4 text-cyan-400 shrink-0 animate-pulse" />
+            <span className="font-bold text-white">
+              {socialInfo.platformName} {socialInfo.mediaType.toUpperCase()} Link
+            </span>
+            <span className="hidden sm:inline text-slate-400">•</span>
+            <span className="hidden sm:inline text-slate-300 text-[11px]">
+              Direct Video Embed & Autonomous Simulator Navigation Enabled
+            </span>
+          </div>
+          <span className="px-2.5 py-0.5 rounded-full bg-cyan-900/70 border border-cyan-400/50 text-[10px] font-mono font-bold text-cyan-200 shrink-0">
+            Live Stream Mode
+          </span>
+        </div>
+      )}
 
       {/* Target Status Info Bar & Quick Preset Chips */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-3 border-t border-slate-800/80 text-xs">

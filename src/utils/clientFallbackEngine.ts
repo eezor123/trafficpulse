@@ -1,5 +1,6 @@
 import type { CrawledPage } from '../types';
 import { executeUniversalCrawl, FetchFunction } from './universalCrawler';
+import { parseSocialMediaUrl, generateSocialMediaRoutes } from './socialMediaEmbed';
 
 export interface GeneratedAICampaign {
   name: string;
@@ -217,6 +218,25 @@ export async function crawlWebsiteLiveInBrowser(targetUrl: string): Promise<{
  * Never fabricates fake career or ecommerce routes.
  */
 export function getClientSideCrawledPages(targetUrl: string): CrawledPage[] {
+  // Social media video links fallback
+  const socialInfo = parseSocialMediaUrl(targetUrl);
+  if (socialInfo.isSocial) {
+    const routes = generateSocialMediaRoutes(targetUrl, socialInfo);
+    return routes.map((r, idx) => ({
+      id: `page_social_client_${idx}_${Date.now()}`,
+      url: r.url,
+      path: r.path,
+      title: r.title,
+      description: r.description,
+      depth: idx === 0 ? 0 : 1,
+      status: 200,
+      includedInVisits: true,
+      visitWeight: r.visitWeight,
+      gaDetected: false,
+      category: r.category,
+    }));
+  }
+
   let hostname = 'target-site.com';
   let rootOrigin = 'https://target-site.com';
   let initialPath = '/';

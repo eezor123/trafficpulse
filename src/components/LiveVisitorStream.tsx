@@ -54,9 +54,13 @@ import {
   BarChart3,
   PlusCircle,
   Edit2,
+  Video,
+  Heart,
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { RealtimeBounceRateChart } from './RealtimeBounceRateChart';
+import { parseSocialMediaUrl, type SocialMediaInfo } from '../utils/socialMediaEmbed';
+import { SocialVideoDomSimulator } from './SocialVideoDomSimulator';
 import { ActiveVisitorSession, LiveTelemetryEvent, RealHttpTrafficHit, SimulatorActionLog } from '../types';
 
 interface LiveVisitorStreamProps {
@@ -204,15 +208,72 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const selectedVisitor = activeVisitors.find(v => v.visitorId === selectedVisitorId) || activeVisitors[0];
 
   // Helper to compute full absolute URL
-  const computeFullUrl = (path: string = '/'): string => {
+  const computeFullUrl = (pathOrUrl: string = '/'): string => {
+    if (pathOrUrl && (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://'))) {
+      return pathOrUrl;
+    }
     const rawTarget = targetUrl && targetUrl.trim() ? targetUrl.trim() : 'https://example.com';
-    const base = rawTarget.startsWith('http') ? rawTarget.replace(/\/$/, '') : `https://${rawTarget.replace(/\/$/, '')}`;
-    const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    return `${base}${cleanPath}`;
+    const baseWithProtocol = rawTarget.startsWith('http://') || rawTarget.startsWith('https://') 
+      ? rawTarget 
+      : `https://${rawTarget}`;
+    
+    try {
+      const parsedBase = new URL(baseWithProtocol);
+      // If path is root '/' or empty, keep exact targetUrl (preserves query params like ?v=... on Facebook videos)
+      if (!pathOrUrl || pathOrUrl === '/') {
+        return parsedBase.toString();
+      }
+      if (pathOrUrl.startsWith('#')) {
+        return `${parsedBase.toString()}${pathOrUrl}`;
+      }
+      if (pathOrUrl.startsWith('?')) {
+        return `${parsedBase.origin}${parsedBase.pathname}${pathOrUrl}`;
+      }
+      return new URL(pathOrUrl, parsedBase.origin).toString();
+    } catch {
+      return baseWithProtocol;
+    }
   };
 
-  const currentPath = selectedVisitor?.visitedPages[selectedVisitor.currentPageIndex]?.path || '/';
+  const activePage = selectedVisitor?.visitedPages[selectedVisitor.currentPageIndex];
+  const currentPath = activePage?.url || activePage?.path || '/';
   const fullLiveUrl = computeFullUrl(currentPath);
+
+  // Social media video & post link detection (Facebook, YouTube, TikTok, Instagram, etc.)
+  const socialInfo = useMemo(() => parseSocialMediaUrl(targetUrl), [targetUrl]);
+  const currentSocialInfo = useMemo(() => parseSocialMediaUrl(fullLiveUrl), [fullLiveUrl]);
+
+  // When targetUrl is a social media video link, auto-switch to live_webview on first load if currently in dom mode
+  const initialSocialSwitchedRef = useRef(false);
+  useEffect(() => {
+    if (socialInfo.isSocial && !initialSocialSwitchedRef.current) {
+      initialSocialSwitchedRef.current = true;
+      setViewportMode('live_webview');
+    }
+  }, [socialInfo.isSocial]);
+
+  // Intercept deep link clicks dispatched by the live virtual browser iframe
+  useEffect(() => {
+    const handleFrameMessage = (event: MessageEvent) => {
+      try {
+        if (!event.data) return;
+        if (event.data.type === 'TP_LINK_CLICKED' && event.data.href) {
+          const clickedHref = event.data.href;
+          if (selectedVisitor && selectedVisitor.visitedPages) {
+            const matchIndex = selectedVisitor.visitedPages.findIndex(
+              p => p.url === clickedHref || p.path === clickedHref || (p.path && p.path.length > 2 && clickedHref.includes(p.path))
+            );
+            if (matchIndex >= 0 && matchIndex !== selectedVisitor.currentPageIndex) {
+              selectedVisitor.currentPageIndex = matchIndex;
+            }
+          }
+        }
+      } catch {}
+    };
+
+    window.addEventListener('message', handleFrameMessage);
+    return () => window.removeEventListener('message', handleFrameMessage);
+  }, [selectedVisitor]);
 
   // Proxy webview URL for full live rendering: STABILIZED strictly on target URL and allowAds
   // NEVER reload the iframe when switching between concurrent visitors or auto-follow updates!
@@ -295,7 +356,6 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
     return brandName.slice(0, 2).toUpperCase() || 'WS';
   }, [brandName]);
 
-  const activePage = selectedVisitor?.visitedPages[selectedVisitor.currentPageIndex];
   const pageTitle = activePage?.title || (currentPath === '/' ? `${brandName} - Home` : currentPath.replace(/[-_/]/g, ' ').trim());
   const pageDesc = activePage?.description || `Explore verified content, documentation, and live pages on ${parsedHostname}.`;
   const pageCategory = activePage?.category || (
@@ -772,10 +832,10 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                   className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
                     viewportMode === 'live_webview' ? 'bg-cyan-600 text-white font-semibold shadow' : 'text-slate-400 hover:text-white'
                   }`}
-                  title="Live proxied webview with CSP stripping, full dynamic assets, AdSense enabled, and companion cursor sync"
+                  title="Live proxied webview with CSP stripping, full dynamic assets, social video stream, and companion cursor sync"
                 >
                   <Eye className="w-3.5 h-3.5 text-cyan-200" />
-                  <span>Live Webview</span>
+                  <span>{socialInfo.isSocial ? 'Live Video' : 'Live Webview'}</span>
                 </button>
                 <button
                   type="button"
@@ -783,9 +843,10 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                   className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
                     viewportMode === 'direct_iframe' ? 'bg-indigo-600 text-white font-semibold shadow' : 'text-slate-400 hover:text-white'
                   }`}
-                  title="Direct iframe embed of the live target domain with ad support"
+                  title="Direct embed of the target domain/video stream"
                 >
-                  <span>Direct</span>
+                  <Video className="w-3 h-3" />
+                  <span>{socialInfo.isSocial ? 'Direct Embed' : 'Direct'}</span>
                 </button>
                 <button
                   type="button"
@@ -793,11 +854,19 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                   className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                     viewportMode === 'dom' ? 'bg-indigo-600 text-white font-semibold shadow' : 'text-slate-400 hover:text-white'
                   }`}
-                  title="High-speed interactive React canvas simulator"
+                  title="High-speed interactive simulator"
                 >
-                  DOM Sim
+                  {socialInfo.isSocial ? 'Social Sim' : 'DOM Sim'}
                 </button>
               </div>
+
+              {/* Social Media Link Detected Pill */}
+              {socialInfo.isSocial && (
+                <div className="hidden lg:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 text-xs font-bold">
+                  <Video className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>{socialInfo.platformName} {socialInfo.mediaType.toUpperCase()} DETECTED</span>
+                </div>
+              )}
 
               {/* Allow Ads Toggle in Browser Simulation */}
               <button
@@ -910,10 +979,19 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                 {/* Full Address Bar with Exact Link & Visit Button */}
                 <div className="flex-1 max-w-3xl bg-slate-950 border border-slate-800 focus-within:border-indigo-500 rounded-xl px-3.5 py-2 flex items-center justify-between gap-2 text-xs font-mono shadow-inner">
                   <div className="flex items-center gap-2 truncate flex-1 min-w-0">
-                    <div className="flex items-center gap-1 text-emerald-400 shrink-0">
-                      <ShieldCheck className="w-4 h-4" />
-                      <span className="text-[10px] font-bold uppercase hidden sm:inline">LIVE PROXY</span>
-                    </div>
+                    {currentSocialInfo.isSocial ? (
+                      <div className="flex items-center gap-1.5 text-cyan-300 bg-cyan-950/90 border border-cyan-500/40 px-2 py-0.5 rounded-md shrink-0">
+                        <Video className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className="text-[10px] font-bold uppercase hidden sm:inline">
+                          {currentSocialInfo.platformName} {currentSocialInfo.mediaType.toUpperCase()}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-emerald-400 shrink-0">
+                        <ShieldCheck className="w-4 h-4" />
+                        <span className="text-[10px] font-bold uppercase hidden sm:inline">LIVE PROXY</span>
+                      </div>
+                    )}
                     <span className="text-slate-100 font-bold truncate selection:bg-indigo-500 selection:text-white">
                       {fullLiveUrl}
                     </span>
@@ -1076,16 +1154,13 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                           src={liveWebviewSrc}
                           title="Live Target URL Proxied Webview"
                           className="w-full h-full border-none bg-slate-950"
-                          sandbox={allowAdsInBrowser 
-                            ? "allow-scripts allow-forms allow-popups"
-                            : "allow-scripts allow-forms"
-                          }
-                          allow="autoplay; encrypted-media; fullscreen; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"
+                          sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+                          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture; web-share; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"
                           onLoad={() => setIsWebviewLoading(false)}
                         />
                         <div className="absolute bottom-2 left-2 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl pointer-events-none">
                           <span className={`w-2 h-2 rounded-full ${isWebviewLoading ? 'bg-amber-400 animate-ping' : 'bg-emerald-400 animate-pulse'}`} />
-                          <span>{isWebviewLoading ? 'Loading Real Target DOM...' : 'Live Proxied Webview Active • Real Target DOM Loaded'}</span>
+                          <span>{isWebviewLoading ? 'Loading Real Target DOM...' : currentSocialInfo.isSocial ? `Live ${currentSocialInfo.platformName} Stream Active • Player Interactive` : 'Live Proxied Webview Active • Real Target DOM Loaded'}</span>
                           {allowAdsInBrowser && (
                             <span className="text-amber-300 font-mono text-[10px] bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/40 flex items-center gap-1">
                               <Megaphone className="w-2.5 h-2.5 text-amber-400" />
@@ -1096,25 +1171,36 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                       </div>
                     ) : viewportMode === 'direct_iframe' ? (
                       <div className="w-full h-full relative bg-slate-900">
-                        <iframe
-                          key={`${fullLiveUrl}_${directSandboxMode}_ads_${allowAdsInBrowser}`}
-                          src={fullLiveUrl}
-                          title="Live Target URL View"
-                          className="w-full h-full border-none bg-slate-900"
-                          {...(directSandboxMode === 'unrestricted'
-                            ? {}
-                            : {
-                                sandbox: allowAdsInBrowser
-                                  ? "allow-scripts allow-forms allow-popups"
-                                  : "allow-scripts allow-forms",
-                              }
-                          )}
-                          allow="autoplay; encrypted-media; fullscreen; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"
-                        />
+                        {(() => {
+                          const directSrc = currentSocialInfo.isSocial && currentSocialInfo.directEmbedUrl
+                            ? currentSocialInfo.directEmbedUrl
+                            : fullLiveUrl;
+                          return (
+                            <iframe
+                              key={`${directSrc}_${directSandboxMode}_ads_${allowAdsInBrowser}`}
+                              src={directSrc}
+                              title="Live Target URL View"
+                              className="w-full h-full border-none bg-slate-900"
+                              {...(currentSocialInfo.isSocial || directSandboxMode === 'unrestricted'
+                                ? {}
+                                : {
+                                    sandbox: allowAdsInBrowser
+                                      ? "allow-scripts allow-forms allow-popups allow-same-origin"
+                                      : "allow-scripts allow-forms allow-same-origin",
+                                  }
+                              )}
+                              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture; web-share; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"
+                            />
+                          );
+                        })()}
                         <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none">
                           <div className="bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl">
                             <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                            <span>Direct Iframe Embed • Cursor HUD active</span>
+                            <span>
+                              {currentSocialInfo.isSocial 
+                                ? `Direct ${currentSocialInfo.platformName} ${currentSocialInfo.mediaType.toUpperCase()} Stream Active • Cursor HUD active`
+                                : 'Direct Iframe Embed • Cursor HUD active'}
+                            </span>
                             {allowAdsInBrowser && (
                               <span className="text-amber-300 font-mono text-[10px] bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/40 flex items-center gap-1">
                                 <Megaphone className="w-2.5 h-2.5 text-amber-400" />
@@ -1133,6 +1219,28 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                             </button>
                           </div>
                         </div>
+                      </div>
+                    ) : currentSocialInfo.isSocial ? (
+                      <div 
+                        ref={scrollContainerRef}
+                        className="w-full h-full overflow-y-auto p-4 sm:p-8 space-y-6 scroll-smooth bg-slate-950/95"
+                      >
+                        <SocialVideoDomSimulator
+                          socialInfo={currentSocialInfo}
+                          targetUrl={fullLiveUrl}
+                          selectedVisitor={selectedVisitor}
+                          onNavigateToUrl={(navUrl) => {
+                            if (selectedVisitor && selectedVisitor.visitedPages) {
+                              const matchIdx = selectedVisitor.visitedPages.findIndex(
+                                p => p.url === navUrl || p.path === navUrl || (p.path && p.path.length > 2 && navUrl.includes(p.path))
+                              );
+                              if (matchIdx >= 0) {
+                                selectedVisitor.currentPageIndex = matchIdx;
+                              }
+                            }
+                          }}
+                          onSwitchToLive={() => setViewportMode('live_webview')}
+                        />
                       </div>
                     ) : (
                       <div 
