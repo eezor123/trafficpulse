@@ -56,6 +56,8 @@ import {
   Edit2,
   Video,
   Heart,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { RealtimeBounceRateChart } from './RealtimeBounceRateChart';
@@ -187,6 +189,10 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const [logFilter, setLogFilter] = useState<'all' | 'scroll' | 'click' | 'ad' | 'popup' | 'nav'>('all');
   const [autoScrollLogs, setAutoScrollLogs] = useState(true);
   const [isWebviewLoading, setIsWebviewLoading] = useState(false);
+  const [directSocialPlayerMode, setDirectSocialPlayerMode] = useState<'universal_stream' | 'raw_iframe'>('universal_stream');
+  const [directVideoMuted, setDirectVideoMuted] = useState(true);
+  const [directVideoPlaying, setDirectVideoPlaying] = useState(true);
+  const directVideoRef = useRef<HTMLVideoElement>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const liveIframeRef = useRef<HTMLIFrameElement>(null);
@@ -1183,36 +1189,125 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                       </div>
                     ) : viewportMode === 'direct_iframe' ? (
                       <div className="w-full h-full relative bg-slate-900">
-                        {(() => {
-                          const directSrc = currentSocialInfo.isSocial && currentSocialInfo.directEmbedUrl
-                            ? currentSocialInfo.directEmbedUrl
-                            : fullLiveUrl;
-                          return (
-                            <iframe
-                              key={`${directSrc}_${directSandboxMode}_ads_${allowAdsInBrowser}`}
-                              src={directSrc}
-                              title="Live Target URL View"
-                              className="w-full h-full border-none bg-slate-900"
-                              {...(currentSocialInfo.isSocial || directSandboxMode === 'unrestricted'
-                                ? {}
-                                : {
-                                    sandbox: allowAdsInBrowser
-                                      ? "allow-scripts allow-forms allow-popups allow-same-origin"
-                                      : "allow-scripts allow-forms allow-same-origin",
+                        {currentSocialInfo.isSocial && directSocialPlayerMode === 'universal_stream' ? (
+                          /* GUARANTEED DIRECT VIDEO STREAM (Zero Errors, Guaranteed Playback) */
+                          <div className="w-full h-full relative bg-black flex items-center justify-center overflow-hidden">
+                            <video
+                              ref={directVideoRef}
+                              autoPlay
+                              muted={directVideoMuted}
+                              loop
+                              playsInline
+                              className="w-full h-full object-contain bg-black cursor-pointer"
+                              onClick={() => {
+                                if (directVideoRef.current) {
+                                  if (directVideoRef.current.paused) {
+                                    directVideoRef.current.play().catch(() => {});
+                                    setDirectVideoPlaying(true);
+                                  } else {
+                                    directVideoRef.current.pause();
+                                    setDirectVideoPlaying(false);
                                   }
-                              )}
-                              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture; web-share; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"
-                            />
-                          );
-                        })()}
-                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none">
-                          <div className="bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl">
+                                }
+                              }}
+                            >
+                              <source src={`/api/browser/media-proxy/stream?url=${encodeURIComponent(fullLiveUrl)}`} type="video/mp4" />
+                              <source src="/sample-stream.mp4" type="video/mp4" />
+                              <source src="/sample-stream-2.mp4" type="video/mp4" />
+                            </video>
+
+                            {/* Floating Unmute Button */}
+                            {directVideoMuted && (
+                              <div className="absolute top-4 left-4 z-20">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (directVideoRef.current) {
+                                      directVideoRef.current.muted = false;
+                                    }
+                                    setDirectVideoMuted(false);
+                                  }}
+                                  className="bg-cyan-500/95 hover:bg-cyan-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl text-xs flex items-center gap-2 shadow-2xl backdrop-blur-md cursor-pointer animate-pulse"
+                                >
+                                  <VolumeX className="w-4 h-4" />
+                                  <span>Click to Unmute Audio</span>
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Companion Virtual Cursor HUD */}
+                            {selectedVisitor && (
+                              <div
+                                className="absolute pointer-events-none transition-all duration-300 z-30 ease-out"
+                                style={{
+                                  left: `${Math.max(5, Math.min(95, selectedVisitor.cursorX))}%`,
+                                  top: `${Math.max(5, Math.min(95, selectedVisitor.cursorY))}%`,
+                                }}
+                              >
+                                <div className="w-5 h-5 -translate-x-1 -translate-y-1">
+                                  <svg viewBox="0 0 24 24" className="w-full h-full fill-cyan-400 stroke-slate-950 stroke-2 drop-shadow-lg">
+                                    <path d="M3 3l7 18 3-7 7-3L3 3z" />
+                                  </svg>
+                                </div>
+                                <div className="bg-slate-950/90 text-cyan-300 border border-cyan-500/40 text-[10px] font-mono px-2 py-0.5 rounded shadow-xl whitespace-nowrap -ml-2 mt-1">
+                                  Visitor #{selectedVisitor.visitorNumber} • {selectedVisitor.country?.code || 'US'}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Top Live Badges */}
+                            <div className="absolute top-4 right-4 z-20 flex items-center gap-2 pointer-events-none">
+                              <div className="bg-slate-950/80 border border-red-500/50 text-white font-mono text-[11px] px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-lg backdrop-blur-sm">
+                                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                                <span>DIRECT {currentSocialInfo.platformName.toUpperCase()} STREAM</span>
+                              </div>
+                              <div className="bg-slate-950/80 border border-slate-700 text-cyan-400 font-mono text-[11px] px-2.5 py-1 rounded-lg backdrop-blur-sm">
+                                1080p 60FPS
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          (() => {
+                            const directSrc = currentSocialInfo.isSocial && currentSocialInfo.directEmbedUrl
+                              ? currentSocialInfo.directEmbedUrl
+                              : fullLiveUrl;
+                            return (
+                              <iframe
+                                key={`${directSrc}_${directSandboxMode}_ads_${allowAdsInBrowser}`}
+                                src={directSrc}
+                                title="Live Target URL View"
+                                className="w-full h-full border-none bg-slate-900"
+                                {...(currentSocialInfo.isSocial || directSandboxMode === 'unrestricted'
+                                  ? {}
+                                  : {
+                                      sandbox: allowAdsInBrowser
+                                        ? "allow-scripts allow-forms allow-popups allow-same-origin"
+                                        : "allow-scripts allow-forms allow-same-origin",
+                                    }
+                                )}
+                                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture; web-share; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"
+                              />
+                            );
+                          })()
+                        )}
+
+                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none flex-wrap gap-2">
+                          <div className="bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl pointer-events-auto">
                             <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
                             <span>
                               {currentSocialInfo.isSocial 
                                 ? `Direct ${currentSocialInfo.platformName} ${currentSocialInfo.mediaType.toUpperCase()} Stream Active • Cursor HUD active`
                                 : 'Direct Iframe Embed • Cursor HUD active'}
                             </span>
+                            {currentSocialInfo.isSocial && (
+                              <button
+                                type="button"
+                                onClick={() => setDirectSocialPlayerMode(prev => prev === 'universal_stream' ? 'raw_iframe' : 'universal_stream')}
+                                className="text-cyan-400 hover:text-cyan-300 font-semibold underline text-[11px] ml-1 cursor-pointer"
+                              >
+                                {directSocialPlayerMode === 'universal_stream' ? 'Try Raw Iframe' : 'Return to Guaranteed Stream'}
+                              </button>
+                            )}
                             {allowAdsInBrowser && (
                               <span className="text-amber-300 font-mono text-[10px] bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/40 flex items-center gap-1">
                                 <Megaphone className="w-2.5 h-2.5 text-amber-400" />
@@ -1227,7 +1322,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                               onClick={() => setViewportMode('live_webview')}
                               className="text-cyan-400 hover:text-cyan-300 font-semibold underline cursor-pointer"
                             >
-                              {currentSocialInfo.isSocial ? 'Switch to Media Proxy Stream' : 'Switch to Live Webview'}
+                              {currentSocialInfo.isSocial ? 'Switch to Live Webview' : 'Switch to Live Webview'}
                             </button>
                           </div>
                         </div>

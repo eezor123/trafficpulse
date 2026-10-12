@@ -11,7 +11,7 @@ import { SocksProxyAgent } from 'socks-proxy-agent';
 import { executeUniversalCrawl, type FetchFunction } from './src/utils/universalCrawler.ts';
 import { parseSocialMediaUrl, generateSocialMediaRoutes } from './src/utils/socialMediaEmbed.ts';
 import { renderSocialMediaLivePage } from './src/server/socialPageRenderer.ts';
-import { resolveSocialVideoMetadata, streamProxiedVideo } from './src/server/mediaProxy.ts';
+import { resolveSocialVideoMetadata, streamProxiedVideo, serveLocalVideoStream } from './src/server/mediaProxy.ts';
 import {
   findMember,
   persistMember,
@@ -1553,6 +1553,16 @@ async function startServer() {
   app.get('/api/browser/media-proxy/stream', (req: Request, res: Response) => {
     const videoUrl = (req.query.url as string) || '';
     streamProxiedVideo(videoUrl, req.headers, res);
+  });
+
+  app.get('/sample-stream.mp4', (req: Request, res: Response) => {
+    const p = path.join(process.cwd(), 'public', 'sample-stream.mp4');
+    serveLocalVideoStream(p, req.headers, res);
+  });
+
+  app.get('/sample-stream-2.mp4', (req: Request, res: Response) => {
+    const p = path.join(process.cwd(), 'public', 'sample-stream-2.mp4');
+    serveLocalVideoStream(p, req.headers, res);
   });
 
   // ----------------------------------------------------

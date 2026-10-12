@@ -34,11 +34,12 @@ interface TargetUrlCommandBarProps {
 
 const PRESET_URLS = [
   { name: 'Facebook Video (Watch)', url: 'https://www.facebook.com/watch/?v=10153231379946729' },
+  { name: 'Facebook Live Stream', url: 'https://www.facebook.com/watch/live/?v=10153231379946729' },
   { name: 'YouTube Video (Stream)', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+  { name: 'TikTok Viral Reel', url: 'https://www.tiktok.com/@creator/video/7123456789012345678' },
+  { name: 'Instagram Reel', url: 'https://www.instagram.com/reel/Cz123456789/' },
+  { name: 'Direct MP4 Stream', url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4' },
   { name: 'Example Domain', url: 'https://example.com' },
-  { name: 'Wikipedia', url: 'https://www.wikipedia.org' },
-  { name: 'Hacker News', url: 'https://news.ycombinator.com' },
-  { name: 'Techpoint Africa', url: 'https://techpoint.africa' },
 ];
 
 export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
