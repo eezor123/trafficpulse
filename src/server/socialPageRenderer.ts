@@ -1131,14 +1131,77 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
       var nativeVideo = document.getElementById('tp-native-video');
       var scrubberProgress = document.getElementById('stream-progress');
 
-      // Initialize video element
+      // Execute genuine programmatic and synthetic DOM auto-click on the video player
+      function executeAutoClickPlay(source) {
+        if (!nativeVideo) return;
+
+        // Visibly glide visitor cursor directly to center play toggle (50%, 35%)
+        if (cursor) {
+          cursor.style.transition = 'all 0.35s cubic-bezier(0.2, 0.8, 0.2, 1)';
+          cursor.style.left = '50%';
+          cursor.style.top = '35%';
+          if (badge) {
+            badge.textContent = '👆 Simulated Visitor Auto-Clicking Play...';
+            badge.style.color = '#38bdf8';
+          }
+        }
+
+        setTimeout(function() {
+          triggerClickRipple();
+
+          var targetBtn = centerBtn || nativeVideo;
+          if (targetBtn) {
+            try {
+              ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(function(evtName) {
+                var evt = new MouseEvent(evtName, {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  clientX: window.innerWidth * 0.5,
+                  clientY: window.innerHeight * 0.35
+                });
+                targetBtn.dispatchEvent(evt);
+              });
+            } catch(e) {}
+          }
+
+          // Force play on video element (muted complies with all browser autoplay policies)
+          nativeVideo.muted = true;
+          isPlaying = true;
+          var p = nativeVideo.play();
+          if (p !== undefined) {
+            p.then(function() {
+              if (centerBtn) centerBtn.textContent = '⏸';
+              if (playPauseIcon) playPauseIcon.textContent = '⏸';
+              if (playPauseLabel) playPauseLabel.textContent = 'Pause';
+              if (centerStatus) centerStatus.textContent = '● Real Auto-Click Active • Playing Live Stream';
+              if (badge) {
+                badge.textContent = '▶️ Real Auto-Click: Playback Started';
+                badge.style.color = '#38bdf8';
+              }
+            }).catch(function(err) {
+              console.warn('Autoplay waiting on interaction:', err);
+            });
+          }
+        }, 300);
+      }
+
+      // Initialize video element & trigger immediate Auto-Click sequence
       if (nativeVideo) {
         nativeVideo.muted = true;
-        nativeVideo.play().catch(function() {
-          // Autoplay policy fallback: muted is required
-          nativeVideo.muted = true;
-          nativeVideo.play().catch(function() {});
-        });
+        nativeVideo.play().catch(function() {});
+
+        // Visible Auto-Click sequence starts within 250ms
+        setTimeout(function() {
+          executeAutoClickPlay('mount_init');
+        }, 250);
+
+        // Fail-safe: if paused after 1.2s, auto-click again
+        setTimeout(function() {
+          if (nativeVideo && nativeVideo.paused) {
+            executeAutoClickPlay('mount_retry');
+          }
+        }, 1200);
 
         nativeVideo.addEventListener('timeupdate', function() {
           if (nativeVideo.duration && scrubberProgress) {
@@ -1369,9 +1432,29 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
         ripple.classList.add('tp-ripple-active');
       }
 
+      // Global gesture interaction unlock: touching or clicking anywhere guarantees video plays
+      document.addEventListener('pointerdown', function() {
+        if (nativeVideo && nativeVideo.paused) {
+          nativeVideo.muted = true;
+          nativeVideo.play().catch(function(){});
+          isPlaying = true;
+        }
+      }, { passive: true });
+
       window.addEventListener('message', function(event) {
         try {
-          if (!event.data || event.data.type !== 'TP_UPDATE_VISITOR') return;
+          if (!event.data) return;
+
+          // Dedicated real click command from simulator
+          if (event.data.type === 'TP_EXECUTE_CLICK' || event.data.type === 'TP_AUTO_PLAY_CLICK') {
+            executeAutoClickPlay('post_message');
+            if (event.data.hoverTarget && event.data.hoverTarget.includes('like')) {
+              window.triggerLike();
+            }
+            return;
+          }
+
+          if (event.data.type !== 'TP_UPDATE_VISITOR') return;
 
           var pct = typeof event.data.scrollPct === 'number' ? event.data.scrollPct : 0;
           if (hudScroll) hudScroll.textContent = Math.round(pct) + '%';
@@ -1391,8 +1474,14 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
             var st = event.data.status;
             if (st === 'clicking_ad' || st === 'clicking_link' || st === 'handling_popup' || st === 'clicking_element') {
               triggerClickRipple();
-              if (Math.random() < 0.5) {
-                window.triggerLike();
+
+              // REAL CLICK EXECUTION: If video is paused, visitor click GUARANTEES play starts!
+              if (nativeVideo && nativeVideo.paused) {
+                executeAutoClickPlay('simulator_click');
+              } else if (st === 'clicking_element') {
+                if (Math.random() < 0.5) {
+                  window.triggerLike();
+                }
               }
             }
 
@@ -1404,9 +1493,9 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
                 badge.style.color = '#38bdf8';
                 if (hudAction) hudAction.textContent = 'Navigating to related video clip';
               } else if (st === 'clicking_element') {
-                badge.textContent = '❤️ Liked Video Stream' + vNum;
-                badge.style.color = '#f87171';
-                if (hudAction) hudAction.textContent = 'Dispatched Like reaction on video';
+                badge.textContent = '👆 Auto-Clicked Play / Action' + vNum;
+                badge.style.color = '#38bdf8';
+                if (hudAction) hudAction.textContent = 'Dispatched real click on video stream';
               } else if (pct >= 60) {
                 badge.textContent = '💬 Reading Comments' + vNum;
                 badge.style.color = '#34d399';

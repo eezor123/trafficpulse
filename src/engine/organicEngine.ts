@@ -16,6 +16,7 @@ import {
   generateVisitorFingerprint,
 } from './fingerprintGenerator';
 import { getAuthenticOutboundTarget } from './ga4ClickRegistry';
+import { parseSocialMediaUrl } from '../utils/socialMediaEmbed';
 
 export interface OrganicEngineCallbacks {
   onActiveVisitorsUpdate: (visitors: ActiveVisitorSession[]) => void;
@@ -471,6 +472,41 @@ export class OrganicTrafficEngine {
       // Calculate progress on current page (0 - 100%)
       const pageProgress = Math.min(100, (currentPage.dwellSecondsSpent / Math.max(1, currentPage.dwellPlannedSeconds)) * 100);
 
+      // 1.5. AUTOMATIC VIDEO PLAY AUTO-CLICK (Executes genuine click on play button within first 2.5 seconds)
+      const socialCheck = parseSocialMediaUrl(currentPage.url || this.config.targetUrl);
+      const isSocialVideo = socialCheck.isSocial && (socialCheck.mediaType === 'video' || socialCheck.mediaType === 'reel' || socialCheck.platform !== 'none');
+
+      if (isSocialVideo && !currentPage.hasVideoStarted && currentPage.dwellSecondsSpent >= 0.5) {
+        currentPage.hasVideoStarted = true;
+        visitor.status = 'clicking_element';
+        visitor.cursorX = 50;
+        visitor.cursorY = 35;
+        visitor.currentHoverTarget = 'button#center-play-toggle';
+        visitor.lastEventLog = 'Auto-clicked Video Play button to start stream';
+
+        this.appendActionLog(
+          visitor,
+          'click',
+          'Auto-clicked video player: Initiated stream playback',
+          'button.center-play-btn',
+          '#06b6d4'
+        );
+
+        this.callbacks.onTelemetryEvent({
+          id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          timestamp: Date.now(),
+          visitorId: visitor.visitorId,
+          countryCode: visitor.country.code,
+          countryFlag: visitor.country.flag,
+          eventType: 'video_play',
+          pagePath: currentPage.path,
+          pageTitle: currentPage.title,
+          source: visitor.trafficSource,
+          details: `Auto-clicked Video Player (1080p Stream Playing • Full Range Interaction)`,
+          device: visitor.deviceType,
+        });
+      }
+
       // 1. Simulate human scrolling based on dwell progress & scrollToEndOfPage setting
       const prevScroll = visitor.currentScrollDepthPct || 0;
       if (this.config.behavior.simulateScroll) {
@@ -542,6 +578,9 @@ export class OrganicTrafficEngine {
         } else if (visitor.status === 'handling_popup') {
           targetX = 50 + (Math.random() * 6 - 3);
           targetY = 40 + (Math.random() * 6 - 3);
+        } else if (visitor.status === 'clicking_element') {
+          targetX = 50 + (Math.random() * 4 - 2);
+          targetY = 35 + (Math.random() * 4 - 2);
         }
 
         visitor.cursorX = Math.round(Math.min(95, Math.max(5, targetX)));

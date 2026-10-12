@@ -103,7 +103,7 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
     return () => { isCancelled = true; };
   }, [targetUrl]);
 
-  // Handle native video playback
+  // Handle native video playback and initial auto-click
   useEffect(() => {
     const vid = videoRef.current;
     if (!vid) return;
@@ -119,6 +119,45 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
       vid.pause();
     }
   }, [isPlaying, isMuted, playerMode]);
+
+  // Initial Auto-Click on component mount
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    const timer = setTimeout(() => {
+      vid.muted = true;
+      vid.play().then(() => {
+        setIsPlaying(true);
+      }).catch(() => {
+        vid.muted = true;
+        setIsMuted(true);
+        vid.play().then(() => {
+          setIsPlaying(true);
+        }).catch(() => {});
+      });
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [targetUrl, playerMode]);
+
+  // Real click trigger when simulator visitor performs a click
+  useEffect(() => {
+    if (!selectedVisitor) return;
+    if (
+      selectedVisitor.status === 'clicking_element' ||
+      selectedVisitor.status === 'clicking_link' ||
+      selectedVisitor.status === 'clicking_ad'
+    ) {
+      const vid = videoRef.current;
+      if (vid && vid.paused) {
+        vid.muted = true;
+        vid.play().then(() => {
+          setIsPlaying(true);
+        }).catch(() => {});
+      }
+    }
+  }, [selectedVisitor?.status, selectedVisitor?.visitorNumber]);
 
   const togglePlayPause = () => {
     const vid = videoRef.current;

@@ -321,6 +321,28 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
           hoverTarget: selectedVisitor.currentHoverTarget,
           lastLog: selectedVisitor.lastEventLog,
         }, '*');
+
+        // Genuine Click Event Dispatch to the live webview & direct video
+        if (
+          selectedVisitor.status === 'clicking_element' ||
+          selectedVisitor.status === 'clicking_link' ||
+          selectedVisitor.status === 'clicking_ad' ||
+          selectedVisitor.status === 'handling_popup'
+        ) {
+          liveIframeRef.current.contentWindow.postMessage({
+            type: 'TP_EXECUTE_CLICK',
+            cursorX: Math.round(selectedVisitor.cursorX),
+            cursorY: Math.round(selectedVisitor.cursorY),
+            hoverTarget: selectedVisitor.currentHoverTarget,
+            status: selectedVisitor.status,
+          }, '*');
+
+          if (directVideoRef.current && directVideoRef.current.paused) {
+            directVideoRef.current.muted = true;
+            directVideoRef.current.play().catch(() => {});
+            setDirectVideoPlaying(true);
+          }
+        }
       } catch {}
     }
   }, [
@@ -332,6 +354,22 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
     selectedVisitor?.currentHoverTarget,
     selectedVisitor?.lastEventLog
   ]);
+
+  // Auto-play direct video stream on mount or mode change
+  useEffect(() => {
+    if (viewportMode === 'direct_iframe' && currentSocialInfo.isSocial && directVideoRef.current) {
+      const vid = directVideoRef.current;
+      vid.muted = directVideoMuted;
+      vid.play().then(() => {
+        setDirectVideoPlaying(true);
+      }).catch(() => {
+        vid.muted = true;
+        setDirectVideoMuted(true);
+        vid.play().catch(() => {});
+        setDirectVideoPlaying(true);
+      });
+    }
+  }, [viewportMode, fullLiveUrl, directSocialPlayerMode]);
 
   // Smooth real scrolling inside the virtual browser DOM container
   useEffect(() => {
@@ -1174,7 +1212,19 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                           className="w-full h-full border-none bg-slate-950"
                           sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
                           allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture; web-share; attribution-reporting; run-ad-auction; join-ad-interest-group; browsing-topics"
-                          onLoad={() => setIsWebviewLoading(false)}
+                          onLoad={() => {
+                            setIsWebviewLoading(false);
+                            if (liveIframeRef.current && liveIframeRef.current.contentWindow) {
+                              try {
+                                liveIframeRef.current.contentWindow.postMessage({
+                                  type: 'TP_EXECUTE_CLICK',
+                                  target: 'video_play',
+                                  cursorX: 50,
+                                  cursorY: 35
+                                }, '*');
+                              } catch {}
+                            }
+                          }}
                         />
                         <div className="absolute bottom-2 left-2 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl pointer-events-none">
                           <span className={`w-2 h-2 rounded-full ${isWebviewLoading ? 'bg-amber-400 animate-ping' : 'bg-emerald-400 animate-pulse'}`} />

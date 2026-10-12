@@ -335,6 +335,7 @@ export interface VisitedPageStep {
   hasPopupHandled?: boolean;
   hasReloaded?: boolean;
   hasScrolledToEnd?: boolean;
+  hasVideoStarted?: boolean;
   lastAdClickTarget?: string;
 
   status: 'visiting' | 'completed' | 'failed';
@@ -408,7 +409,7 @@ export interface LiveTelemetryEvent {
   visitorId: string;
   countryCode: string;
   countryFlag: string;
-  eventType: 'page_view' | 'scroll' | 'user_engagement' | 'session_start' | 'page_click' | 'ad_click' | 'article_link_click' | 'popup_interaction' | 'page_reload' | 'footer_scroll' | 'session_end' | 'bounce' | 'ga4_beacon';
+  eventType: 'page_view' | 'scroll' | 'user_engagement' | 'session_start' | 'page_click' | 'video_play' | 'ad_click' | 'article_link_click' | 'popup_interaction' | 'page_reload' | 'footer_scroll' | 'session_end' | 'bounce' | 'ga4_beacon';
   pagePath: string;
   pageTitle: string;
   source: string;
