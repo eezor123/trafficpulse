@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   Users, 
   Globe, 
@@ -193,6 +193,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const [directVideoMuted, setDirectVideoMuted] = useState(true);
   const [directVideoPlaying, setDirectVideoPlaying] = useState(true);
   const directVideoRef = useRef<HTMLVideoElement>(null);
+  const viewportStageRef = useRef<HTMLDivElement>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const liveIframeRef = useRef<HTMLIFrameElement>(null);
@@ -300,6 +301,92 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
     return `/api/browser/live-page?url=${encodeURIComponent(fullLiveUrl)}&allowAds=${allowAdsInBrowser ? 'true' : 'false'}`;
   }, [fullLiveUrl, allowAdsInBrowser]);
 
+  // Dispatch genuine synthetic DOM click events on the actual element underneath the simulator cursor
+  const executeRealSimulatorClick = useCallback((cursorX: number, cursorY: number) => {
+    // 1. PostMessage to live webview iframe if in live_webview mode
+    if (liveIframeRef.current?.contentWindow) {
+      try {
+        liveIframeRef.current.contentWindow.postMessage({
+          type: 'TP_EXECUTE_CLICK',
+          cursorX: Math.round(cursorX),
+          cursorY: Math.round(cursorY),
+          target: 'video_play',
+        }, '*');
+      } catch {}
+    }
+
+    // 2. Play direct video ref if present and paused
+    if (directVideoRef.current && directVideoRef.current.paused) {
+      directVideoRef.current.muted = true;
+      directVideoRef.current.play().then(() => {
+        setDirectVideoPlaying(true);
+      }).catch(() => {});
+    }
+
+    // 3. Dispatch real DOM click events at the exact screen coordinates in the viewport
+    if (viewportStageRef.current) {
+      const stage = viewportStageRef.current;
+      const rect = stage.getBoundingClientRect();
+      const clientX = rect.left + (cursorX / 100) * rect.width;
+      const clientY = rect.top + (cursorY / 100) * rect.height;
+
+      // Find the element at these coordinates (cursor overlay has pointer-events-none, so it hits the actual element)
+      const hitElement = document.elementFromPoint(clientX, clientY);
+      if (hitElement) {
+        const clickable = hitElement.closest('button, a, video, [role="button"], [data-clickable="true"], input, div.cursor-pointer') || hitElement;
+        
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evtName => {
+          clickable.dispatchEvent(new MouseEvent(evtName, {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX,
+            clientY,
+          }));
+        });
+
+        if (typeof (clickable as any).click === 'function') {
+          try {
+            (clickable as any).click();
+          } catch {}
+        }
+      }
+
+      // Also trigger any video elements inside the stage if paused
+      const videos = stage.querySelectorAll('video');
+      videos.forEach(v => {
+        if (v && v.paused) {
+          v.muted = true;
+          v.play().catch(() => {});
+        }
+      });
+
+      // Also directly trigger center play button if present
+      const centerPlayBtn = stage.querySelector('#simulator-center-play-btn, #simulator-center-play-button') as HTMLElement;
+      if (centerPlayBtn) {
+        centerPlayBtn.click();
+      }
+    }
+  }, []);
+
+  // Immediate, unthrottled execution of real clicks whenever visitor performs a click or auto-clicks play
+  useEffect(() => {
+    if (!selectedVisitor) return;
+    if (
+      selectedVisitor.status === 'clicking_element' ||
+      selectedVisitor.status === 'clicking_link' ||
+      selectedVisitor.status === 'clicking_ad' ||
+      selectedVisitor.status === 'handling_popup'
+    ) {
+      executeRealSimulatorClick(selectedVisitor.cursorX, selectedVisitor.cursorY);
+    }
+  }, [
+    selectedVisitor?.status, 
+    selectedVisitor?.visitorNumber, 
+    selectedVisitor?.clickStateExpiresAt,
+    executeRealSimulatorClick
+  ]);
+
   // Synchronize active visitor status, scroll percentage, and cursor coordinates to the live iframe (rate-limited to 280ms to prevent main-thread layout thrashing)
   useEffect(() => {
     const now = Date.now();
@@ -321,28 +408,6 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
           hoverTarget: selectedVisitor.currentHoverTarget,
           lastLog: selectedVisitor.lastEventLog,
         }, '*');
-
-        // Genuine Click Event Dispatch to the live webview & direct video
-        if (
-          selectedVisitor.status === 'clicking_element' ||
-          selectedVisitor.status === 'clicking_link' ||
-          selectedVisitor.status === 'clicking_ad' ||
-          selectedVisitor.status === 'handling_popup'
-        ) {
-          liveIframeRef.current.contentWindow.postMessage({
-            type: 'TP_EXECUTE_CLICK',
-            cursorX: Math.round(selectedVisitor.cursorX),
-            cursorY: Math.round(selectedVisitor.cursorY),
-            hoverTarget: selectedVisitor.currentHoverTarget,
-            status: selectedVisitor.status,
-          }, '*');
-
-          if (directVideoRef.current && directVideoRef.current.paused) {
-            directVideoRef.current.muted = true;
-            directVideoRef.current.play().catch(() => {});
-            setDirectVideoPlaying(true);
-          }
-        }
       } catch {}
     }
   }, [
@@ -1118,7 +1183,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                 <div className={`relative ${browserHeight === 'expanded' ? 'h-[740px]' : 'h-[560px]'} bg-slate-950 overflow-hidden flex flex-row transition-all duration-300`}>
                   
                   {/* Web Viewport Main Stage */}
-                  <div className="flex-1 relative h-full overflow-hidden">
+                  <div ref={viewportStageRef} className="flex-1 relative h-full overflow-hidden">
                     {/* Visual Mouse Cursor Overlay Layer (Always active on top) */}
                     <div
                       className="absolute pointer-events-none transition-all duration-200 z-50 flex flex-col items-start"

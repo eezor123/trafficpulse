@@ -455,6 +455,8 @@ export class OrganicTrafficEngine {
         return;
       }
 
+      const timeNow = Date.now();
+
       // Increment dwell time spent
       const prevDwell = currentPage.dwellSecondsSpent;
       currentPage.dwellSecondsSpent += tickDeltaSeconds;
@@ -481,6 +483,7 @@ export class OrganicTrafficEngine {
         visitor.status = 'clicking_element';
         visitor.cursorX = 50;
         visitor.cursorY = 35;
+        visitor.clickStateExpiresAt = timeNow + 1400;
         visitor.currentHoverTarget = 'button#center-play-toggle';
         visitor.lastEventLog = 'Auto-clicked Video Play button to start stream';
 
@@ -624,6 +627,7 @@ export class OrganicTrafficEngine {
         currentPage.hasPopupHandled = true;
         visitor.popupInteractions = (visitor.popupInteractions || 0) + 1;
         visitor.status = 'handling_popup';
+        visitor.clickStateExpiresAt = timeNow + 1200;
         visitor.cursorX = Math.round(48 + Math.random() * 8);
         visitor.cursorY = Math.round(38 + Math.random() * 12);
         visitor.currentHoverTarget = 'div.newsletter-modal-overlay > button.cta-button';
@@ -867,6 +871,7 @@ export class OrganicTrafficEngine {
           if (availableAdFormats.length > 0) {
             const pickedAd = availableAdFormats[Math.floor(Math.random() * availableAdFormats.length)];
             visitor.status = 'clicking_ad';
+            visitor.clickStateExpiresAt = timeNow + 1200;
             visitor.cursorX = Math.round(pickedAd.x + (Math.random() * 6 - 3));
             visitor.cursorY = Math.round(pickedAd.y + (Math.random() * 6 - 3));
             visitor.currentHoverTarget = `div.ad-slot[data-slot="${pickedAd.slot}"]`;
@@ -959,6 +964,7 @@ export class OrganicTrafficEngine {
           const targetName = elementTargets[Math.floor(Math.random() * elementTargets.length)];
           currentPage.lastClickTarget = targetName;
           visitor.status = 'clicking_element';
+          visitor.clickStateExpiresAt = timeNow + 1200;
           visitor.cursorX = Math.round(15 + Math.random() * 70);
           visitor.cursorY = Math.round(Math.max(10, visitor.currentScrollDepthPct + (Math.random() * 20 - 10)));
           visitor.currentHoverTarget = `button.interactive-btn[title="${targetName}"]`;
@@ -1024,9 +1030,30 @@ export class OrganicTrafficEngine {
         }
       }
 
-      // Status text updates
+      // Expire transient click status after click animation completes (1.2s - 1.4s)
+      if (visitor.clickStateExpiresAt && timeNow >= visitor.clickStateExpiresAt) {
+        visitor.clickStateExpiresAt = undefined;
+        if (isSocialVideo) {
+          visitor.status = 'reading';
+          visitor.lastEventLog = `Streaming video playback (${Math.round(currentPage.dwellSecondsSpent)}s / ${currentPage.dwellPlannedSeconds}s • Active Viewer)`;
+        } else if (pageProgress < 30) {
+          visitor.status = 'reading';
+          visitor.lastEventLog = `Reading post article content (${Math.round(currentPage.dwellSecondsSpent)}s / ${currentPage.dwellPlannedSeconds}s, scroll: ${visitor.currentScrollDepthPct}%)`;
+        } else if (pageProgress < 75) {
+          visitor.status = 'scrolling';
+          visitor.lastEventLog = `Scrolling article (${visitor.currentScrollDepthPct}% depth, ${currentPage.articleLinksClicked || 0}/${currentPage.articleLinksPlanned || 0} links, ${currentPage.adClicksPerformed || 0} ads clicked)`;
+        } else {
+          visitor.status = 'reading';
+          visitor.lastEventLog = `Reviewing comments & author section (${visitor.currentScrollDepthPct}% scroll)`;
+        }
+      }
+
+      // Status text updates when not actively executing a click
       if (visitor.status !== 'clicking_element' && visitor.status !== 'clicking_link' && visitor.status !== 'clicking_ad' && visitor.status !== 'handling_popup') {
-        if (pageProgress < 30) {
+        if (isSocialVideo) {
+          visitor.status = 'reading';
+          visitor.lastEventLog = `Watching video stream (${Math.round(currentPage.dwellSecondsSpent)}s / ${currentPage.dwellPlannedSeconds}s • Active Viewer)`;
+        } else if (pageProgress < 30) {
           visitor.status = 'reading';
           visitor.lastEventLog = `Reading post article content (${Math.round(currentPage.dwellSecondsSpent)}s / ${currentPage.dwellPlannedSeconds}s, scroll: ${visitor.currentScrollDepthPct}%)`;
         } else if (pageProgress < 75) {

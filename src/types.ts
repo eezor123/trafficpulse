@@ -394,6 +394,7 @@ export interface ActiveVisitorSession {
   lastEventLog: string;
   hitSequence?: number;
   pageLoadId?: string;
+  clickStateExpiresAt?: number;
   
   // Aggregate session interactions
   totalArticleLinksClicked?: number;

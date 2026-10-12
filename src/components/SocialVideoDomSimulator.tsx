@@ -49,6 +49,7 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
   const [playerMode, setPlayerMode] = useState<'universal_stream' | 'platform_embed'>('universal_stream');
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
+  const [activeVideoSrc, setActiveVideoSrc] = useState<string>(() => `/api/browser/media-proxy/stream?url=${encodeURIComponent(targetUrl)}`);
   const [currentTime, setCurrentTime] = useState(14);
   const [duration, setDuration] = useState(195);
   const [iframeKey, setIframeKey] = useState(Date.now());
@@ -103,68 +104,97 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
     return () => { isCancelled = true; };
   }, [targetUrl]);
 
-  // Handle native video playback and initial auto-click
+  // Keep active video source in sync with target URL
+  useEffect(() => {
+    setActiveVideoSrc(`/api/browser/media-proxy/stream?url=${encodeURIComponent(targetUrl)}`);
+  }, [targetUrl]);
+
+  // Handle native video playback state sync
   useEffect(() => {
     const vid = videoRef.current;
     if (!vid) return;
 
     vid.muted = isMuted;
     if (isPlaying) {
-      vid.play().catch(() => {
-        vid.muted = true;
-        setIsMuted(true);
-        vid.play().catch(() => {});
-      });
+      if (vid.paused) {
+        vid.play().catch(() => {
+          vid.muted = true;
+          setIsMuted(true);
+          vid.play().catch(() => {});
+        });
+      }
     } else {
-      vid.pause();
+      if (!vid.paused) {
+        vid.pause();
+      }
     }
   }, [isPlaying, isMuted, playerMode]);
 
-  // Initial Auto-Click on component mount
+  // Initial Auto-Click on component mount with guaranteed fallback
   useEffect(() => {
     const vid = videoRef.current;
     if (!vid) return;
 
-    const timer = setTimeout(() => {
-      vid.muted = true;
-      vid.play().then(() => {
-        setIsPlaying(true);
-      }).catch(() => {
-        vid.muted = true;
-        setIsMuted(true);
-        vid.play().then(() => {
-          setIsPlaying(true);
-        }).catch(() => {});
-      });
-    }, 250);
+    // Immediately play with muted audio (permitted by all browsers without gesture requirement)
+    vid.muted = true;
+    vid.play().then(() => {
+      setIsPlaying(true);
+    }).catch(() => {
+      // Retry in 200ms
+      const retryTimer = setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.muted = true;
+          videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+        }
+      }, 200);
+      return () => clearTimeout(retryTimer);
+    });
+  }, [targetUrl, playerMode, activeVideoSrc]);
 
-    return () => clearTimeout(timer);
-  }, [targetUrl, playerMode]);
-
-  // Real click trigger when simulator visitor performs a click
+  // Real click trigger when simulator visitor executes a click or auto-clicks play
   useEffect(() => {
     if (!selectedVisitor) return;
     if (
       selectedVisitor.status === 'clicking_element' ||
       selectedVisitor.status === 'clicking_link' ||
-      selectedVisitor.status === 'clicking_ad'
+      selectedVisitor.status === 'clicking_ad' ||
+      selectedVisitor.status === 'handling_popup'
     ) {
       const vid = videoRef.current;
-      if (vid && vid.paused) {
+      if (vid) {
         vid.muted = true;
         vid.play().then(() => {
           setIsPlaying(true);
-        }).catch(() => {});
+        }).catch(() => {
+          // Fallback to local sample stream
+          vid.src = '/sample-stream.mp4';
+          vid.load();
+          vid.play().then(() => setIsPlaying(true)).catch(() => {});
+        });
       }
     }
-  }, [selectedVisitor?.status, selectedVisitor?.visitorNumber]);
+  }, [
+    selectedVisitor?.status, 
+    selectedVisitor?.visitorNumber, 
+    selectedVisitor?.cursorX, 
+    selectedVisitor?.cursorY,
+    selectedVisitor?.clickStateExpiresAt
+  ]);
 
   const togglePlayPause = () => {
     const vid = videoRef.current;
     if (vid) {
       if (vid.paused) {
-        vid.play().catch(() => {});
-        setIsPlaying(true);
+        vid.muted = isMuted;
+        vid.play().then(() => {
+          setIsPlaying(true);
+        }).catch(() => {
+          vid.muted = true;
+          setIsMuted(true);
+          vid.src = '/sample-stream.mp4';
+          vid.load();
+          vid.play().then(() => setIsPlaying(true)).catch(() => {});
+        });
       } else {
         vid.pause();
         setIsPlaying(false);
@@ -417,11 +447,19 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
                 muted={isMuted}
                 loop
                 playsInline
+                src={activeVideoSrc}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onError={() => {
+                  if (activeVideoSrc !== '/sample-stream.mp4') {
+                    setActiveVideoSrc('/sample-stream.mp4');
+                  }
+                }}
                 onTimeUpdate={handleTimeUpdate}
                 className="w-full h-full object-contain bg-black cursor-pointer"
                 onClick={togglePlayPause}
               >
-                <source src={`/api/browser/media-proxy/stream?url=${encodeURIComponent(targetUrl)}`} type="video/mp4" />
+                <source src={activeVideoSrc} type="video/mp4" />
                 <source src="/sample-stream.mp4" type="video/mp4" />
                 <source src="/sample-stream-2.mp4" type="video/mp4" />
                 {socialInfo.directVideoSources && socialInfo.directVideoSources.map((src, i) => (
@@ -457,12 +495,41 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
               {/* Center Play/Pause Overlay indicator when paused */}
               {!isPlaying && (
                 <div 
+                  id="simulator-center-play-button"
+                  data-clickable="true"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Play Video Stream"
                   onClick={togglePlayPause}
-                  className="absolute inset-0 bg-black/40 flex items-center justify-center z-10 cursor-pointer"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      togglePlayPause();
+                    }
+                  }}
+                  className="absolute inset-0 bg-black/40 flex items-center justify-center z-10 cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-400"
                 >
-                  <div className="w-16 h-16 rounded-full bg-cyan-500/90 flex items-center justify-center text-slate-950 shadow-2xl transition-transform hover:scale-110">
-                    <Play className="w-8 h-8 ml-1" />
-                  </div>
+                  <button
+                    type="button"
+                    id="simulator-center-play-btn"
+                    data-clickable="true"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePlayPause();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        togglePlayPause();
+                      }
+                    }}
+                    className="w-16 h-16 rounded-full bg-cyan-500 hover:bg-cyan-400 active:scale-95 flex items-center justify-center text-slate-950 shadow-2xl transition-all hover:scale-110 cursor-pointer z-20 group"
+                    title="Play Video Stream"
+                  >
+                    <Play className="w-8 h-8 ml-1 fill-slate-950" />
+                  </button>
                 </div>
               )}
 
