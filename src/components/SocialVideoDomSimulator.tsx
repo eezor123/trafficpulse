@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Play, 
   Pause, 
@@ -109,6 +109,61 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
     setActiveVideoSrc(`/api/browser/media-proxy/stream?url=${encodeURIComponent(targetUrl)}`);
   }, [targetUrl]);
 
+  const isUserPausedRef = useRef(false);
+
+  // Guaranteed Video Playback: Unconditionally starts and sustains playback with muted audio
+  // Browsers unconditionally permit muted HTML5 playback without requiring user gestures
+  const forcePlay = useCallback(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    vid.muted = isMuted;
+    vid.defaultMuted = true;
+    vid.playsInline = true;
+    vid.setAttribute('playsinline', '');
+    vid.setAttribute('webkit-playsinline', '');
+
+    const playPromise = vid.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          setIsPlaying(true);
+        })
+        .catch(() => {
+          // If browser policy or audio prevented playback, mute and retry immediately
+          vid.muted = true;
+          setIsMuted(true);
+          vid.play()
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch(() => {
+              // Upstream media proxy failure: swap to verified local video stream
+              try {
+                if (vid.src !== window.location.origin + '/sample-stream.mp4' && !vid.src.endsWith('/sample-stream.mp4')) {
+                  vid.src = '/sample-stream.mp4';
+                  vid.muted = true;
+                  vid.load();
+                  vid.play()
+                    .then(() => setIsPlaying(true))
+                    .catch(() => {});
+                }
+              } catch {}
+            });
+        });
+    }
+  }, [isMuted]);
+
+  // Idempotent Play handler: always initiates/forces playback and can never pause or cancel playback
+  const handlePlayOnly = useCallback((e?: React.SyntheticEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    isUserPausedRef.current = false;
+    forcePlay();
+  }, [forcePlay]);
+
   // Handle native video playback state sync
   useEffect(() => {
     const vid = videoRef.current;
@@ -116,40 +171,38 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
 
     vid.muted = isMuted;
     if (isPlaying) {
-      if (vid.paused) {
-        vid.play().catch(() => {
-          vid.muted = true;
-          setIsMuted(true);
-          vid.play().catch(() => {});
-        });
+      if (vid.paused && !isUserPausedRef.current) {
+        forcePlay();
       }
     } else {
-      if (!vid.paused) {
+      if (!vid.paused && isUserPausedRef.current) {
         vid.pause();
       }
     }
-  }, [isPlaying, isMuted, playerMode]);
+  }, [isPlaying, isMuted, playerMode, forcePlay]);
 
-  // Initial Auto-Click on component mount with guaranteed fallback
+  // Autoplay video immediately on mount, on targetUrl change, or on mode switch
   useEffect(() => {
-    const vid = videoRef.current;
-    if (!vid) return;
+    isUserPausedRef.current = false;
+    forcePlay();
+    const t = setTimeout(forcePlay, 200);
+    return () => clearTimeout(t);
+  }, [targetUrl, playerMode, activeVideoSrc, forcePlay]);
 
-    // Immediately play with muted audio (permitted by all browsers without gesture requirement)
-    vid.muted = true;
-    vid.play().then(() => {
-      setIsPlaying(true);
-    }).catch(() => {
-      // Retry in 200ms
-      const retryTimer = setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.muted = true;
-          videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
-        }
-      }, 200);
-      return () => clearTimeout(retryTimer);
-    });
-  }, [targetUrl, playerMode, activeVideoSrc]);
+  // Continuous Autoplay Watchdog: whenever traffic is simulated or visitor is active, guaranteed autoplay without requiring any clicks
+  useEffect(() => {
+    isUserPausedRef.current = false;
+    forcePlay();
+
+    const interval = setInterval(() => {
+      const vid = videoRef.current;
+      if (vid && vid.paused && !isUserPausedRef.current) {
+        forcePlay();
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [forcePlay, selectedVisitor?.visitorNumber, targetUrl]);
 
   // Real click trigger when simulator visitor executes a click or auto-clicks play
   useEffect(() => {
@@ -160,42 +213,26 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
       selectedVisitor.status === 'clicking_ad' ||
       selectedVisitor.status === 'handling_popup'
     ) {
-      const vid = videoRef.current;
-      if (vid) {
-        vid.muted = true;
-        vid.play().then(() => {
-          setIsPlaying(true);
-        }).catch(() => {
-          // Fallback to local sample stream
-          vid.src = '/sample-stream.mp4';
-          vid.load();
-          vid.play().then(() => setIsPlaying(true)).catch(() => {});
-        });
-      }
+      isUserPausedRef.current = false;
+      forcePlay();
     }
   }, [
     selectedVisitor?.status, 
     selectedVisitor?.visitorNumber, 
     selectedVisitor?.cursorX, 
     selectedVisitor?.cursorY,
-    selectedVisitor?.clickStateExpiresAt
+    selectedVisitor?.clickStateExpiresAt,
+    forcePlay
   ]);
 
   const togglePlayPause = () => {
     const vid = videoRef.current;
     if (vid) {
       if (vid.paused) {
-        vid.muted = isMuted;
-        vid.play().then(() => {
-          setIsPlaying(true);
-        }).catch(() => {
-          vid.muted = true;
-          setIsMuted(true);
-          vid.src = '/sample-stream.mp4';
-          vid.load();
-          vid.play().then(() => setIsPlaying(true)).catch(() => {});
-        });
+        isUserPausedRef.current = false;
+        forcePlay();
       } else {
+        isUserPausedRef.current = true;
         vid.pause();
         setIsPlaying(false);
       }
@@ -448,12 +485,23 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
                 loop
                 playsInline
                 src={activeVideoSrc}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
+                onPlay={() => {
+                  isUserPausedRef.current = false;
+                  setIsPlaying(true);
+                }}
+                onPause={() => {
+                  if (isUserPausedRef.current) {
+                    setIsPlaying(false);
+                  } else {
+                    // Browser or system pause event (buffering, codec switch, etc.): immediately resume
+                    forcePlay();
+                  }
+                }}
                 onError={() => {
                   if (activeVideoSrc !== '/sample-stream.mp4') {
                     setActiveVideoSrc('/sample-stream.mp4');
                   }
+                  setTimeout(forcePlay, 50);
                 }}
                 onTimeUpdate={handleTimeUpdate}
                 className="w-full h-full object-contain bg-black cursor-pointer"
@@ -500,11 +548,11 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
                   role="button"
                   tabIndex={0}
                   aria-label="Play Video Stream"
-                  onClick={togglePlayPause}
+                  onClick={handlePlayOnly}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      togglePlayPause();
+                      handlePlayOnly(e);
                     }
                   }}
                   className="absolute inset-0 bg-black/40 flex items-center justify-center z-10 cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-400"
@@ -514,15 +562,12 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
                     id="simulator-center-play-btn"
                     data-clickable="true"
                     tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      togglePlayPause();
-                    }}
+                    onClick={handlePlayOnly}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         e.stopPropagation();
-                        togglePlayPause();
+                        handlePlayOnly(e);
                       }
                     }}
                     className="w-16 h-16 rounded-full bg-cyan-500 hover:bg-cyan-400 active:scale-95 flex items-center justify-center text-slate-950 shadow-2xl transition-all hover:scale-110 cursor-pointer z-20 group"

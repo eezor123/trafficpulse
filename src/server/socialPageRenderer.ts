@@ -1149,51 +1149,16 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
         setTimeout(function() {
           triggerClickRipple();
 
-          var targetBtn = centerBtn || nativeVideo;
-          if (targetBtn) {
-            try {
-              ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(function(evtName) {
-                var evt = new MouseEvent(evtName, {
-                  bubbles: true,
-                  cancelable: true,
-                  view: window,
-                  clientX: window.innerWidth * 0.5,
-                  clientY: window.innerHeight * 0.35
-                });
-                targetBtn.dispatchEvent(evt);
-              });
-            } catch(e) {}
+          if (typeof window.ensurePlayState === 'function') {
+            window.ensurePlayState();
+          } else if (nativeVideo) {
+            nativeVideo.muted = true;
+            nativeVideo.play().catch(function() {});
           }
 
-          // Force play on video element (muted complies with all browser autoplay policies)
-          nativeVideo.muted = true;
-          isPlaying = true;
-          var p = nativeVideo.play();
-          if (p !== undefined) {
-            p.then(function() {
-              if (centerBtn) centerBtn.textContent = '⏸';
-              if (playPauseIcon) playPauseIcon.textContent = '⏸';
-              if (playPauseLabel) playPauseLabel.textContent = 'Pause';
-              if (centerStatus) centerStatus.textContent = '● Real Auto-Click Active • Playing Live Stream';
-              if (badge) {
-                badge.textContent = '▶️ Real Auto-Click: Playback Started';
-                badge.style.color = '#38bdf8';
-              }
-            }).catch(function(err) {
-              console.warn('Autoplay fallback to guaranteed stream:', err);
-              nativeVideo.src = '/sample-stream.mp4';
-              nativeVideo.muted = true;
-              nativeVideo.play().then(function() {
-                if (centerBtn) centerBtn.textContent = '⏸';
-                if (playPauseIcon) playPauseIcon.textContent = '⏸';
-                if (playPauseLabel) playPauseLabel.textContent = 'Pause';
-                if (centerStatus) centerStatus.textContent = '● Real Auto-Click Active • Playing Live Stream';
-                if (badge) {
-                  badge.textContent = '▶️ Real Auto-Click: Playback Started';
-                  badge.style.color = '#38bdf8';
-                }
-              }).catch(function(){});
-            });
+          if (badge) {
+            badge.textContent = '▶️ Real Auto-Click: Playback Active';
+            badge.style.color = '#38bdf8';
           }
         }, 300);
       }
@@ -1245,12 +1210,13 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
         }
       };
 
-      // Play / Pause Toggle
-      window.togglePlayState = function() {
+      // Guaranteed Idempotent Play: Always starts playback without toggling to pause
+      window.ensurePlayState = function() {
         if (!nativeVideo) return;
-        if (nativeVideo.paused) {
-          nativeVideo.muted = true;
-          nativeVideo.play().then(function() {
+        nativeVideo.muted = true;
+        var p = nativeVideo.play();
+        if (p !== undefined) {
+          p.then(function() {
             isPlaying = true;
             if (centerBtn) centerBtn.textContent = '⏸';
             if (playPauseIcon) playPauseIcon.textContent = '⏸';
@@ -1267,6 +1233,14 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
               if (centerStatus) centerStatus.textContent = '● TrafficPulse Live Stream • Playing';
             }).catch(function(){});
           });
+        }
+      };
+
+      // Play / Pause Toggle
+      window.togglePlayState = function() {
+        if (!nativeVideo) return;
+        if (nativeVideo.paused) {
+          window.ensurePlayState();
         } else {
           nativeVideo.pause();
           isPlaying = false;

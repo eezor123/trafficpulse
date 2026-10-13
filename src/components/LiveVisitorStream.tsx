@@ -436,6 +436,43 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
     }
   }, [viewportMode, fullLiveUrl, directSocialPlayerMode]);
 
+  // Guaranteed Video Playback: whenever a video link is shared or traffic is simulated, ensure video autoplays immediately without needing to be clicked
+  useEffect(() => {
+    if (!currentSocialInfo.isSocial) return;
+
+    const playAllActiveVideos = () => {
+      // 1. Play direct video ref if active
+      if (directVideoRef.current && directVideoRef.current.paused) {
+        directVideoRef.current.muted = true;
+        directVideoRef.current.play().then(() => {
+          setDirectVideoPlaying(true);
+        }).catch(() => {});
+      }
+
+      // 2. Play all videos in the active DOM simulator stage
+      if (viewportStageRef.current) {
+        const vids = viewportStageRef.current.querySelectorAll('video');
+        vids.forEach(v => {
+          if (v && v.paused) {
+            v.muted = true;
+            v.play().catch(() => {});
+          }
+        });
+      }
+    };
+
+    playAllActiveVideos();
+    const t1 = setTimeout(playAllActiveVideos, 150);
+    const t2 = setTimeout(playAllActiveVideos, 500);
+    const interval = setInterval(playAllActiveVideos, 1500);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearInterval(interval);
+    };
+  }, [currentSocialInfo.isSocial, fullLiveUrl, viewportMode, selectedVisitor?.visitorNumber]);
+
   // Smooth real scrolling inside the virtual browser DOM container
   useEffect(() => {
     if (scrollContainerRef.current && selectedVisitor) {
