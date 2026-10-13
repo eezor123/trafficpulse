@@ -458,13 +458,38 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
             v.play().catch(() => {});
           }
         });
+
+        // 3. Command all YouTube and video iframes to autoplay muted
+        const iframes = viewportStageRef.current.querySelectorAll('iframe');
+        iframes.forEach(ifr => {
+          try {
+            ifr.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'mute', args: [] }), '*');
+            ifr.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
+            ifr.contentWindow?.postMessage(JSON.stringify({ method: 'play' }), '*');
+          } catch {}
+        });
+      }
+
+      // 4. Send play command to live proxied webview
+      if (liveIframeRef.current?.contentWindow) {
+        try {
+          liveIframeRef.current.contentWindow.postMessage({
+            type: 'TP_EXECUTE_CLICK',
+            target: 'video_play',
+            cursorX: 50,
+            cursorY: 35,
+          }, '*');
+          liveIframeRef.current.contentWindow.postMessage({
+            type: 'TP_AUTO_PLAY_CLICK',
+          }, '*');
+        } catch {}
       }
     };
 
     playAllActiveVideos();
     const t1 = setTimeout(playAllActiveVideos, 150);
     const t2 = setTimeout(playAllActiveVideos, 500);
-    const interval = setInterval(playAllActiveVideos, 1500);
+    const interval = setInterval(playAllActiveVideos, 1200);
 
     return () => {
       clearTimeout(t1);
@@ -477,6 +502,13 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   useEffect(() => {
     if (scrollContainerRef.current && selectedVisitor) {
       const el = scrollContainerRef.current;
+      // On social video links, keep video squarely at top of viewport so it is never scrolled out of view!
+      if (currentSocialInfo.isSocial) {
+        if (el.scrollTop !== 0) {
+          el.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        return;
+      }
       const scrollableHeight = el.scrollHeight - el.clientHeight;
       if (scrollableHeight > 0) {
         const targetScrollTop = (selectedVisitor.currentScrollDepthPct / 100) * scrollableHeight;
@@ -486,7 +518,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
         });
       }
     }
-  }, [selectedVisitor?.currentScrollDepthPct, selectedVisitor?.currentPageIndex]);
+  }, [selectedVisitor?.currentScrollDepthPct, selectedVisitor?.currentPageIndex, currentSocialInfo.isSocial]);
 
   // Auto-scroll progress log feed to top when new events arrive
   useEffect(() => {

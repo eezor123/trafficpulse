@@ -1210,27 +1210,35 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
         }
       };
 
+      var centerAction = document.querySelector('.broadcast-center-action');
+
+      function updatePlayUI(playing) {
+        isPlaying = !!playing;
+        if (centerBtn) centerBtn.textContent = playing ? '⏸' : '▶';
+        if (playPauseIcon) playPauseIcon.textContent = playing ? '⏸' : '▶';
+        if (playPauseLabel) playPauseLabel.textContent = playing ? 'Pause' : 'Play';
+        if (centerStatus) centerStatus.textContent = playing ? '● TrafficPulse Live Stream • Playing' : 'Broadcast Paused • Click to Play';
+        if (centerAction) {
+          centerAction.style.opacity = playing ? '0' : '1';
+          centerAction.style.pointerEvents = playing ? 'none' : 'auto';
+        }
+      }
+
       // Guaranteed Idempotent Play: Always starts playback without toggling to pause
       window.ensurePlayState = function() {
         if (!nativeVideo) return;
         nativeVideo.muted = true;
+        nativeVideo.defaultMuted = true;
+        nativeVideo.playsInline = true;
         var p = nativeVideo.play();
         if (p !== undefined) {
           p.then(function() {
-            isPlaying = true;
-            if (centerBtn) centerBtn.textContent = '⏸';
-            if (playPauseIcon) playPauseIcon.textContent = '⏸';
-            if (playPauseLabel) playPauseLabel.textContent = 'Pause';
-            if (centerStatus) centerStatus.textContent = '● TrafficPulse Live Stream • Playing';
+            updatePlayUI(true);
           }).catch(function() {
             nativeVideo.src = '/sample-stream.mp4';
             nativeVideo.muted = true;
             nativeVideo.play().then(function() {
-              isPlaying = true;
-              if (centerBtn) centerBtn.textContent = '⏸';
-              if (playPauseIcon) playPauseIcon.textContent = '⏸';
-              if (playPauseLabel) playPauseLabel.textContent = 'Pause';
-              if (centerStatus) centerStatus.textContent = '● TrafficPulse Live Stream • Playing';
+              updatePlayUI(true);
             }).catch(function(){});
           });
         }
@@ -1243,13 +1251,34 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
           window.ensurePlayState();
         } else {
           nativeVideo.pause();
-          isPlaying = false;
-          if (centerBtn) centerBtn.textContent = '▶';
-          if (playPauseIcon) playPauseIcon.textContent = '▶';
-          if (playPauseLabel) playPauseLabel.textContent = 'Play';
-          if (centerStatus) centerStatus.textContent = 'Broadcast Paused';
+          updatePlayUI(false);
         }
       };
+
+      // Automatic autoplay triggers on mount
+      setTimeout(function() {
+        window.ensurePlayState();
+      }, 50);
+      setTimeout(function() {
+        window.ensurePlayState();
+      }, 400);
+
+      // Trigger autoplay commands on official embed iframe if loaded
+      var embedIframe = document.getElementById('tp-embed-player');
+      if (embedIframe) {
+        function triggerEmbedPlay() {
+          try {
+            embedIframe.contentWindow.postMessage('{"event":"command","func":"mute","args":""}', '*');
+            embedIframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+            embedIframe.contentWindow.postMessage('{"method":"play"}', '*');
+          } catch(e) {}
+        }
+        embedIframe.addEventListener('load', function() {
+          triggerEmbedPlay();
+          setTimeout(triggerEmbedPlay, 300);
+          setTimeout(triggerEmbedPlay, 1000);
+        });
+      }
 
       // Mute Toggle
       window.toggleMute = function() {

@@ -484,7 +484,6 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
                 muted={isMuted}
                 loop
                 playsInline
-                src={activeVideoSrc}
                 onPlay={() => {
                   isUserPausedRef.current = false;
                   setIsPlaying(true);
@@ -498,10 +497,12 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
                   }
                 }}
                 onError={() => {
-                  if (activeVideoSrc !== '/sample-stream.mp4') {
-                    setActiveVideoSrc('/sample-stream.mp4');
+                  if (videoRef.current) {
+                    videoRef.current.src = '/sample-stream.mp4';
+                    videoRef.current.muted = true;
+                    videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
                   }
-                  setTimeout(forcePlay, 50);
+                  setIsPlaying(true);
                 }}
                 onTimeUpdate={handleTimeUpdate}
                 className="w-full h-full object-contain bg-black cursor-pointer"
@@ -638,7 +639,24 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
                 className="w-full h-full border-none bg-black"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
                 allowFullScreen
-                onLoad={() => setIframeLoaded(true)}
+                onLoad={(e) => {
+                  setIframeLoaded(true);
+                  try {
+                    const ifr = e.currentTarget;
+                    if (ifr && ifr.contentWindow) {
+                      const triggerPlay = () => {
+                        try {
+                          ifr.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'mute', args: [] }), '*');
+                          ifr.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
+                          ifr.contentWindow?.postMessage(JSON.stringify({ method: 'play' }), '*');
+                        } catch {}
+                      };
+                      triggerPlay();
+                      setTimeout(triggerPlay, 300);
+                      setTimeout(triggerPlay, 1000);
+                    }
+                  } catch {}
+                }}
               />
 
               {/* Fail-safe overlay if Facebook or TikTok iframe gets blocked by browser cookie policy */}

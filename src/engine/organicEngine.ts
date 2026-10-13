@@ -513,16 +513,19 @@ export class OrganicTrafficEngine {
       // 1. Simulate human scrolling based on dwell progress & scrollToEndOfPage setting
       const prevScroll = visitor.currentScrollDepthPct || 0;
       if (this.config.behavior.simulateScroll) {
-        const targetScroll = this.config.behavior.scrollToEndOfPage 
-          ? Math.max(currentPage.scrollDepthPct, 96 + Math.floor(Math.random() * 4)) // 96-100% full scroll
-          : currentPage.scrollDepthPct;
+        // For video links and reels, the visitor is watching the video player: keep viewport focused squarely on the player (0% depth)
+        const targetScroll = isSocialVideo
+          ? 0
+          : this.config.behavior.scrollToEndOfPage 
+            ? Math.max(currentPage.scrollDepthPct, 96 + Math.floor(Math.random() * 4)) // 96-100% full scroll
+            : currentPage.scrollDepthPct;
 
         // Smooth ease towards target scroll
-        visitor.currentScrollDepthPct = Math.min(targetScroll, Math.round(targetScroll * (pageProgress / 80)));
-        visitor.currentScrollVelocity = Math.round(((visitor.currentScrollDepthPct - prevScroll) / Math.max(0.1, tickDeltaSeconds)) * 10) / 10;
+        visitor.currentScrollDepthPct = isSocialVideo ? 0 : Math.min(targetScroll, Math.round(targetScroll * (pageProgress / 80)));
+        visitor.currentScrollVelocity = isSocialVideo ? 0 : Math.round(((visitor.currentScrollDepthPct - prevScroll) / Math.max(0.1, tickDeltaSeconds)) * 10) / 10;
 
         // Log scroll progress milestone
-        if (Math.abs(visitor.currentScrollDepthPct - prevScroll) >= 12 && visitor.currentScrollDepthPct > 5) {
+        if (!isSocialVideo && Math.abs(visitor.currentScrollDepthPct - prevScroll) >= 12 && visitor.currentScrollDepthPct > 5) {
           this.appendActionLog(
             visitor,
             'scroll',
@@ -533,7 +536,7 @@ export class OrganicTrafficEngine {
         }
 
         // If reached 95%+ and scrollToEndOfPage is enabled, mark footer reached
-        if (visitor.currentScrollDepthPct >= 95 && !currentPage.hasScrolledToEnd) {
+        if (!isSocialVideo && visitor.currentScrollDepthPct >= 95 && !currentPage.hasScrolledToEnd) {
           currentPage.hasScrolledToEnd = true;
           visitor.footerReached = true;
           visitor.lastEventLog = `Reached end of page (100% footer & comments, pausing ${this.config.behavior.footerDwellPauseSeconds || 5}s)`;
@@ -572,7 +575,11 @@ export class OrganicTrafficEngine {
         let targetX = 25 + wave1 * 32 + (Math.random() * 6 - 3);
         let targetY = 15 + (visitor.currentScrollDepthPct * 0.65) + wave2 * 14;
 
-        if (visitor.status === 'clicking_ad') {
+        if (isSocialVideo) {
+          // On social video stream, visitor cursor hovers comfortably over the video viewport
+          targetX = 48 + wave1 * 10;
+          targetY = 38 + wave2 * 8;
+        } else if (visitor.status === 'clicking_ad') {
           targetX = 52 + (Math.random() * 8 - 4);
           targetY = Math.max(15, visitor.currentScrollDepthPct + (Math.random() * 10 - 5));
         } else if (visitor.status === 'clicking_link') {
@@ -590,7 +597,12 @@ export class OrganicTrafficEngine {
         visitor.cursorY = Math.round(Math.min(95, Math.max(5, targetY)));
 
         // Update dynamic hover target element
-        if (visitor.cursorY < 12) {
+        if (isSocialVideo) {
+          visitor.currentHoverTarget = 'video#tp-native-video.player-stream';
+          if (!visitor.lastEventLog || visitor.lastEventLog.includes('Auto-clicked') || visitor.lastEventLog.includes('Smooth scrolled')) {
+            visitor.lastEventLog = 'Watching video stream (1080p 60FPS) • Dwell active';
+          }
+        } else if (visitor.cursorY < 12) {
           visitor.currentHoverTarget = 'nav.navbar > a.brand-logo';
         } else if (visitor.cursorY < 24) {
           visitor.currentHoverTarget = 'header.hero > h1.post-title';
@@ -616,8 +628,9 @@ export class OrganicTrafficEngine {
         }
       }
 
-      // 3. POPUP / INTERSTITIAL AD INTERACTION (Triggered once at 20-40% scroll)
+      // 3. POPUP / INTERSTITIAL AD INTERACTION (Triggered once at 20-40% scroll on regular web pages only)
       if (
+        !isSocialVideo &&
         this.config.behavior.simulateAdClicks && 
         this.config.behavior.clickPopupAds && 
         !currentPage.hasPopupHandled && 
@@ -747,10 +760,11 @@ export class OrganicTrafficEngine {
         }
       }
 
-      // 4. IN-ARTICLE LINKS CLICKING (Click at least 2 links in the post article)
+      // 4. IN-ARTICLE LINKS CLICKING (Click at least 2 links in the post article on text websites)
       const articleLinksPlanned = currentPage.articleLinksPlanned || 0;
       const articleLinksClicked = currentPage.articleLinksClicked || 0;
       if (
+        !isSocialVideo &&
         this.config.behavior.simulateArticleLinks && 
         articleLinksPlanned > 0 && 
         articleLinksClicked < articleLinksPlanned
