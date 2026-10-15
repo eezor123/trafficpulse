@@ -122,6 +122,7 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
     vid.playsInline = true;
     vid.setAttribute('playsinline', '');
     vid.setAttribute('webkit-playsinline', '');
+    vid.setAttribute('muted', '');
 
     const playPromise = vid.play();
     if (playPromise !== undefined) {
@@ -132,6 +133,7 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
         .catch(() => {
           // If browser policy or audio prevented playback, mute and retry immediately
           vid.muted = true;
+          vid.setAttribute('muted', '');
           setIsMuted(true);
           vid.play()
             .then(() => {
@@ -143,6 +145,7 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
                 if (vid.src !== window.location.origin + '/sample-stream.mp4' && !vid.src.endsWith('/sample-stream.mp4')) {
                   vid.src = '/sample-stream.mp4';
                   vid.muted = true;
+                  vid.setAttribute('muted', '');
                   vid.load();
                   vid.play()
                     .then(() => setIsPlaying(true))
@@ -482,6 +485,7 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
                 ref={videoRef}
                 autoPlay
                 muted={isMuted}
+                defaultMuted={true}
                 loop
                 playsInline
                 onPlay={() => {

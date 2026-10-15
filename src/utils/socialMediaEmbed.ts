@@ -92,11 +92,19 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
   }
 
   // --------------------------------------------------------------------------
-  // 1. YOUTUBE (Watch, Shorts, Embed, youtu.be)
+  // 1. YOUTUBE (Watch, Shorts, Live, Embed, youtu.be, music.youtube.com)
   // --------------------------------------------------------------------------
-  if (host === 'youtube.com' || host === 'youtu.be' || host === 'm.youtube.com' || host === 'youtube-nocookie.com') {
+  if (
+    host === 'youtube.com' ||
+    host === 'youtu.be' ||
+    host === 'm.youtube.com' ||
+    host === 'music.youtube.com' ||
+    host === 'youtube-nocookie.com' ||
+    host.endsWith('.youtube.com')
+  ) {
     let videoId: string | undefined = undefined;
     let isShort = false;
+    let isLive = false;
 
     if (host === 'youtu.be') {
       videoId = pathname.replace(/^\//, '').split('/')[0] || undefined;
@@ -104,11 +112,18 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       const match = pathname.match(/\/shorts\/([0-9a-zA-Z_-]+)/);
       if (match) videoId = match[1];
       isShort = true;
+    } else if (pathname.includes('/live/')) {
+      const match = pathname.match(/\/live\/([0-9a-zA-Z_-]+)/);
+      if (match) videoId = match[1];
+      isLive = true;
+    } else if (pathname.includes('/v/')) {
+      const match = pathname.match(/\/v\/([0-9a-zA-Z_-]+)/);
+      if (match) videoId = match[1];
     } else if (pathname.includes('/embed/')) {
       const match = pathname.match(/\/embed\/([0-9a-zA-Z_-]+)/);
       if (match) videoId = match[1];
     } else {
-      videoId = search.get('v') || undefined;
+      videoId = search.get('v') || search.get('vi') || undefined;
     }
 
     const cleanVideoId = videoId ? videoId.split('?')[0].split('&')[0] : '';
@@ -125,7 +140,8 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       directEmbedUrl,
       canonicalUrl: cleanVideoId ? `https://www.youtube.com/watch?v=${cleanVideoId}` : withProtocol,
       videoId: cleanVideoId,
-      titleSuggestion: isShort ? 'YouTube Short Clip' : 'YouTube Video Stream',
+      isLive,
+      titleSuggestion: isShort ? 'YouTube Short Clip' : isLive ? 'YouTube Live Stream' : 'YouTube Video Stream',
       isEmbedAllowedDirectly: !!cleanVideoId,
       directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
@@ -301,6 +317,148 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
       videoId: tweetId,
       titleSuggestion: 'X (Twitter) Post & Media',
       isEmbedAllowedDirectly: !!tweetId,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // 7. TWITCH (Streams, Clips)
+  // --------------------------------------------------------------------------
+  if (host === 'twitch.tv' || host.endsWith('.twitch.tv')) {
+    let channelOrClip: string | undefined = undefined;
+    const isClip = host.startsWith('clips.') || pathname.includes('/clip/');
+    if (isClip) {
+      const match = pathname.match(/\/clip\/([a-zA-Z0-9_-]+)/) || pathname.match(/\/([a-zA-Z0-9_-]+)/);
+      if (match) channelOrClip = match[1];
+    } else {
+      channelOrClip = pathname.replace(/^\//, '').split('/')[0] || undefined;
+    }
+    const directEmbedUrl = channelOrClip
+      ? isClip
+        ? `https://clips.twitch.tv/embed?clip=${channelOrClip}&parent=localhost&autoplay=true&muted=true`
+        : `https://player.twitch.tv/?channel=${channelOrClip}&parent=localhost&autoplay=true&muted=true`
+      : withProtocol;
+
+    return {
+      isSocial: true,
+      platform: 'generic_video',
+      platformName: 'Twitch',
+      mediaType: 'video',
+      directEmbedUrl,
+      canonicalUrl: withProtocol,
+      videoId: channelOrClip,
+      titleSuggestion: channelOrClip ? `${channelOrClip} Twitch Stream` : 'Twitch Live Stream',
+      isEmbedAllowedDirectly: !!channelOrClip,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // 8. DAILYMOTION, STREAMABLE & LOOM
+  // --------------------------------------------------------------------------
+  if (host === 'dailymotion.com' || host === 'dai.ly' || host.endsWith('.dailymotion.com')) {
+    let dmId: string | undefined = undefined;
+    if (host === 'dai.ly') {
+      dmId = pathname.replace(/^\//, '').split('/')[0];
+    } else {
+      const match = pathname.match(/\/video\/([0-9a-zA-Z]+)/);
+      if (match) dmId = match[1];
+    }
+    const directEmbedUrl = dmId
+      ? `https://www.dailymotion.com/embed/video/${dmId}?autoplay=1&mute=1`
+      : withProtocol;
+
+    return {
+      isSocial: true,
+      platform: 'generic_video',
+      platformName: 'Dailymotion',
+      mediaType: 'video',
+      directEmbedUrl,
+      canonicalUrl: withProtocol,
+      videoId: dmId,
+      titleSuggestion: 'Dailymotion Video Stream',
+      isEmbedAllowedDirectly: !!dmId,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
+    };
+  }
+
+  if (host === 'streamable.com') {
+    const match = pathname.match(/\/([0-9a-zA-Z]+)/);
+    const sId = match ? match[1] : undefined;
+    const directEmbedUrl = sId
+      ? `https://streamable.com/e/${sId}?autoplay=1&muted=1`
+      : withProtocol;
+
+    return {
+      isSocial: true,
+      platform: 'generic_video',
+      platformName: 'Streamable',
+      mediaType: 'video',
+      directEmbedUrl,
+      canonicalUrl: withProtocol,
+      videoId: sId,
+      titleSuggestion: 'Streamable Video Stream',
+      isEmbedAllowedDirectly: !!sId,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
+    };
+  }
+
+  if (host === 'loom.com') {
+    const match = pathname.match(/\/share\/([0-9a-zA-Z]+)/);
+    const lId = match ? match[1] : undefined;
+    const directEmbedUrl = lId
+      ? `https://www.loom.com/embed/${lId}?autoplay=1&muted=1`
+      : withProtocol;
+
+    return {
+      isSocial: true,
+      platform: 'generic_video',
+      platformName: 'Loom',
+      mediaType: 'video',
+      directEmbedUrl,
+      canonicalUrl: withProtocol,
+      videoId: lId,
+      titleSuggestion: 'Loom Video Recording',
+      isEmbedAllowedDirectly: !!lId,
+      directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // 9. GENERIC VIDEO / EMBED / STREAM LINK DETECTION
+  // (Recognizes video sharing links, stream URLs, media players automatically)
+  // --------------------------------------------------------------------------
+  const pathLower = pathname.toLowerCase();
+  const isVideoKeyword = 
+    pathLower.includes('/video/') || 
+    pathLower.includes('/videos/') || 
+    pathLower.includes('/watch') || 
+    pathLower.includes('/reel/') || 
+    pathLower.includes('/reels/') || 
+    pathLower.includes('/stream') || 
+    pathLower.includes('/clip/') || 
+    pathLower.includes('/shorts/') ||
+    search.has('v') ||
+    search.has('video_id') ||
+    search.has('videoid');
+
+  const isVideoHost = 
+    host.includes('video') || 
+    host.includes('tube') || 
+    host.includes('stream') || 
+    host.includes('media') || 
+    host.includes('player');
+
+  if (isVideoKeyword || isVideoHost) {
+    return {
+      isSocial: true,
+      platform: 'generic_video',
+      platformName: parsed.hostname,
+      mediaType: pathLower.includes('reel') || pathLower.includes('shorts') ? 'reel' : 'video',
+      directEmbedUrl: withProtocol,
+      canonicalUrl: withProtocol,
+      titleSuggestion: `${parsed.hostname} Video Stream`,
+      isEmbedAllowedDirectly: false,
       directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
   }

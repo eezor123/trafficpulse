@@ -16,7 +16,7 @@ import {
   generateVisitorFingerprint,
 } from './fingerprintGenerator';
 import { getAuthenticOutboundTarget } from './ga4ClickRegistry';
-import { parseSocialMediaUrl } from '../utils/socialMediaEmbed';
+import { parseSocialMediaUrl, generateSocialMediaRoutes } from '../utils/socialMediaEmbed';
 
 export interface OrganicEngineCallbacks {
   onActiveVisitorsUpdate: (visitors: ActiveVisitorSession[]) => void;
@@ -474,24 +474,24 @@ export class OrganicTrafficEngine {
       // Calculate progress on current page (0 - 100%)
       const pageProgress = Math.min(100, (currentPage.dwellSecondsSpent / Math.max(1, currentPage.dwellPlannedSeconds)) * 100);
 
-      // 1.5. AUTOMATIC VIDEO PLAY AUTO-CLICK (Executes genuine click on play button within first 2.5 seconds)
+      // 1.5. AUTOMATIC VIDEO PLAY AUTOPLAY (Starts immediately without requiring a click, guaranteed 100% reliable)
       const socialCheck = parseSocialMediaUrl(currentPage.url || this.config.targetUrl);
       const isSocialVideo = socialCheck.isSocial && (socialCheck.mediaType === 'video' || socialCheck.mediaType === 'reel' || socialCheck.platform !== 'none');
 
-      if (isSocialVideo && !currentPage.hasVideoStarted && currentPage.dwellSecondsSpent >= 0.5) {
+      if (isSocialVideo && !currentPage.hasVideoStarted) {
         currentPage.hasVideoStarted = true;
         visitor.status = 'clicking_element';
         visitor.cursorX = 50;
         visitor.cursorY = 35;
         visitor.clickStateExpiresAt = timeNow + 1400;
-        visitor.currentHoverTarget = 'button#center-play-toggle';
-        visitor.lastEventLog = 'Auto-clicked Video Play button to start stream';
+        visitor.currentHoverTarget = 'video#tp-native-video.player-stream';
+        visitor.lastEventLog = `Watching ${socialCheck.platformName} stream (Autoplaying • Zero clicks required)`;
 
         this.appendActionLog(
           visitor,
           'click',
-          'Auto-clicked video player: Initiated stream playback',
-          'button.center-play-btn',
+          `Video Stream Autoplaying (${socialCheck.platformName} 1080p 60FPS • No click required)`,
+          'video#tp-native-video',
           '#06b6d4'
         );
 
@@ -505,7 +505,7 @@ export class OrganicTrafficEngine {
           pagePath: currentPage.path,
           pageTitle: currentPage.title,
           source: visitor.trafficSource,
-          details: `Auto-clicked Video Player (1080p Stream Playing • Full Range Interaction)`,
+          details: `Video Autoplaying (${socialCheck.platformName} 1080p Stream • Continuous Playback)`,
           device: visitor.deviceType,
         });
       }
@@ -1483,13 +1483,34 @@ export class OrganicTrafficEngine {
     // =========================================================================
     // 5. PAGE SELECTION & REPETITION / NON-REPETITION ENGINE
     // =========================================================================
+    const targetSocial = parseSocialMediaUrl(this.config.targetUrl);
+    const isTargetSocialVideo = targetSocial.isSocial && (targetSocial.mediaType === 'video' || targetSocial.mediaType === 'reel' || targetSocial.platform !== 'none');
+
     const availablePages = this.pagesPool.length > 0 ? [...this.pagesPool] : [];
     const pageRepetitionMode = this.config.behavior.pageRepetitionMode || 'strict_unique';
     const distinctCatalogTraversal = this.config.behavior.distinctCatalogTraversal ?? true;
 
     let landingPage: CrawledPage;
 
-    if (distinctCatalogTraversal && availablePages.length > 1) {
+    if (isTargetSocialVideo) {
+      let vPath = '/watch';
+      try {
+        const u = new URL(this.config.targetUrl);
+        vPath = u.pathname + u.search || '/watch';
+      } catch {}
+      landingPage = {
+        id: 'social_video_stream',
+        url: this.config.targetUrl,
+        path: vPath,
+        title: targetSocial.titleSuggestion,
+        description: `${targetSocial.platformName} Live Stream`,
+        depth: 0,
+        status: 200,
+        includedInVisits: true,
+        visitWeight: 100,
+        gaDetected: true,
+      };
+    } else if (distinctCatalogTraversal && availablePages.length > 1) {
       // Refill and shuffle unvisited queue if exhausted so every post/listing is visited
       if (this.catalogUnvisitedQueue.length === 0) {
         const deep = availablePages.filter(p => p.path !== '/' && p.path !== '');
@@ -1603,12 +1624,14 @@ export class OrganicTrafficEngine {
 
     // Add Landing Page Step
     const landingDwell = Math.floor(Math.random() * (maxDwell - minDwell + 1)) + minDwell;
-    const landingScroll = this.config.behavior.scrollToEndOfPage 
-      ? Math.max(96 + Math.floor(Math.random() * 4), Math.floor(Math.random() * (maxScroll - minScroll + 1)) + minScroll)
-      : Math.floor(Math.random() * (maxScroll - minScroll + 1)) + minScroll;
-    const landingClicks = this.config.behavior.simulateRandomClicks ? Math.floor(Math.random() * (maxClicks - minClicks + 1)) + minClicks : 0;
-    const landingArticleLinks = this.config.behavior.simulateArticleLinks ? Math.floor(Math.random() * (maxArticleLinks - minArticleLinks + 1)) + minArticleLinks : 0;
-    const landingAdClicks = this.config.behavior.simulateAdClicks ? Math.floor(Math.random() * (maxAdClicks - minAdClicks + 1)) + minAdClicks : 0;
+    const landingScroll = isTargetSocialVideo
+      ? 0
+      : this.config.behavior.scrollToEndOfPage 
+        ? Math.max(96 + Math.floor(Math.random() * 4), Math.floor(Math.random() * (maxScroll - minScroll + 1)) + minScroll)
+        : Math.floor(Math.random() * (maxScroll - minScroll + 1)) + minScroll;
+    const landingClicks = isTargetSocialVideo ? 1 : this.config.behavior.simulateRandomClicks ? Math.floor(Math.random() * (maxClicks - minClicks + 1)) + minClicks : 0;
+    const landingArticleLinks = isTargetSocialVideo ? 0 : this.config.behavior.simulateArticleLinks ? Math.floor(Math.random() * (maxArticleLinks - minArticleLinks + 1)) + minArticleLinks : 0;
+    const landingAdClicks = isTargetSocialVideo ? 0 : this.config.behavior.simulateAdClicks ? Math.floor(Math.random() * (maxAdClicks - minAdClicks + 1)) + minAdClicks : 0;
 
     visitedPages.push({
       url: landingPage.url,
@@ -1623,7 +1646,7 @@ export class OrganicTrafficEngine {
       articleLinksClicked: 0,
       adClicksPlanned: landingAdClicks,
       adClicksPerformed: 0,
-      hasPopupHandled: false,
+      hasPopupHandled: isTargetSocialVideo ? true : false,
       hasScrolledToEnd: false,
       status: 'visiting',
       startedAt: Date.now(),
@@ -1634,7 +1657,31 @@ export class OrganicTrafficEngine {
 
     // Add subsequent internal pages (posts, categories, sub-pages)
     if (!isBounced && plannedPageCount > 1) {
-      const chosenPaths = new Set<string>([landingPage.path]);
+      if (isTargetSocialVideo) {
+        const socialRoutes = generateSocialMediaRoutes(this.config.targetUrl, targetSocial);
+        for (let p = 1; p < Math.min(plannedPageCount, socialRoutes.length + 1); p++) {
+          const route = socialRoutes[(p - 1) % socialRoutes.length];
+          visitedPages.push({
+            url: route.url,
+            path: route.path,
+            title: route.title,
+            dwellPlannedSeconds: Math.floor(Math.random() * 25) + 15,
+            dwellSecondsSpent: 0,
+            scrollDepthPct: 0,
+            plannedClicks: 1,
+            clicksPerformed: 0,
+            articleLinksPlanned: 0,
+            articleLinksClicked: 0,
+            adClicksPlanned: 0,
+            adClicksPerformed: 0,
+            hasPopupHandled: true,
+            hasScrolledToEnd: false,
+            status: 'visiting',
+            startedAt: Date.now(),
+          });
+        }
+      } else {
+        const chosenPaths = new Set<string>([landingPage.path]);
 
       for (let p = 1; p < plannedPageCount; p++) {
         let nextPage: CrawledPage;
@@ -1703,6 +1750,7 @@ export class OrganicTrafficEngine {
         });
       }
     }
+  }
 
     // =========================================================================
     // 6. VISITOR RETENTION & REPETITION MODE

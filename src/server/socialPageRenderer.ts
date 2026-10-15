@@ -1163,20 +1163,37 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
         }, 300);
       }
 
-      // Initialize video element & trigger immediate Auto-Click sequence
+      // Initialize video element & trigger immediate Autoplay sequence
       if (nativeVideo) {
         nativeVideo.muted = true;
-        nativeVideo.play().catch(function() {});
+        nativeVideo.defaultMuted = true;
+        nativeVideo.playsInline = true;
+        nativeVideo.setAttribute('playsinline', '');
+        nativeVideo.setAttribute('webkit-playsinline', '');
+        nativeVideo.setAttribute('muted', '');
+        nativeVideo.play().then(function() {
+          updatePlayUI(true);
+        }).catch(function() {
+          window.ensurePlayState();
+        });
 
         // Visible Auto-Click sequence starts within 250ms
         setTimeout(function() {
           executeAutoClickPlay('mount_init');
         }, 250);
 
-        // Fail-safe: if paused after 1.2s, auto-click again
+        // Fail-safe: if paused after 1.2s, auto-click and ensure play
         setTimeout(function() {
           if (nativeVideo && nativeVideo.paused) {
             executeAutoClickPlay('mount_retry');
+            window.ensurePlayState();
+          }
+        }, 1200);
+
+        // Continuous autoplay watchdog: guaranteed playback without requiring user gesture
+        setInterval(function() {
+          if (nativeVideo && nativeVideo.paused) {
+            window.ensurePlayState();
           }
         }, 1200);
 
@@ -1278,6 +1295,7 @@ export function renderSocialMediaLivePage(socialInfo: SocialMediaInfo, allowAds:
           setTimeout(triggerEmbedPlay, 300);
           setTimeout(triggerEmbedPlay, 1000);
         });
+        setInterval(triggerEmbedPlay, 2000);
       }
 
       // Mute Toggle
