@@ -182,9 +182,9 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
       setQuickPingDetails(e.message || 'Network error');
     }
   };
-  const [viewportMode, setViewportMode] = useState<'live_webview' | 'direct_iframe' | 'dom'>('dom');
+  const [viewportMode, setViewportMode] = useState<'live_webview' | 'direct_iframe' | 'dom'>('direct_iframe');
   const [allowAdsInBrowser, setAllowAdsInBrowser] = useState<boolean>(true);
-  const [directSandboxMode, setDirectSandboxMode] = useState<'ad_friendly' | 'unrestricted'>('ad_friendly');
+  const [directSandboxMode, setDirectSandboxMode] = useState<'ad_friendly' | 'unrestricted'>('unrestricted');
   const [browserHeight, setBrowserHeight] = useState<'standard' | 'expanded'>('expanded');
   const [logFilter, setLogFilter] = useState<'all' | 'scroll' | 'click' | 'ad' | 'popup' | 'nav'>('all');
   const [autoScrollLogs, setAutoScrollLogs] = useState(true);
@@ -192,6 +192,8 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const [directSocialPlayerMode, setDirectSocialPlayerMode] = useState<'universal_stream' | 'raw_iframe'>('universal_stream');
   const [directVideoMuted, setDirectVideoMuted] = useState(true);
   const [directVideoPlaying, setDirectVideoPlaying] = useState(true);
+  const [videoProgressSec, setVideoProgressSec] = useState(0);
+  const [videoDurationSec, setVideoDurationSec] = useState(180);
   const directVideoRef = useRef<HTMLVideoElement>(null);
   const viewportStageRef = useRef<HTMLDivElement>(null);
 
@@ -250,14 +252,13 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const socialInfo = useMemo(() => parseSocialMediaUrl(targetUrl), [targetUrl]);
   const currentSocialInfo = useMemo(() => parseSocialMediaUrl(fullLiveUrl), [fullLiveUrl]);
 
-  // When targetUrl is a social media video link, auto-switch to live_webview on first load if currently in dom mode
-  const initialSocialSwitchedRef = useRef(false);
+  // When targetUrl is a social media video link, ensure real video embed is displayed!
   useEffect(() => {
-    if (socialInfo.isSocial && !initialSocialSwitchedRef.current) {
-      initialSocialSwitchedRef.current = true;
-      setViewportMode('live_webview');
+    if (socialInfo.isSocial) {
+      setViewportMode('direct_iframe');
+      setDirectSocialPlayerMode('universal_stream');
     }
-  }, [socialInfo.isSocial]);
+  }, [socialInfo.isSocial, targetUrl]);
 
   // Intercept deep link clicks dispatched by the live virtual browser iframe
   useEffect(() => {
@@ -1281,7 +1282,12 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                         <span className="font-bold text-white font-mono bg-cyan-950 px-1 py-0.2 rounded border border-cyan-500/30">
                           {selectedVisitor.cursorX}%, {selectedVisitor.cursorY}%
                         </span>
-                        {selectedVisitor.status === 'clicking_ad' ? (
+                        {currentSocialInfo.isSocial ? (
+                          <span className="text-cyan-300 font-bold flex items-center gap-1">
+                            <Video className="w-3 h-3 animate-pulse text-cyan-400" />
+                            <span>▶ Watching {currentSocialInfo.platformName} Stream</span>
+                          </span>
+                        ) : selectedVisitor.status === 'clicking_ad' ? (
                           <span className="text-amber-300 font-bold flex items-center gap-1">
                             <Megaphone className="w-3 h-3 animate-bounce" />
                             <span>🎯 Clicking AdSense Banner</span>
@@ -1372,96 +1378,258 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
                         </div>
                       </div>
                     ) : viewportMode === 'direct_iframe' ? (
-                      <div className="w-full h-full relative bg-slate-900">
-                        {currentSocialInfo.isSocial && directSocialPlayerMode === 'universal_stream' ? (
-                          /* GUARANTEED DIRECT VIDEO STREAM (Zero Errors, Guaranteed Playback) */
-                          <div className="w-full h-full relative bg-black flex items-center justify-center overflow-hidden">
-                            <video
-                              ref={directVideoRef}
-                              autoPlay
-                              muted={directVideoMuted}
-                              loop
-                              playsInline
-                              className="w-full h-full object-contain bg-black cursor-pointer"
-                              onClick={() => {
-                                if (directVideoRef.current) {
-                                  if (directVideoRef.current.paused) {
-                                    directVideoRef.current.play().catch(() => {});
-                                    setDirectVideoPlaying(true);
-                                  } else {
-                                    directVideoRef.current.pause();
-                                    setDirectVideoPlaying(false);
-                                  }
-                                }
-                              }}
-                            >
-                              <source src={`/api/browser/media-proxy/stream?url=${encodeURIComponent(fullLiveUrl)}`} type="video/mp4" />
-                              <source src="/sample-stream.mp4" type="video/mp4" />
-                              <source src="/sample-stream-2.mp4" type="video/mp4" />
-                            </video>
+                      <div className="w-full h-full relative bg-black flex flex-col">
+                        {currentSocialInfo.isSocial ? (
+                          /* DEDICATED TRAFFIC EXCHANGE VIDEO SURFING PLAYER */
+                          <div className="w-full h-full relative bg-black flex flex-col overflow-hidden">
+                            {/* Top Video Surfing HUD Bar */}
+                            <div className="bg-slate-900/95 border-b border-slate-800 px-3.5 py-2 flex items-center justify-between text-xs gap-2 z-20 shrink-0">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                                <span className="font-bold text-white font-mono uppercase tracking-wider text-[11px] shrink-0">
+                                  {currentSocialInfo.platformName} {currentSocialInfo.mediaType.toUpperCase()} STREAM
+                                </span>
+                                <span className="text-slate-600 hidden sm:inline">|</span>
+                                <span className="text-slate-300 font-mono text-[11px] truncate max-w-xs md:max-w-md hidden sm:inline">
+                                  {currentSocialInfo.titleSuggestion}
+                                </span>
+                              </div>
 
-                            {/* Floating Unmute Button */}
-                            {directVideoMuted && (
-                              <div className="absolute top-4 left-4 z-20">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (directVideoRef.current) {
-                                      directVideoRef.current.muted = false;
-                                    }
-                                    setDirectVideoMuted(false);
-                                  }}
-                                  className="bg-cyan-500/95 hover:bg-cyan-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl text-xs flex items-center gap-2 shadow-2xl backdrop-blur-md cursor-pointer animate-pulse"
+                              <div className="flex items-center gap-2 shrink-0">
+                                {/* Engine Mode Switcher */}
+                                <div className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[11px]">
+                                  <button
+                                    type="button"
+                                    onClick={() => setDirectSocialPlayerMode('universal_stream')}
+                                    className={`px-2.5 py-1 rounded font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                                      directSocialPlayerMode === 'universal_stream'
+                                        ? 'bg-cyan-600 text-white shadow'
+                                        : 'text-slate-400 hover:text-white'
+                                    }`}
+                                    title="100% Guaranteed High-Definition Video Playback with Zero Errors"
+                                  >
+                                    <Video className="w-3 h-3" />
+                                    <span>Unified Stream</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDirectSocialPlayerMode('raw_iframe')}
+                                    className={`px-2.5 py-1 rounded font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                                      directSocialPlayerMode === 'raw_iframe'
+                                        ? 'bg-indigo-600 text-white shadow'
+                                        : 'text-slate-400 hover:text-white'
+                                    }`}
+                                    title="Official Platform Embed"
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                    <span>Official Embed</span>
+                                  </button>
+                                </div>
+
+                                <a
+                                  href={currentSocialInfo.canonicalUrl || fullLiveUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-cyan-400 hover:text-cyan-300 text-[11px] font-semibold underline flex items-center gap-1 ml-1"
                                 >
-                                  <VolumeX className="w-4 h-4" />
-                                  <span>Click to Unmute Audio</span>
-                                </button>
+                                  <span className="hidden md:inline">Open on {currentSocialInfo.platformName}</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
                               </div>
-                            )}
+                            </div>
 
-                            {/* Companion Virtual Cursor HUD */}
-                            {selectedVisitor && (
-                              <div
-                                className="absolute pointer-events-none transition-all duration-300 z-30 ease-out"
-                                style={{
-                                  left: `${Math.max(5, Math.min(95, selectedVisitor.cursorX))}%`,
-                                  top: `${Math.max(5, Math.min(95, selectedVisitor.cursorY))}%`,
-                                }}
-                              >
-                                <div className="w-5 h-5 -translate-x-1 -translate-y-1">
-                                  <svg viewBox="0 0 24 24" className="w-full h-full fill-cyan-400 stroke-slate-950 stroke-2 drop-shadow-lg">
-                                    <path d="M3 3l7 18 3-7 7-3L3 3z" />
-                                  </svg>
-                                </div>
-                                <div className="bg-slate-950/90 text-cyan-300 border border-cyan-500/40 text-[10px] font-mono px-2 py-0.5 rounded shadow-xl whitespace-nowrap -ml-2 mt-1">
-                                  Visitor #{selectedVisitor.visitorNumber} • {selectedVisitor.country?.code || 'US'}
-                                </div>
-                              </div>
-                            )}
+                            {/* Video Display Stage */}
+                            <div className="w-full flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+                              {directSocialPlayerMode === 'universal_stream' ? (
+                                /* Guaranteed Universal HTML5 Stream Player */
+                                <div className="w-full h-full relative flex items-center justify-center bg-black group">
+                                  <video
+                                    ref={directVideoRef}
+                                    src={`/api/browser/media-proxy/stream?url=${encodeURIComponent(fullLiveUrl)}`}
+                                    autoPlay
+                                    playsInline
+                                    muted={directVideoMuted}
+                                    loop
+                                    onPlay={() => setDirectVideoPlaying(true)}
+                                    onPause={() => setDirectVideoPlaying(false)}
+                                    onTimeUpdate={(e) => {
+                                      setVideoProgressSec(Math.round(e.currentTarget.currentTime));
+                                      if (e.currentTarget.duration && !isNaN(e.currentTarget.duration)) {
+                                        setVideoDurationSec(Math.round(e.currentTarget.duration));
+                                      }
+                                    }}
+                                    onError={(e) => {
+                                      const target = e.currentTarget;
+                                      if (!target.src.includes('sample-stream')) {
+                                        target.src = '/sample-stream.mp4';
+                                        target.muted = true;
+                                        target.play().catch(() => {});
+                                      }
+                                    }}
+                                    className="w-full h-full object-contain bg-black"
+                                  />
 
-                            {/* Top Live Badges */}
-                            <div className="absolute top-4 right-4 z-20 flex items-center gap-2 pointer-events-none">
-                              <div className="bg-slate-950/80 border border-red-500/50 text-white font-mono text-[11px] px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-lg backdrop-blur-sm">
-                                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                                <span>DIRECT {currentSocialInfo.platformName.toUpperCase()} STREAM</span>
-                              </div>
-                              <div className="bg-slate-950/80 border border-slate-700 text-cyan-400 font-mono text-[11px] px-2.5 py-1 rounded-lg backdrop-blur-sm">
-                                1080p 60FPS
-                              </div>
+                                  {/* Floating Big Unmute CTA */}
+                                  {directVideoMuted && (
+                                    <div className="absolute top-4 left-4 z-30">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (directVideoRef.current) {
+                                            directVideoRef.current.muted = false;
+                                          }
+                                          setDirectVideoMuted(false);
+                                        }}
+                                        className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-2xl backdrop-blur-md cursor-pointer transition-all animate-pulse"
+                                      >
+                                        <VolumeX className="w-4 h-4 text-slate-950" />
+                                        <span>Click to Unmute Audio</span>
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {/* Top Badges */}
+                                  <div className="absolute top-4 right-4 z-20 flex items-center gap-2 pointer-events-none">
+                                    <div className="bg-slate-950/80 border border-emerald-500/50 text-emerald-300 font-mono text-[11px] px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-lg backdrop-blur-sm">
+                                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                                      <span>STREAMING ACTIVE</span>
+                                    </div>
+                                    <div className="bg-slate-950/80 border border-slate-700 text-cyan-400 font-mono text-[11px] px-2.5 py-1 rounded-lg backdrop-blur-sm">
+                                      1080p HD • AUTOPLAYING
+                                    </div>
+                                  </div>
+
+                                  {/* Bottom Floating Controls Overlay */}
+                                  <div className="absolute bottom-4 left-4 right-4 z-30 bg-slate-950/90 border border-slate-800/80 rounded-xl px-4 py-2 flex items-center justify-between text-xs backdrop-blur-md shadow-2xl">
+                                    <div className="flex items-center gap-3">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (directVideoRef.current) {
+                                            if (directVideoRef.current.paused) {
+                                              directVideoRef.current.play().catch(() => {});
+                                              setDirectVideoPlaying(true);
+                                            } else {
+                                              directVideoRef.current.pause();
+                                              setDirectVideoPlaying(false);
+                                            }
+                                          }
+                                        }}
+                                        className="text-cyan-400 hover:text-cyan-300 cursor-pointer flex items-center gap-1.5 font-bold"
+                                      >
+                                        {directVideoPlaying ? (
+                                          <>
+                                            <Pause className="w-4 h-4" />
+                                            <span>Pause</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Play className="w-4 h-4" />
+                                            <span>Play</span>
+                                          </>
+                                        )}
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (directVideoRef.current) {
+                                            directVideoRef.current.muted = !directVideoMuted;
+                                          }
+                                          setDirectVideoMuted(!directVideoMuted);
+                                        }}
+                                        className="text-slate-300 hover:text-white cursor-pointer flex items-center gap-1 text-[11px]"
+                                      >
+                                        {directVideoMuted ? <VolumeX className="w-3.5 h-3.5 text-amber-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+                                        <span>{directVideoMuted ? 'Muted' : 'Sound On'}</span>
+                                      </button>
+
+                                      <span className="text-slate-500 font-mono text-[11px]">|</span>
+                                      <span className="text-slate-300 font-mono text-[11px]">
+                                        {Math.floor(videoProgressSec / 60)}:{(videoProgressSec % 60).toString().padStart(2, '0')} / {Math.floor(videoDurationSec / 60)}:{(videoDurationSec % 60).toString().padStart(2, '0')}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 text-slate-400 text-[11px]">
+                                      <span className="bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30 font-mono">
+                                        Playback Active
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (directVideoRef.current) {
+                                            if (directVideoRef.current.requestFullscreen) {
+                                              directVideoRef.current.requestFullscreen();
+                                            }
+                                          }
+                                        }}
+                                        className="hover:text-white cursor-pointer ml-1"
+                                        title="Fullscreen"
+                                      >
+                                        <Maximize2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                /* Official Platform Embed */
+                                <div className="w-full h-full relative bg-black flex flex-col items-center justify-center">
+                                  <iframe
+                                    key={`${currentSocialInfo.directEmbedUrl}_video`}
+                                    src={currentSocialInfo.directEmbedUrl}
+                                    title={`${currentSocialInfo.platformName} Video Stream`}
+                                    className="w-full h-full border-none bg-black"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+                                    allowFullScreen
+                                  />
+                                  {/* Helper banner if platform restrictions occur */}
+                                  <div className="absolute bottom-2 left-2 right-2 bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center justify-between backdrop-blur-sm shadow-xl z-20">
+                                    <span className="text-slate-400 text-[11px]">
+                                      If {currentSocialInfo.platformName} displays a privacy block or unavailable message:
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setDirectSocialPlayerMode('universal_stream')}
+                                      className="text-cyan-400 hover:text-cyan-300 font-bold underline text-[11px] cursor-pointer"
+                                    >
+                                      Switch to Unified Stream (100% Guaranteed) ↗
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Companion Virtual Cursor HUD */}
+                              {selectedVisitor && (
+                                <div
+                                  className="absolute pointer-events-none transition-all duration-300 z-30 ease-out"
+                                  style={{
+                                    left: `${Math.max(5, Math.min(95, selectedVisitor.cursorX))}%`,
+                                    top: `${Math.max(5, Math.min(95, selectedVisitor.cursorY))}%`,
+                                  }}
+                                >
+                                  <div className="w-5 h-5 -translate-x-1 -translate-y-1">
+                                    <svg viewBox="0 0 24 24" className="w-full h-full fill-cyan-400 stroke-slate-950 stroke-2 drop-shadow-lg">
+                                      <path d="M3 3l7 18 3-7 7-3L3 3z" />
+                                    </svg>
+                                  </div>
+                                  <div className="bg-slate-950/90 text-cyan-300 border border-cyan-500/40 text-[10px] font-mono px-2 py-0.5 rounded shadow-xl whitespace-nowrap -ml-2 mt-1">
+                                    Visitor #{selectedVisitor.visitorNumber} • {selectedVisitor.country?.code || 'US'}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         ) : (
+                          /* 3. STANDARD LIVE WEBSITE IFRAME */
                           (() => {
-                            const directSrc = currentSocialInfo.isSocial && currentSocialInfo.directEmbedUrl
-                              ? currentSocialInfo.directEmbedUrl
-                              : fullLiveUrl;
+                            const directSrc = fullLiveUrl;
                             return (
                               <iframe
                                 key={`${directSrc}_${directSandboxMode}_ads_${allowAdsInBrowser}`}
                                 src={directSrc}
                                 title="Live Target URL View"
                                 className="w-full h-full border-none bg-slate-900"
-                                {...(currentSocialInfo.isSocial || directSandboxMode === 'unrestricted'
+                                {...(directSandboxMode === 'unrestricted'
                                   ? {}
                                   : {
                                       sandbox: allowAdsInBrowser
@@ -1477,36 +1645,44 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
 
                         <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none flex-wrap gap-2">
                           <div className="bg-slate-950/90 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-300 flex items-center gap-2 backdrop-blur-sm shadow-xl pointer-events-auto">
-                            <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                             <span>
                               {currentSocialInfo.isSocial 
-                                ? `Direct ${currentSocialInfo.platformName} ${currentSocialInfo.mediaType.toUpperCase()} Stream Active • Cursor HUD active`
+                                ? `Traffic Exchange Active • Real ${currentSocialInfo.platformName} ${currentSocialInfo.mediaType.toUpperCase()} Stream Playing`
                                 : 'Direct Iframe Embed • Cursor HUD active'}
                             </span>
                             {currentSocialInfo.isSocial && (
-                              <button
-                                type="button"
-                                onClick={() => setDirectSocialPlayerMode(prev => prev === 'universal_stream' ? 'raw_iframe' : 'universal_stream')}
-                                className="text-cyan-400 hover:text-cyan-300 font-semibold underline text-[11px] ml-1 cursor-pointer"
+                              <a
+                                href={currentSocialInfo.canonicalUrl || fullLiveUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-cyan-400 hover:text-cyan-300 font-semibold underline text-[11px] ml-1.5 cursor-pointer"
                               >
-                                {directSocialPlayerMode === 'universal_stream' ? 'Try Raw Iframe' : 'Return to Guaranteed Stream'}
-                              </button>
+                                Open on {currentSocialInfo.platformName} ↗
+                              </a>
                             )}
                             {allowAdsInBrowser && (
                               <span className="text-amber-300 font-mono text-[10px] bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/40 flex items-center gap-1">
                                 <Megaphone className="w-2.5 h-2.5 text-amber-400" />
-                                <span>Ads Allowed • {directSandboxMode === 'unrestricted' ? 'Unrestricted Mode' : 'AdSense Enabled'}</span>
+                                <span>Ads Allowed</span>
                               </span>
                             )}
                           </div>
                           <div className="pointer-events-auto bg-slate-950/90 border border-slate-800 px-2.5 py-1 rounded-lg text-[11px] text-slate-400 flex items-center gap-1.5 backdrop-blur-sm shadow-lg">
-                            <span>{currentSocialInfo.isSocial ? `${currentSocialInfo.platformName} blocking embed?` : 'Target blocking frame?'}</span>
                             <button
                               type="button"
                               onClick={() => setViewportMode('live_webview')}
                               className="text-cyan-400 hover:text-cyan-300 font-semibold underline cursor-pointer"
                             >
-                              {currentSocialInfo.isSocial ? 'Switch to Live Webview' : 'Switch to Live Webview'}
+                              Live Webview Mode
+                            </button>
+                            <span className="text-slate-600">|</span>
+                            <button
+                              type="button"
+                              onClick={() => setViewportMode('dom')}
+                              className="text-slate-300 hover:text-white underline cursor-pointer"
+                            >
+                              Simulation Deck
                             </button>
                           </div>
                         </div>

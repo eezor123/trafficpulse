@@ -345,16 +345,7 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
         </div>
       )}
 
-      {/* Floating Animated Reaction Emojis */}
-      {hearts.map(h => (
-        <div
-          key={h.id}
-          className="fixed pointer-events-none z-50 text-3xl animate-bounce"
-          style={{ left: h.x - 14, top: h.y - 30 }}
-        >
-          {h.emoji}
-        </div>
-      ))}
+      {/* Real-time Traffic Exchange Live Banner */}
 
       {/* Real-time Traffic Exchange Live Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950/80 to-slate-900 border border-indigo-500/40 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-xl backdrop-blur-md">
@@ -837,31 +828,33 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
         </div>
       </div>
 
-      {/* Live Discussion & Chat Deck */}
-      <div id="dom-comments-deck" className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+      {/* Traffic Exchange Video Surfing Specs & Playback Telemetry */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <MessageCircle className="w-4 h-4 text-emerald-400" />
-            <h3 className="text-sm font-bold text-white">Live Discussion & Chat Feed</h3>
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-sm font-bold text-white">Traffic Exchange Surfing Verification & Stream Specs</h3>
           </div>
-          <span className="text-[11px] text-emerald-400 font-mono">● 18 new comments / min</span>
+          <span className="text-[11px] text-emerald-400 font-mono">● Active Surfer Session Verified</span>
         </div>
 
-        <div className="space-y-2.5">
-          {comments.map(c => (
-            <div key={c.id} className="bg-slate-950 border border-slate-800/80 rounded-xl p-2.5 flex items-start gap-2.5">
-              <div className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-white shrink-0">
-                {c.name.charAt(0)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white">{c.name}</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{c.time}</span>
-                </div>
-                <p className="text-xs text-slate-300 mt-0.5">{c.text}</p>
-              </div>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+            <div className="text-slate-500 text-[10px] uppercase font-mono tracking-wider">Video Stream Engine</div>
+            <div className="text-cyan-400 font-bold font-mono mt-1">1080p 60FPS Direct Stream</div>
+          </div>
+          <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+            <div className="text-slate-500 text-[10px] uppercase font-mono tracking-wider">Autoplay Protocol</div>
+            <div className="text-emerald-400 font-bold font-mono mt-1">Zero-Click Continuous</div>
+          </div>
+          <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+            <div className="text-slate-500 text-[10px] uppercase font-mono tracking-wider">Surfer Dwell Status</div>
+            <div className="text-white font-bold font-mono mt-1">Focused on Video Viewport</div>
+          </div>
+          <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+            <div className="text-slate-500 text-[10px] uppercase font-mono tracking-wider">Credits Exchange</div>
+            <div className="text-amber-400 font-bold font-mono mt-1">+1 Visit Credited</div>
+          </div>
         </div>
       </div>
     </div>

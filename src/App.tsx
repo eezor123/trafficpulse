@@ -24,6 +24,7 @@ import { RunSummaryModal } from './components/RunSummaryModal';
 import { HistoryPanel } from './components/HistoryPanel';
 
 import { DEFAULT_ORGANIC_CONFIG, ORGANIC_PRESETS } from './data/organicPresets';
+import { parseSocialMediaUrl } from './utils/socialMediaEmbed';
 import { getClientSideCrawledPages, generateClientSideCampaign, crawlWebsiteLiveInBrowser } from './utils/clientFallbackEngine';
 import { 
   loadStoredAuth, 
@@ -1471,6 +1472,9 @@ export default function App() {
       targetHost = u.hostname;
     } catch {}
 
+    const targetSocialCheck = parseSocialMediaUrl(cleanTargetUrl);
+    const isVideoTarget = targetSocialCheck.isSocial && (targetSocialCheck.mediaType === 'video' || targetSocialCheck.mediaType === 'reel' || targetSocialCheck.platform !== 'none');
+
     // Check if user has uploaded URLs or previously initiated a crawl
     const hasUploadedPages = (crawlState.pages || []).some(
       p => p.isUploaded || p.id.startsWith('manual_') || p.id.startsWith('custom_')
@@ -1480,7 +1484,10 @@ export default function App() {
 
     let pagesToUse: CrawledPage[] = [];
 
-    if (hasUploadedPages || hasExplicitPages) {
+    if (isVideoTarget) {
+      // Guaranteed dedicated video routes for social media & video exchange links
+      pagesToUse = getClientSideCrawledPages(cleanTargetUrl);
+    } else if (hasUploadedPages || hasExplicitPages) {
       // All uploaded or discovered pages should be visited (respecting inclusion toggle if active)
       const activePages = (crawlState.pages || []).filter(p => p.includedInVisits !== false);
       pagesToUse = activePages.length > 0 ? activePages : crawlState.pages.map(p => ({ ...p, includedInVisits: true }));
@@ -1803,40 +1810,46 @@ export default function App() {
             {/* Primary Target URL & Real Traffic Command Bar */}
             <TargetUrlCommandBar
               targetUrl={crawlState.targetUrl}
-              onUpdateTargetUrl={(url) => {
-                let hostname = url.trim();
-                try {
-                  if (hostname.startsWith('http://') || hostname.startsWith('https://')) {
-                    hostname = new URL(hostname).hostname;
-                  } else if (hostname.includes('/')) {
-                    hostname = hostname.split('/')[0];
+                onUpdateTargetUrl={(url) => {
+                  let hostname = url.trim();
+                  try {
+                    if (hostname.startsWith('http://') || hostname.startsWith('https://')) {
+                      hostname = new URL(hostname).hostname;
+                    } else if (hostname.includes('/')) {
+                      hostname = hostname.split('/')[0];
+                    }
+                  } catch {}
+                  hostname = hostname.toLowerCase().trim();
+                  const attachedGaId = (hostname && domainGaMap[hostname]) ? domainGaMap[hostname] : '';
+
+                  const socialCheck = parseSocialMediaUrl(url);
+                  const isVideo = socialCheck.isSocial && (socialCheck.mediaType === 'video' || socialCheck.mediaType === 'reel' || socialCheck.platform !== 'none');
+                  const newPages = isVideo ? getClientSideCrawledPages(url) : undefined;
+
+                  setCrawlState(prev => ({
+                    ...prev,
+                    targetUrl: url,
+                    hostname: hostname || prev.hostname,
+                    gaMeasurementId: attachedGaId || undefined,
+                    pages: newPages ? newPages : prev.pages,
+                    title: isVideo ? `${socialCheck.platformName} ${socialCheck.mediaType.toUpperCase()} Stream` : prev.title,
+                  }));
+
+                  setOrganicConfig(prev => ({
+                    ...prev,
+                    targetUrl: url,
+                    ga4: {
+                      ...prev.ga4,
+                      measurementId: attachedGaId,
+                      autoSendMeasurementProtocol: !!attachedGaId,
+                    },
+                  }));
+
+                  // If no domain-attached GA4 ID exists yet for this domain, auto-detect it in the background
+                  if (!attachedGaId && hostname && hostname !== 'example.com') {
+                    autoDetectAnalyticsForDomain(url);
                   }
-                } catch {}
-                hostname = hostname.toLowerCase().trim();
-                const attachedGaId = (hostname && domainGaMap[hostname]) ? domainGaMap[hostname] : '';
-
-                setCrawlState(prev => ({
-                  ...prev,
-                  targetUrl: url,
-                  hostname: hostname || prev.hostname,
-                  gaMeasurementId: attachedGaId || undefined,
-                }));
-
-                setOrganicConfig(prev => ({
-                  ...prev,
-                  targetUrl: url,
-                  ga4: {
-                    ...prev.ga4,
-                    measurementId: attachedGaId,
-                    autoSendMeasurementProtocol: !!attachedGaId,
-                  },
-                }));
-
-                // If no domain-attached GA4 ID exists yet for this domain, auto-detect it in the background
-                if (!attachedGaId && hostname && hostname !== 'example.com') {
-                  autoDetectAnalyticsForDomain(url);
-                }
-              }}
+                }}
               crawlState={crawlState}
               onStartCrawl={(url) => handleStartCrawl(url)}
               status={organicStatus}
@@ -2020,7 +2033,15 @@ export default function App() {
               <CrawlerPanel
                 crawlState={crawlState}
                 onUpdateTargetUrl={(url) => {
-                  setCrawlState(prev => ({ ...prev, targetUrl: url }));
+                  const socialCheck = parseSocialMediaUrl(url);
+                  const isVideo = socialCheck.isSocial && (socialCheck.mediaType === 'video' || socialCheck.mediaType === 'reel' || socialCheck.platform !== 'none');
+                  const newPages = isVideo ? getClientSideCrawledPages(url) : undefined;
+                  setCrawlState(prev => ({ 
+                    ...prev, 
+                    targetUrl: url,
+                    pages: newPages ? newPages : prev.pages,
+                    title: isVideo ? `${socialCheck.platformName} ${socialCheck.mediaType.toUpperCase()} Stream` : prev.title,
+                  }));
                   setOrganicConfig(prev => {
                     const next = { ...prev, targetUrl: url };
                     persistOrganicConfig(next);

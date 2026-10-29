@@ -129,7 +129,7 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
     const cleanVideoId = videoId ? videoId.split('?')[0].split('&')[0] : '';
     // Use youtube-nocookie.com with autoplay=1, mute=1 (required by browser policies), enablejsapi=1, playsinline=1
     const directEmbedUrl = cleanVideoId
-      ? `https://www.youtube-nocookie.com/embed/${cleanVideoId}?autoplay=1&mute=1&controls=1&loop=1&playlist=${cleanVideoId}&enablejsapi=1&playsinline=1`
+      ? `https://www.youtube.com/embed/${cleanVideoId}?autoplay=1&mute=1&controls=1&loop=1&playlist=${cleanVideoId}&enablejsapi=1&playsinline=1`
       : withProtocol;
 
     return {
@@ -436,28 +436,58 @@ export function parseSocialMediaUrl(rawUrl: string): SocialMediaInfo {
     pathLower.includes('/reel/') || 
     pathLower.includes('/reels/') || 
     pathLower.includes('/stream') || 
+    pathLower.includes('/streams') || 
     pathLower.includes('/clip/') || 
+    pathLower.includes('/clips/') || 
     pathLower.includes('/shorts/') ||
+    pathLower.includes('/play') ||
+    pathLower.includes('/embed') ||
+    pathLower.includes('/broadcast') ||
+    pathLower.endsWith('.mp4') ||
+    pathLower.endsWith('.webm') ||
+    pathLower.endsWith('.m3u8') ||
+    pathLower.endsWith('.mov') ||
+    pathLower.endsWith('.ogg') ||
     search.has('v') ||
+    search.has('video') ||
     search.has('video_id') ||
-    search.has('videoid');
+    search.has('videoid') ||
+    search.has('clip') ||
+    search.has('stream');
 
   const isVideoHost = 
     host.includes('video') || 
     host.includes('tube') || 
     host.includes('stream') || 
     host.includes('media') || 
-    host.includes('player');
+    host.includes('player') ||
+    host.includes('bitchute') ||
+    host.includes('rumble') ||
+    host.includes('odysee') ||
+    host.includes('wistia') ||
+    host.includes('brightcove') ||
+    host.includes('vidyard') ||
+    host.includes('jwplayer');
 
   if (isVideoKeyword || isVideoHost) {
+    const rawHostname = parsed.hostname.replace(/^www\./, '');
+    const cleanPlatformName = 
+      rawHostname.includes('rumble') ? 'Rumble' :
+      rawHostname.includes('bitchute') ? 'BitChute' :
+      rawHostname.includes('odysee') ? 'Odysee' :
+      rawHostname.includes('wistia') ? 'Wistia' :
+      rawHostname.includes('brightcove') ? 'Brightcove' :
+      rawHostname.includes('vidyard') ? 'Vidyard' :
+      rawHostname;
+
     return {
       isSocial: true,
       platform: 'generic_video',
-      platformName: parsed.hostname,
+      platformName: cleanPlatformName,
       mediaType: pathLower.includes('reel') || pathLower.includes('shorts') ? 'reel' : 'video',
       directEmbedUrl: withProtocol,
       canonicalUrl: withProtocol,
-      titleSuggestion: `${parsed.hostname} Video Stream`,
+      titleSuggestion: `${cleanPlatformName} Video Stream`,
       isEmbedAllowedDirectly: false,
       directVideoSources: VERIFIED_DIRECT_VIDEO_STREAMS,
     };
