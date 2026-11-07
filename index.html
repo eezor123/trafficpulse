@@ -13,6 +13,98 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="theme-color" content="#0f172a" />
+    <script>
+      // Cleanly intercept Vite HMR WebSocket in cloud sandbox environments where HMR is disabled
+      (function() {
+        try {
+          var OrigWebSocket = window.WebSocket;
+          if (OrigWebSocket) {
+            function ViteHmrMockSocket(url, protocols) {
+              var isHmr = (protocols === 'vite-hmr') ||
+                (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1) ||
+                (typeof url === 'string' && (url.indexOf('token=') !== -1 || url.indexOf('vite-hmr') !== -1 || url.indexOf(':24678') !== -1));
+
+              if (!isHmr) {
+                return new OrigWebSocket(url, protocols);
+              }
+
+              var self = this;
+              var listeners = {};
+              this.url = url;
+              this.readyState = OrigWebSocket.OPEN || 1;
+              this.binaryType = 'blob';
+              this.protocol = 'vite-hmr';
+              this.bufferedAmount = 0;
+              this.extensions = '';
+
+              this.addEventListener = function(evt, handler) {
+                if (!listeners[evt]) listeners[evt] = [];
+                listeners[evt].push(handler);
+                if (evt === 'open') {
+                  setTimeout(function() {
+                    try { handler.call(self, { type: 'open', target: self }); } catch(err) {}
+                  }, 0);
+                }
+              };
+
+              this.removeEventListener = function(evt, handler) {
+                if (!listeners[evt]) return;
+                listeners[evt] = listeners[evt].filter(function(h) { return h !== handler; });
+              };
+
+              this.send = function() {};
+              this.close = function(code, reason) {
+                self.readyState = OrigWebSocket.CLOSED || 3;
+                var list = listeners['close'] || [];
+                list.forEach(function(h) {
+                  try { h.call(self, { type: 'close', code: code || 1000, reason: reason || '', wasClean: true }); } catch(err) {}
+                });
+              };
+
+              this.dispatchEvent = function(evt) {
+                var list = listeners[evt.type] || [];
+                list.forEach(function(h) {
+                  try { h.call(self, evt); } catch(err) {}
+                });
+                return true;
+              };
+            }
+
+            ViteHmrMockSocket.prototype = OrigWebSocket.prototype;
+            ViteHmrMockSocket.CONNECTING = OrigWebSocket.CONNECTING || 0;
+            ViteHmrMockSocket.OPEN = OrigWebSocket.OPEN || 1;
+            ViteHmrMockSocket.CLOSING = OrigWebSocket.CLOSING || 2;
+            ViteHmrMockSocket.CLOSED = OrigWebSocket.CLOSED || 3;
+
+            window.WebSocket = ViteHmrMockSocket;
+          }
+        } catch (e) {}
+
+        // Global rejection suppression for any transient Vite client network warnings
+        window.addEventListener('unhandledrejection', function(e) {
+          if (e.reason && (
+            String(e.reason).includes('createWebSocketModuleRunnerTransport') ||
+            String(e.reason).includes('@vite/client') ||
+            String(e.reason).includes('WebSocket') ||
+            String(e.reason).includes('vite-hmr')
+          )) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        });
+        window.addEventListener('error', function(e) {
+          if (e.message && (
+            e.message.includes('createWebSocketModuleRunnerTransport') ||
+            e.message.includes('@vite/client') ||
+            e.message.includes('WebSocket') ||
+            e.message.includes('vite-hmr')
+          )) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

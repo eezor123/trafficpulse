@@ -12,6 +12,7 @@ import { executeUniversalCrawl, type FetchFunction } from './src/utils/universal
 import { parseSocialMediaUrl, generateSocialMediaRoutes } from './src/utils/socialMediaEmbed.ts';
 import { renderSocialMediaLivePage } from './src/server/socialPageRenderer.ts';
 import { resolveSocialVideoMetadata, streamProxiedVideo, serveLocalVideoStream } from './src/server/mediaProxy.ts';
+import { watchVideoWithPlaywright } from './src/server/playwrightVideoWatcher.ts';
 import {
   findMember,
   persistMember,
@@ -1530,6 +1531,56 @@ async function startServer() {
       }
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Ping failed' });
+    }
+  });
+
+  // ----------------------------------------------------
+  // 3.4. PLAYWRIGHT REAL BROWSER VIDEO WATCHER AUTOMATION
+  // ----------------------------------------------------
+  app.post('/api/traffic/playwright-watch', async (req: Request, res: Response) => {
+    try {
+      const {
+        url,
+        duration,
+        watchDurationSeconds,
+        headless,
+        muteAudio,
+        proxy,
+        proxyServer,
+        captureScreenshot = true,
+      } = req.body || {};
+
+      const targetUrl = url ? String(url).trim() : '';
+      if (!targetUrl) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required "url" parameter in request body',
+        });
+      }
+
+      const watchSeconds = Math.max(5, Math.min(300, parseInt(duration || watchDurationSeconds, 10) || 30));
+      const isHeadless = headless !== false;
+      const isMuted = muteAudio !== false;
+      const proxyChoice = proxyServer || proxy || undefined;
+
+      console.log(`[PlaywrightAPI] Launching video session for "${targetUrl}" (duration: ${watchSeconds}s, headless: ${isHeadless})`);
+
+      const result = await watchVideoWithPlaywright({
+        url: targetUrl,
+        watchDurationSeconds: watchSeconds,
+        headless: isHeadless,
+        muteAudio: isMuted,
+        proxyServer: proxyChoice,
+        captureScreenshot: captureScreenshot !== false,
+      });
+
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[PlaywrightAPI] Error handling watch request:', err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'Playwright execution failed',
+      });
     }
   });
 
@@ -3450,7 +3501,10 @@ Return ONLY valid JSON matching this schema:
   } else {
     try {
       const vite = await createViteServer({
-        server: { middlewareMode: true },
+        server: { 
+          middlewareMode: true,
+          hmr: false,
+        },
         appType: 'spa',
       });
       app.use(vite.middlewares);

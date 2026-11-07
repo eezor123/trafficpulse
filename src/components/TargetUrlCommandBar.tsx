@@ -15,9 +15,11 @@ import {
   ShieldCheck,
   X,
   Video,
+  Cpu,
 } from 'lucide-react';
 import { SiteCrawlState, TestStatus } from '../types';
 import { parseSocialMediaUrl } from '../utils/socialMediaEmbed';
+import { PlaywrightWatcherModal } from './PlaywrightWatcherModal';
 
 interface TargetUrlCommandBarProps {
   targetUrl: string;
@@ -60,6 +62,7 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
   const [showPingModal, setShowPingModal] = useState(false);
   const [showGaModal, setShowGaModal] = useState(false);
   const [customGaInput, setCustomGaInput] = useState('');
+  const [showPlaywrightModal, setShowPlaywrightModal] = useState(false);
 
   const activeGaId = (gaMeasurementId || crawlState.gaMeasurementId || '').trim();
   const socialInfo = React.useMemo(() => parseSocialMediaUrl(inputUrl || targetUrl), [inputUrl, targetUrl]);
@@ -240,6 +243,18 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
             <span>Ping</span>
           </button>
 
+          {/* Playwright Real Browser Video Automation Button */}
+          <button
+            type="button"
+            onClick={() => setShowPlaywrightModal(true)}
+            disabled={!inputUrl.trim()}
+            className="px-3.5 py-2.5 bg-gradient-to-r from-cyan-950 to-indigo-950 hover:from-cyan-900 hover:to-indigo-900 text-cyan-300 hover:text-white border border-cyan-500/40 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all shrink-0 shadow-md"
+            title="Launch real headless Chromium browser with anti-bot bypass & consent auto-dismissal"
+          >
+            <Cpu className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+            <span>Playwright Bot</span>
+          </button>
+
           {/* Master Start / Stop Button */}
           {!isRunning ? (
             <button
@@ -277,9 +292,19 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
               Direct Video Embed & Autonomous Simulator Navigation Enabled
             </span>
           </div>
-          <span className="px-2.5 py-0.5 rounded-full bg-cyan-900/70 border border-cyan-400/50 text-[10px] font-mono font-bold text-cyan-200 shrink-0">
-            Live Stream Mode
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPlaywrightModal(true)}
+              className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer transition-all"
+            >
+              <Cpu className="w-3 h-3 text-white" />
+              <span>Launch Playwright Bot</span>
+            </button>
+            <span className="px-2.5 py-0.5 rounded-full bg-cyan-900/70 border border-cyan-400/50 text-[10px] font-mono font-bold text-cyan-200 shrink-0">
+              Live Stream Mode
+            </span>
+          </div>
         </div>
       )}
 
@@ -528,6 +553,13 @@ export const TargetUrlCommandBar: React.FC<TargetUrlCommandBarProps> = ({
           </div>
         </div>
       )}
+
+      {/* Playwright Autonomous Video Watcher Modal */}
+      <PlaywrightWatcherModal
+        isOpen={showPlaywrightModal}
+        onClose={() => setShowPlaywrightModal(false)}
+        initialUrl={inputUrl || targetUrl}
+      />
     </div>
   );
 };
