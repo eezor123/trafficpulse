@@ -189,7 +189,7 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   const [logFilter, setLogFilter] = useState<'all' | 'scroll' | 'click' | 'ad' | 'popup' | 'nav'>('all');
   const [autoScrollLogs, setAutoScrollLogs] = useState(true);
   const [isWebviewLoading, setIsWebviewLoading] = useState(false);
-  const [directSocialPlayerMode, setDirectSocialPlayerMode] = useState<'universal_stream' | 'raw_iframe'>('universal_stream');
+  const [directSocialPlayerMode, setDirectSocialPlayerMode] = useState<'universal_stream' | 'raw_iframe'>('raw_iframe');
   const [directVideoMuted, setDirectVideoMuted] = useState(true);
   const [directVideoPlaying, setDirectVideoPlaying] = useState(true);
   const [videoProgressSec, setVideoProgressSec] = useState(0);
@@ -256,9 +256,10 @@ export const LiveVisitorStream: React.FC<LiveVisitorStreamProps> = ({
   useEffect(() => {
     if (socialInfo.isSocial) {
       setViewportMode('direct_iframe');
-      setDirectSocialPlayerMode('universal_stream');
+      const isDirect = socialInfo.platform === 'generic_video' || targetUrl.toLowerCase().endsWith('.mp4') || targetUrl.toLowerCase().endsWith('.webm');
+      setDirectSocialPlayerMode(isDirect ? 'universal_stream' : 'raw_iframe');
     }
-  }, [socialInfo.isSocial, targetUrl]);
+  }, [socialInfo.isSocial, socialInfo.platform, targetUrl]);
 
   // Intercept deep link clicks dispatched by the live virtual browser iframe
   useEffect(() => {

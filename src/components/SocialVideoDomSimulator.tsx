@@ -19,12 +19,10 @@ import {
   Clock,
   Eye,
   Sparkles,
-  Maximize2,
-  Cpu
+  Maximize2
 } from 'lucide-react';
 import { SocialMediaInfo, generateSocialMediaRoutes } from '../utils/socialMediaEmbed';
 import { ActiveVisitorSession } from '../types';
-import { PlaywrightWatcherModal } from './PlaywrightWatcherModal';
 
 interface SocialVideoDomSimulatorProps {
   socialInfo: SocialMediaInfo;
@@ -46,10 +44,12 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
   const [hearts, setHearts] = useState<Array<{ id: number; emoji: string; x: number; y: number }>>([]);
   const [isFollowing, setIsFollowing] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [showPlaywrightModal, setShowPlaywrightModal] = useState(false);
 
-  // Player Engine: 'universal_stream' (Active 100% Guaranteed Native Player) vs 'platform_embed' (Raw Iframe)
-  const [playerMode, setPlayerMode] = useState<'universal_stream' | 'platform_embed'>('universal_stream');
+  // Player Engine: 'platform_embed' (Official Real Platform Video Embed) vs 'universal_stream' (Direct MP4/WebM Video)
+  const isDirectVideoFile = socialInfo.platform === 'generic_video' || targetUrl.toLowerCase().endsWith('.mp4') || targetUrl.toLowerCase().endsWith('.webm');
+  const [playerMode, setPlayerMode] = useState<'universal_stream' | 'platform_embed'>(() => 
+    isDirectVideoFile ? 'universal_stream' : 'platform_embed'
+  );
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
   const [activeVideoSrc, setActiveVideoSrc] = useState<string>(() => `/api/browser/media-proxy/stream?url=${encodeURIComponent(targetUrl)}`);
@@ -57,6 +57,12 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
   const [duration, setDuration] = useState(195);
   const [iframeKey, setIframeKey] = useState(Date.now());
   const [iframeLoaded, setIframeLoaded] = useState(false);
+
+  useEffect(() => {
+    const isDirect = socialInfo.platform === 'generic_video' || targetUrl.toLowerCase().endsWith('.mp4') || targetUrl.toLowerCase().endsWith('.webm');
+    setPlayerMode(isDirect ? 'universal_stream' : 'platform_embed');
+    setIframeKey(Date.now());
+  }, [targetUrl, socialInfo.platform]);
 
   // Video Ref
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -406,16 +412,6 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
               <span>Official Embed</span>
             </button>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setShowPlaywrightModal(true)}
-            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer border border-cyan-400/40"
-            title="Launch headless Chromium browser via Playwright with anti-bot bypass & consent auto-dismissal"
-          >
-            <Cpu className="w-3.5 h-3.5 text-cyan-200 animate-pulse" />
-            <span>Playwright Bot</span>
-          </button>
 
           {onSwitchToLive && (
             <button
@@ -870,13 +866,6 @@ export const SocialVideoDomSimulator: React.FC<SocialVideoDomSimulatorProps> = (
           </div>
         </div>
       </div>
-
-      {/* Playwright Autonomous Video Watcher Modal */}
-      <PlaywrightWatcherModal
-        isOpen={showPlaywrightModal}
-        onClose={() => setShowPlaywrightModal(false)}
-        initialUrl={targetUrl}
-      />
     </div>
   );
 };
